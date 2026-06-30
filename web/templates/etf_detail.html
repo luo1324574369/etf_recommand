@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{{ etf.name }} ({{ etf.code }}) - ETF Quant{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <h1>{{ etf.name }} <span class="etf-code">({{ etf.code }})</span></h1>
+    {% if etf.sector %}
+    <span class="etf-sector">{{ etf.sector }}</span>
+    {% endif %}
+    {% if etf.type %}
+    <span class="etf-type">{{ etf.type }}</span>
+    {% endif %}
+</div>
+
+<div class="detail-grid">
+    <div class="card factors-card">
+        <h2>因子指标</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>因子名称</th>
+                    <th>数值</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key, value in factors.items() %}
+                <tr>
+                    <td>{{ key }}</td>
+                    <td>
+                        {% if value is not none %}
+                        {{ "%.4f"|format(value) }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card prices-card">
+        <h2>近期行情</h2>
+        <div class="table-scrollable">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>开盘</th>
+                        <th>最高</th>
+                        <th>最低</th>
+                        <th>收盘</th>
+                        <th>成交量</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for price in recent_prices %}
+                    <tr>
+                        <td>{{ price.trade_date }}</td>
+                        <td>{{ "%.3f"|format(price.open) if price.open is not none else '-' }}</td>
+                        <td>{{ "%.3f"|format(price.high) if price.high is not none else '-' }}</td>
+                        <td>{{ "%.3f"|format(price.low) if price.low is not none else '-' }}</td>
+                        <td>{{ "%.3f"|format(price.close) if price.close is not none else '-' }}</td>
+                        <td>{{ price.volume if price.volume is not none else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}策略推荐 - ETF Quant{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="page-header">
+        <h1>{{ strategy_name }}</h1>
+        {% if signal_date %}
+        <p class="signal-date">信号日期：{{ signal_date }}</p>
+        {% endif %}
+    </div>
+
+    {% if signals %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>排名</th>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>综合得分</th>
+                    <th>操作建议</th>
+                    <th>入选理由</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for signal in signals %}
+                <tr>
+                    <td>{{ signal.rank }}</td>
+                    <td><a href="/etf/{{ signal.code }}">{{ signal.code }}</a></td>
+                    <td>{{ signal.name }}</td>
+                    <td>{{ "%.2f"|format(signal.score) if signal.score is not none else '-' }}</td>
+                    <td>
+                        {% if signal.action == 'buy' %}
+                        <span class="action-tag action-buy">买入</span>
+                        {% elif signal.action == 'sell' %}
+                        <span class="action-tag action-sell">卖出</span>
+                        {% else %}
+                        <span class="action-tag action-hold">持有</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if signal.reason %}
+                        <ul class="reason-list">
+                            {% for key, value in signal.reason.items() %}
+                            <li><strong>{{ key }}:</strong> {{ value }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h2>暂无策略信号</h2>
+        <p>请先运行数据更新和策略脚本以生成推荐信号</p>
+        <div class="empty-hints">
+            <p>运行步骤：</p>
+            <ol>
+                <li>执行 <code>python scripts/update_data.py</code> 更新数据</li>
+                <li>执行 <code>python scripts/run_strategy.py</code> 生成策略信号</li>
+            </ol>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
