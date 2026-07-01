@@ -133,6 +133,16 @@ def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str
             signal_repo.batch_save_signals(signals)
             print(f"\n已保存 {len(signals)} 条信号到数据库")
 
+        # 每次跑策略都自动更新策略说明文档
+        from generate_strategy_doc import generate_strategy_doc
+        doc_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "docs",
+            "strategy_doc.md",
+        )
+        os.makedirs(os.path.dirname(doc_path), exist_ok=True)
+        generate_strategy_doc(config, doc_path)
+
         return results
     finally:
         db.close()

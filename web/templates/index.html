@@ -71,4 +71,89 @@
     </div>
     {% endif %}
 </div>
+
+<!-- 命令面板 -->
+<div class="card">
+    <h2 style="margin-top: 0;">⚡ 一键操作</h2>
+    <div class="cmd-panel">
+        <div class="cmd-buttons">
+            <button class="cmd-btn cmd-btn-primary" onclick="runCmd('run_strategy')">
+                <span class="cmd-icon">🎯</span>
+                <span class="cmd-label">运行策略</span>
+                <span class="cmd-desc">生成最新选股信号</span>
+            </button>
+            <button class="cmd-btn" onclick="runCmd('update_data')">
+                <span class="cmd-icon">📥</span>
+                <span class="cmd-label">更新数据</span>
+                <span class="cmd-desc">拉取最新行情</span>
+            </button>
+            <button class="cmd-btn" onclick="runCmd('update_data_full')">
+                <span class="cmd-icon">🔄</span>
+                <span class="cmd-label">全量更新</span>
+                <span class="cmd-desc">重拉历史数据</span>
+            </button>
+            <button class="cmd-btn" onclick="runCmd('gen_doc')">
+                <span class="cmd-icon">📄</span>
+                <span class="cmd-label">策略说明</span>
+                <span class="cmd-desc">生成大白话文档</span>
+            </button>
+        </div>
+        <div id="cmd-output" class="cmd-output" style="display: none;">
+            <div class="cmd-output-header">
+                <span id="cmd-status">运行中...</span>
+                <button class="cmd-output-close" onclick="hideOutput()">×</button>
+            </div>
+            <pre id="cmd-output-content"></pre>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function runCmd(cmdKey) {
+    const output = document.getElementById('cmd-output');
+    const content = document.getElementById('cmd-output-content');
+    const status = document.getElementById('cmd-status');
+
+    output.style.display = 'block';
+    content.textContent = '正在执行，请稍候...\n';
+    status.textContent = '运行中...';
+    status.className = 'cmd-status-running';
+
+    try {
+        const resp = await fetch('/api/run_async', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({command: cmdKey})
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            status.textContent = '✓ ' + data.message;
+            status.className = 'cmd-status-success';
+            content.textContent = '命令已启动，请稍候...\n\n提示：刷新页面查看最新结果';
+        } else {
+            status.textContent = '✗ ' + data.error;
+            status.className = 'cmd-status-error';
+            content.textContent = '错误: ' + data.error;
+        }
+    } catch (e) {
+        status.textContent = '✗ 网络错误';
+        status.className = 'cmd-status-error';
+        content.textContent = '网络请求失败: ' + e.message;
+    }
+
+    // 3秒后隐藏（异步任务）
+    setTimeout(() => {
+        if (status.className === 'cmd-status-success') {
+            hideOutput();
+        }
+    }, 3000);
+}
+
+function hideOutput() {
+    document.getElementById('cmd-output').style.display = 'none';
+}
+</script>
 {% endblock %}

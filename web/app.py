@@ -4,6 +4,7 @@ from config.settings import DB_PATH, WEB_CONFIG
 from web.routes.home import bp as home_bp
 from web.routes.etf import bp as etf_bp
 from web.routes.backtest import bp as backtest_bp
+from web.routes.cmd import bp as cmd_bp
 
 
 def create_app(db_path=None) -> Flask:
@@ -13,6 +14,7 @@ def create_app(db_path=None) -> Flask:
     app.register_blueprint(home_bp)
     app.register_blueprint(etf_bp)
     app.register_blueprint(backtest_bp)
+    app.register_blueprint(cmd_bp)
 
     return app
 

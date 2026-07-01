@@ -29,7 +29,21 @@
                     <td>{{ key }}</td>
                     <td>
                         {% if value is not none %}
-                        {{ "%.4f"|format(value) }}
+                            {% if value is mapping %}
+                                {% if value.above_ma is not none %}
+                                    {% if value.above_ma %}
+                                        <span class="status-up">站上MA{{ value.ma_value is defined and (value.ma_value|round(3)) or '' }}</span>
+                                    {% else %}
+                                        <span class="status-down">跌破MA{{ value.ma_value is defined and (value.ma_value|round(3)) or '' }}</span>
+                                    {% endif %}
+                                {% else %}
+                                    {% for k, v in value.items() %}
+                                        <div>{{ k }}: {{ v }}</div>
+                                    {% endfor %}
+                                {% endif %}
+                            {% else %}
+                                {{ "%.4f"|format(value) }}
+                            {% endif %}
                         {% else %}
                         -
                         {% endif %}

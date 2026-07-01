@@ -34,29 +34,31 @@ ETF_UNIVERSE = [
 
 STRATEGY_CONFIG = {
     "momentum_weekly": {
+        "name": "周频板块动量轮动",
+        "rebalance_freq": "weekly",
+        "top_n": 5,
         "factors": [
-            {"name": "momentum_20d", "weight": 0.4},
-            {"name": "momentum_60d", "weight": 0.3},
-            {"name": "volatility_20d", "weight": 0.3},
+            {"class": "MomentumFactor", "period": 10},
+            {"class": "TrendFactor", "period": 20},
+            {"class": "VolumeFactor", "short_period": 5, "long_period": 20},
         ],
         "filters": [
-            {"name": "price_above_ma20", "enabled": True},
-            {"name": "volume_confirm", "enabled": True},
+            {"class": "TrendFilter", "enabled": True},
+            {"class": "MomentumFilter", "top_pct": 0.4, "enabled": True},
+            {"class": "VolumeFilter", "min_ratio": 1.1, "enabled": True},
         ],
         "score_weights": {
-            "momentum": 0.6,
-            "quality": 0.2,
-            "value": 0.2,
+            "momentum": 0.5,
+            "volume": 0.3,
         },
-        "exit_rules": [
-            {"name": "stop_loss", "threshold": -0.08},
-            {"name": "take_profit", "threshold": 0.20},
-            {"name": "trailing_stop", "threshold": -0.05},
-        ],
+        "exit_rules": {
+            "max_loss_pct": 0.08,
+            "below_ma20": True,
+            "drop_out_of_top_n": True,
+        },
         "position": {
-            "max_positions": 5,
-            "equal_weight": True,
-            "rebalance_freq": "weekly",
+            "max_single_pct": 0.25,
+            "max_total_pct": 0.8,
         },
     }
 }
