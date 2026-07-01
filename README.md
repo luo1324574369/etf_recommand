@@ -108,6 +108,21 @@ python -m presentation.app
 
 启动后访问 [http://localhost:5000](http://localhost:5000)，提供一键操作面板。
 
+### 5. 持仓跟踪（可选）
+
+记录你的买卖情况：
+
+```bash
+# 初始化账户
+python scripts/init_account.py
+
+# 录入交易（交互式）
+python scripts/add_trade.py
+
+# 查看持仓
+python scripts/show_portfolio.py
+```
+
 ## 架构说明
 
 ### 四层分层
