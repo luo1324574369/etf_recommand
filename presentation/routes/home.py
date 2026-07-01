@@ -1,8 +1,7 @@
 from flask import Blueprint, render_template, current_app
 
-from config.settings import DEFAULT_STRATEGY
 from data.storage.db import get_db
-from data.storage.signal_repo import SignalRepository
+from service import StrategyService
 
 bp = Blueprint("home", __name__)
 
@@ -12,10 +11,8 @@ def index():
     db_path = current_app.config["DB_PATH"]
     conn = get_db(db_path)
     try:
-        signal_repo = SignalRepository(conn)
-        signals = signal_repo.get_latest_signals(DEFAULT_STRATEGY)
-        signal_date = signals[0]["signal_date"] if signals else None
-        strategy_name = DEFAULT_STRATEGY
+        svc = StrategyService(conn)
+        signals, signal_date, strategy_name = svc.get_latest_signals()
     finally:
         conn.close()
 
