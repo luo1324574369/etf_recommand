@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}我的持仓 - ETF Quant{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="page-header">
+        <h1>💼 我的持仓</h1>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% if account %}
+    <!-- 账户概览 -->
+    <div class="account-summary">
+        <div class="summary-item">
+            <span class="summary-label">初始投入</span>
+            <span class="summary-value">{{ "%.2f"|format(account.initial_capital) }} 元</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">当前现金</span>
+            <span class="summary-value">{{ "%.2f"|format(account.cash) }} 元</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">持仓市值</span>
+            <span class="summary-value">{{ "%.2f"|format(total_market_value) }} 元</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">总资产</span>
+            <span class="summary-value">{{ "%.2f"|format(account.cash + total_market_value) }} 元</span>
+        </div>
+        <div class="summary-item summary-profit">
+            <span class="summary-label">总盈亏</span>
+            <span class="summary-value {% if total_profit >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                {% if total_profit >= 0 %}+{% endif %}{{ "%.2f"|format(total_profit) }} 元
+                ({{ "%.2f"|format(total_profit_pct * 100) }}%)
+            </span>
+        </div>
+    </div>
+
+    <!-- 当前持仓 -->
+    <h2>当前持仓</h2>
+    {% if holdings %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>数量</th>
+                    <th>成本价</th>
+                    <th>当前价</th>
+                    <th>市值</th>
+                    <th>盈亏</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in holdings %}
+                <tr>
+                    <td><a href="/etf/{{ h.code }}">{{ h.code }}</a></td>
+                    <td>{{ h.name }}</td>
+                    <td>{{ h.quantity }}</td>
+                    <td>{{ "%.2f"|format(h.cost_price) }}</td>
+                    <td>{{ "%.2f"|format(h.current_price) if h.current_price > 0 else '-' }}</td>
+                    <td>{{ "%.0f"|format(h.market_value) }}</td>
+                    <td class="{% if h.profit_pct >= 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                        {% if h.profit >= 0 %}+{% endif %}{{ "%.2f"|format(h.profit_pct * 100) }}%
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>暂无持仓</p>
+    </div>
+    {% endif %}
+
+    <!-- 交易操作 -->
+    <div class="trade-actions">
+        <h2>交易操作</h2>
+        <div class="trade-forms">
+            <div class="trade-form trade-form-buy">
+                <h3>买入</h3>
+                <form method="POST" action="/portfolio/buy">
+                    <div class="form-group">
+                        <label>ETF代码</label>
+                        <input type="text" name="code" required placeholder="如 510300">
+                    </div>
+                    <div class="form-group">
+                        <label>数量（股）</label>
+                        <input type="number" name="quantity" required min="1" step="100">
+                    </div>
+                    <div class="form-group">
+                        <label>价格（元）</label>
+                        <input type="number" name="price" required step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>手续费（元）</label>
+                        <input type="number" name="fee" value="5" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>交易日期</label>
+                        <input type="date" name="trade_date" value="{{ today }}">
+                    </div>
+                    <button type="submit" class="btn btn-buy">确认买入</button>
+                </form>
+            </div>
+
+            <div class="trade-form trade-form-sell">
+                <h3>卖出</h3>
+                <form method="POST" action="/portfolio/sell">
+                    <div class="form-group">
+                        <label>ETF代码</label>
+                        <input type="text" name="code" required placeholder="如 510300">
+                    </div>
+                    <div class="form-group">
+                        <label>数量（股）</label>
+                        <input type="number" name="quantity" required min="1" step="100">
+                    </div>
+                    <div class="form-group">
+                        <label>价格（元）</label>
+                        <input type="number" name="price" required step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>手续费（元）</label>
+                        <input type="number" name="fee" value="5" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>交易日期</label>
+                        <input type="date" name="trade_date" value="{{ today }}">
+                    </div>
+                    <button type="submit" class="btn btn-sell">确认卖出</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最近交易记录 -->
+    <h2>最近交易记录</h2>
+    {% if trades %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>方向</th>
+                    <th>数量</th>
+                    <th>价格</th>
+                    <th>手续费</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in trades %}
+                <tr>
+                    <td>{{ t.trade_date }}</td>
+                    <td><a href="/etf/{{ t.code }}">{{ t.code }}</a></td>
+                    <td>{{ etf_name_map.get(t.code, t.code) }}</td>
+                    <td class="{% if t.direction == 'buy' %}action-buy{% else %}action-sell{% endif %}">
+                        {% if t.direction == 'buy' %}买入{% else %}卖出{% endif %}
+                    </td>
+                    <td>{{ t.quantity }}</td>
+                    <td>{{ "%.2f"|format(t.price) }}</td>
+                    <td>{{ "%.2f"|format(t.fee) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>暂无交易记录</p>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- 未初始化账户 -->
+    <div class="empty-state">
+        <div class="empty-icon">💰</div>
+        <h2>请先初始化账户</h2>
+        <p>输入初始投入资金开始记录持仓</p>
+        <form method="POST" action="/portfolio/init" class="init-form">
+            <div class="form-group">
+                <label>初始投入资金（元）</label>
+                <input type="number" name="initial_capital" required min="1000" step="100" value="10000">
+            </div>
+            <button type="submit" class="btn btn-primary">创建账户</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
