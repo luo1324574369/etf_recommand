@@ -1,10 +1,10 @@
 from flask import Flask
 
 from config.settings import DB_PATH, WEB_CONFIG
-from web.routes.home import bp as home_bp
-from web.routes.etf import bp as etf_bp
-from web.routes.backtest import bp as backtest_bp
-from web.routes.cmd import bp as cmd_bp
+from presentation.routes.home import bp as home_bp
+from presentation.routes.etf import bp as etf_bp
+from presentation.routes.backtest import bp as backtest_bp
+from presentation.routes.cmd import bp as cmd_bp
 
 
 def create_app(db_path=None) -> Flask:

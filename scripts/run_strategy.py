@@ -87,9 +87,9 @@ def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str
         engine = build_strategy(config)
         results = engine.run(codes, signal_date, price_repo)
 
-        print(f"\n=== 策略: {strategy_name} | 日期: {signal_date} ===")
-        print(f"{'排名':<6}{'代码':<12}{'名称':<15}{'得分':<10}{'动量':<12}{'量比':<12}")
-        print("-" * 70)
+        # 使用命令行界面展示结果
+        from presentation.cli.signal import render_signals
+        render_signals(results, strategy_name, signal_date, etf_name_map)
 
         signals = []
         for result in results:
@@ -98,16 +98,6 @@ def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str
             rank = result["rank"]
             score = result.get("score", 0)
             factor_values = result.get("factor_values", {})
-
-            momentum_val = factor_values.get("momentum", "")
-            if isinstance(momentum_val, float):
-                momentum_val = f"{momentum_val:.4f}"
-
-            volume_val = factor_values.get("volume", "")
-            if isinstance(volume_val, float):
-                volume_val = f"{volume_val:.4f}"
-
-            print(f"{rank:<6}{code:<12}{name:<15}{score:<10.4f}{str(momentum_val):<12}{str(volume_val):<12}")
 
             reason = {}
             for k, v in factor_values.items():
@@ -131,7 +121,8 @@ def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str
 
         if signals:
             signal_repo.batch_save_signals(signals)
-            print(f"\n已保存 {len(signals)} 条信号到数据库")
+            from presentation.cli import console
+            console.success(f"已保存 {len(signals)} 条信号到数据库")
 
         # 每次跑策略都自动更新策略说明文档
         from generate_strategy_doc import generate_strategy_doc

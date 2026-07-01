@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from web.app import create_app
+from presentation.app import create_app
 from data.storage.db import init_db
 
 
