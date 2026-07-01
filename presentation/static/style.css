@@ -453,6 +453,12 @@ body {
     transform: translateY(0);
 }
 
+.cmd-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .cmd-btn.cmd-btn-primary {
     border-color: #2563eb;
     background: #2563eb;

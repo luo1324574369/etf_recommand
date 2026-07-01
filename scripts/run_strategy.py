@@ -120,6 +120,7 @@ def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str
             })
 
         if signals:
+            signal_repo.delete_signals_by_date(strategy_name, signal_date)
             signal_repo.batch_save_signals(signals)
             from presentation.cli import console
             console.success(f"已保存 {len(signals)} 条信号到数据库")

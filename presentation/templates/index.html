@@ -111,18 +111,25 @@
 
 {% block scripts %}
 <script>
+let cmdRunning = false;
+
 async function runCmd(cmdKey) {
+    if (cmdRunning) return;
+    cmdRunning = true;
+
     const output = document.getElementById('cmd-output');
     const content = document.getElementById('cmd-output-content');
     const status = document.getElementById('cmd-status');
+    const buttons = document.querySelectorAll('.cmd-btn');
 
+    buttons.forEach(b => b.disabled = true);
     output.style.display = 'block';
-    content.textContent = '正在执行，请稍候...\n';
+    content.textContent = '正在执行，请稍候...（可能需要数十秒）\n';
     status.textContent = '运行中...';
     status.className = 'cmd-status-running';
 
     try {
-        const resp = await fetch('/api/run_async', {
+        const resp = await fetch('/api/run', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({command: cmdKey})
@@ -132,24 +139,21 @@ async function runCmd(cmdKey) {
         if (data.success) {
             status.textContent = '✓ ' + data.message;
             status.className = 'cmd-status-success';
-            content.textContent = '命令已启动，请稍候...\n\n提示：刷新页面查看最新结果';
+            content.textContent = data.output || '(无输出)';
+            content.textContent += '\n\n💡 提示：刷新页面查看最新结果';
         } else {
-            status.textContent = '✗ ' + data.error;
+            status.textContent = '✗ 执行失败';
             status.className = 'cmd-status-error';
-            content.textContent = '错误: ' + data.error;
+            content.textContent = (data.error || '未知错误') + (data.output ? '\n\n--- 输出 ---\n' + data.output : '');
         }
     } catch (e) {
         status.textContent = '✗ 网络错误';
         status.className = 'cmd-status-error';
         content.textContent = '网络请求失败: ' + e.message;
+    } finally {
+        buttons.forEach(b => b.disabled = false);
+        cmdRunning = false;
     }
-
-    // 3秒后隐藏（异步任务）
-    setTimeout(() => {
-        if (status.className === 'cmd-status-success') {
-            hideOutput();
-        }
-    }, 3000);
 }
 
 function hideOutput() {

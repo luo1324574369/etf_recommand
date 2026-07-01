@@ -57,6 +57,15 @@ class SignalRepository:
             result.append(d)
         return result
 
+    def delete_signals_by_date(self, strategy_name, signal_date) -> int:
+        """删除指定日期的旧信号，返回删除条数"""
+        cursor = self.db.execute(
+            "DELETE FROM strategy_signal WHERE strategy_name = ? AND signal_date = ?",
+            (strategy_name, signal_date)
+        )
+        self.db.commit()
+        return cursor.rowcount
+
     def list_signal_dates(self, strategy_name, limit=20) -> list[str]:
         rows = self.db.execute(
             """
