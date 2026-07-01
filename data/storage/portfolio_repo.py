@@ -85,3 +85,56 @@ class PortfolioRepository:
             (code,),
         )
         return [dict(row) for row in cur.fetchall()]
+
+    def get_holding(self, code: str) -> dict | None:
+        cur = self.db.cursor()
+        cur.execute(
+            "SELECT * FROM holding WHERE account_id = 1 AND code = ?",
+            (code,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def get_all_holdings(self) -> list:
+        cur = self.db.cursor()
+        cur.execute("SELECT * FROM holding WHERE account_id = 1")
+        return [dict(row) for row in cur.fetchall()]
+
+    def update_holding(self, code: str, quantity: int, cost_price: float) -> None:
+        cur = self.db.cursor()
+        existing = self.get_holding(code)
+
+        if existing is None:
+            cur.execute(
+                """
+                INSERT INTO holding (account_id, code, quantity, cost_price)
+                VALUES (1, ?, ?, ?)
+                """,
+                (code, quantity, cost_price),
+            )
+        else:
+            old_qty = existing["quantity"]
+            old_cost = existing["cost_price"]
+            new_qty = old_qty + quantity
+            if new_qty <= 0:
+                self.delete_holding(code)
+            else:
+                new_cost = (old_qty * old_cost + quantity * cost_price) / new_qty
+                cur.execute(
+                    """
+                    UPDATE holding SET quantity = ?, cost_price = ?, updated_at = ?
+                    WHERE account_id = 1 AND code = ?
+                    """,
+                    (new_qty, new_cost, datetime.now().isoformat(), code),
+                )
+        self.db.commit()
+
+    def delete_holding(self, code: str) -> None:
+        cur = self.db.cursor()
+        cur.execute(
+            "DELETE FROM holding WHERE account_id = 1 AND code = ?",
+            (code,),
+        )
+        self.db.commit()

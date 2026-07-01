@@ -101,10 +101,87 @@ def test_list_trades_by_code():
     os.unlink(db_path)
 
 
+def test_get_holding():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    holding = repo.get_holding("510300")
+    assert holding is None
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+def test_update_holding():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    repo.update_holding(code="510300", quantity=1000, cost_price=4.12)
+    holding = repo.get_holding("510300")
+    assert holding is not None
+    assert holding["quantity"] == 1000
+    assert holding["cost_price"] == 4.12
+
+    repo.update_holding(code="510300", quantity=500, cost_price=4.20)
+    holding = repo.get_holding("510300")
+    assert holding["quantity"] == 1500
+    assert abs(holding["cost_price"] - 4.147) < 0.01
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+def test_get_all_holdings():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    repo.update_holding(code="510300", quantity=1000, cost_price=4.12)
+    repo.update_holding(code="159995", quantity=500, cost_price=3.40)
+
+    holdings = repo.get_all_holdings()
+    assert len(holdings) == 2
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+def test_delete_holding():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    repo.update_holding(code="510300", quantity=1000, cost_price=4.12)
+    repo.delete_holding(code="510300")
+    holding = repo.get_holding("510300")
+    assert holding is None
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
 if __name__ == "__main__":
     test_create_account()
     test_get_account()
     test_update_cash()
     test_add_trade()
     test_list_trades_by_code()
+    test_get_holding()
+    test_update_holding()
+    test_get_all_holdings()
+    test_delete_holding()
     print("All account tests passed")
