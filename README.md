@@ -1,6 +1,6 @@
 # ETF 量化推荐系统
 
-一个基于 Python 的 ETF 量化选股系统，采用经典四层分层架构，支持命令行和 Web 两种展示方式，优先使用命令行。
+一个基于 Python 的 ETF 量化选股系统，采用经典五层分层架构，支持命令行终端（优先）和 Web 两种展示方式。
 
 ## 技术栈
 
@@ -10,19 +10,31 @@
 - **pandas** - 数据处理和分析库
 - **Flask + Jinja2**（可选）- Web 界面，通过 `python -m presentation.app` 启动
 
-## 项目结构（四层分层架构）
+## 项目结构（五层分层架构）
 
 ```
 etf_recommand/
-├── presentation/            # 表现层（展示逻辑）
+├── presentation/            # 表现层（展示 + 交互）
 │   ├── cli/                # 命令行展示模块
 │   │   ├── render.py      # 渲染工具（颜色、表格、分隔线）
 │   │   ├── signal.py      # 策略信号展示
-│   │   └── etf.py         # ETF 详情展示
+│   │   ├── etf.py         # ETF 详情展示
+│   │   ├── portfolio.py   # 持仓展示
+│   │   └── terminal.py    # 交互式终端菜单（入口：python scripts/terminal.py）
 │   ├── routes/             # Web 路由（可选功能）
+│   │   ├── home.py        # 首页信号
+│   │   ├── etf.py         # ETF 详情
+│   │   ├── portfolio.py   # 持仓管理
+│   │   ├── cmd.py         # 一键操作接口
+│   │   └── backtest.py    # 回测页
 │   ├── templates/          # HTML 模板
 │   ├── static/             # 静态资源
 │   └── app.py             # Flask 应用工厂
+│
+├── service/                # 服务层（业务逻辑编排）
+│   ├── strategy_service.py # 策略运行、信号查询
+│   ├── portfolio_service.py # 账户、买卖、持仓盈亏计算
+│   └── data_service.py    # ETF 详情、价格、因子计算
 │
 ├── strategy/               # 策略层
 │   ├── engine.py          # 策略引擎（因子计算、过滤、评分、排序）
@@ -44,20 +56,25 @@ etf_recommand/
 ├── data/                  # 数据层
 │   ├── sources/           # 数据源
 │   │   ├── base.py       # 数据源基类
-│   │   └── akshare_source.py  # akshare 数据源（新浪财经接口）
+│   │   └── akshare_source.py  # akshare 数据源
 │   └── storage/           # 数据存储
 │       ├── db.py         # 数据库初始化和连接管理
 │       ├── etf_repo.py   # ETF 基础信息仓库
 │       ├── price_repo.py # 行情数据仓库
-│       └── signal_repo.py # 策略信号仓库
+│       ├── signal_repo.py # 策略信号仓库
+│       └── portfolio_repo.py # 持仓跟踪仓库
 │
 ├── config/                # 配置层
 │   └── settings.py       # 全局配置（ETF池、策略参数）
 │
-├── scripts/               # 脚本层
+├── scripts/               # 脚本层（入口脚本）
+│   ├── terminal.py        # 交互式终端菜单（主入口）
 │   ├── update_data.py     # 数据更新脚本
-│   ├── run_strategy.py    # 策略运行脚本（主入口）
-│   └── generate_strategy_doc.py  # 策略说明文档生成器
+│   ├── run_strategy.py    # 策略运行脚本
+│   ├── generate_strategy_doc.py  # 策略说明文档生成器
+│   ├── init_account.py    # 账户初始化
+│   ├── add_trade.py       # 交易录入（交互式）
+│   └── show_portfolio.py  # 持仓展示
 │
 ├── tests/                # 测试层
 ├── utils/                # 工具层
@@ -74,9 +91,27 @@ etf_recommand/
 pip install -r requirements.txt
 ```
 
-### 2. 更新数据
+### 2. 交互式终端模式（推荐）
 
-从新浪财经拉取 ETF 历史行情数据：
+一键启动终端菜单，所有操作通过数字选择完成：
+
+```bash
+python scripts/terminal.py
+```
+
+菜单选项：
+- `[1]` 运行策略
+- `[2]` 更新行情数据
+- `[3]` 全量更新数据
+- `[4]` 生成策略说明
+- `[5]` 查看持仓
+- `[6]` 录入交易
+- `[7]` 初始化账户
+- `[q]` 退出
+
+### 3. 更新数据
+
+从 akshare 拉取 ETF 历史行情数据：
 
 ```bash
 python scripts/update_data.py
@@ -87,7 +122,7 @@ python scripts/update_data.py
 - `--code 510300,510500` 只更新指定 ETF
 - `--db /path/to/etf.db` 指定数据库路径
 
-### 3. 运行策略（命令行展示）
+### 4. 运行策略（命令行展示）
 
 ```bash
 python scripts/run_strategy.py
@@ -100,15 +135,15 @@ python scripts/run_strategy.py
 
 运行后自动在终端输出带颜色和表格的信号报告。
 
-### 4. 启动 Web 界面（可选）
+### 5. 启动 Web 界面（可选）
 
 ```bash
 python -m presentation.app
 ```
 
-启动后访问 [http://localhost:5000](http://localhost:5000)，提供一键操作面板。
+启动后访问 [http://localhost:5002](http://localhost:5002)，提供一键操作面板。
 
-### 5. 持仓跟踪（可选）
+### 6. 持仓跟踪（可选）
 
 记录你的买卖情况：
 
@@ -125,12 +160,15 @@ python scripts/show_portfolio.py
 
 ## 架构说明
 
-### 四层分层
+### 五层分层
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  表现层 presentation/   CLI（优先）+ Web（可选）        │
-│    输出信号、ETF详情、回测结果                          │
+│  表现层 presentation/   CLI 终端（优先）+ Web（可选）   │
+│    输出信号、ETF详情、持仓、交互式终端菜单              │
+├─────────────────────────────────────────────────────────┤
+│  服务层 service/        业务逻辑编排                    │
+│    StrategyService / PortfolioService / DataService    │
 ├─────────────────────────────────────────────────────────┤
 │  策略层 strategy/       因子 → 筛选 → 评分 → 排序      │
 │    动量因子、趋势因子、量能因子；三重过滤器              │
@@ -139,9 +177,19 @@ python scripts/show_portfolio.py
 │    历史回测引擎、绩效指标、收益曲线可视化                │
 ├─────────────────────────────────────────────────────────┤
 │  数据层 data/          akshare → SQLite → Repository   │
-│    新浪财经数据源、增量更新、三张核心表                  │
+│    财经数据源、增量更新、六张核心表                      │
 └─────────────────────────────────────────────────────────┘
 ```
+
+### 各层职责
+
+| 层级 | 职责 | 依赖方向 |
+|------|------|----------|
+| presentation 表现层 | 展示 + 用户交互（CLI/Web） | 只依赖 service 层 |
+| service 服务层 | 业务逻辑编排、接口封装 | 依赖 strategy + data 层 |
+| strategy 策略层 | 因子/过滤/选股引擎 | 只依赖 data 层（价格数据） |
+| backtest 回测层 | 历史回测（预留） | 依赖 strategy + data 层 |
+| data 数据层 | 数据获取 + 存储 | 无上层依赖 |
 
 ### 策略说明
 
@@ -150,7 +198,7 @@ python scripts/show_portfolio.py
 ## 运行测试
 
 ```bash
-python -m unittest discover tests -v
+python -m pytest tests/ -v
 ```
 
 ## 扩展路径（AI 相关模块）
