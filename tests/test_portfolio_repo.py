@@ -174,6 +174,68 @@ def test_delete_holding():
     os.unlink(db_path)
 
 
+def test_execute_buy():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    repo.execute_buy(code="510300", quantity=1000, price=4.12, fee=5.0, trade_date="2026-07-01")
+
+    account = repo.get_account()
+    assert account["cash"] == 10000.0 - 1000 * 4.12 - 5.0
+
+    holding = repo.get_holding("510300")
+    assert holding["quantity"] == 1000
+    assert holding["cost_price"] == 4.12
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+def test_execute_sell():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    repo.execute_buy(code="510300", quantity=1000, price=4.12, fee=5.0, trade_date="2026-07-01")
+    repo.execute_sell(code="510300", quantity=500, price=4.15, fee=5.0, trade_date="2026-07-05")
+
+    account = repo.get_account()
+    expected_cash = 10000.0 - 1000 * 4.12 - 5.0 + 500 * 4.15 - 5.0
+    assert abs(account["cash"] - expected_cash) < 0.01
+
+    holding = repo.get_holding("510300")
+    assert holding["quantity"] == 500
+    assert holding["cost_price"] == 4.12
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+def test_execute_sell_all():
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=10000.0)
+    repo.execute_buy(code="510300", quantity=1000, price=4.12, fee=5.0, trade_date="2026-07-01")
+    repo.execute_sell(code="510300", quantity=1000, price=4.15, fee=5.0, trade_date="2026-07-05")
+
+    holding = repo.get_holding("510300")
+    assert holding is None
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
 if __name__ == "__main__":
     test_create_account()
     test_get_account()
@@ -184,4 +246,7 @@ if __name__ == "__main__":
     test_update_holding()
     test_get_all_holdings()
     test_delete_holding()
+    test_execute_buy()
+    test_execute_sell()
+    test_execute_sell_all()
     print("All account tests passed")

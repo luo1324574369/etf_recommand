@@ -138,3 +138,45 @@ class PortfolioRepository:
             (code,),
         )
         self.db.commit()
+
+    def execute_buy(self, code: str, quantity: int, price: float, fee: float, trade_date: str) -> None:
+        self.add_trade({
+            "trade_date": trade_date,
+            "code": code,
+            "direction": "buy",
+            "quantity": quantity,
+            "price": price,
+            "fee": fee,
+        })
+        self.update_holding(code=code, quantity=quantity, cost_price=price)
+        account = self.get_account()
+        new_cash = account["cash"] - quantity * price - fee
+        self.update_cash(new_cash)
+
+    def execute_sell(self, code: str, quantity: int, price: float, fee: float, trade_date: str) -> None:
+        self.add_trade({
+            "trade_date": trade_date,
+            "code": code,
+            "direction": "sell",
+            "quantity": quantity,
+            "price": price,
+            "fee": fee,
+        })
+        holding = self.get_holding(code)
+        if holding:
+            remaining = holding["quantity"] - quantity
+            if remaining <= 0:
+                self.delete_holding(code)
+            else:
+                cur = self.db.cursor()
+                cur.execute(
+                    """
+                    UPDATE holding SET quantity = ?, updated_at = ?
+                    WHERE account_id = 1 AND code = ?
+                    """,
+                    (remaining, datetime.now().isoformat(), code),
+                )
+                self.db.commit()
+        account = self.get_account()
+        new_cash = account["cash"] + quantity * price - fee
+        self.update_cash(new_cash)
