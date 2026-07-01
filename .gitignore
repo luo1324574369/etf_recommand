@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE / OS
+.DS_Store
+.AppleDouble
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database
+data/etf.db
+data/etf_demo.db
+
+# Logs
+*.log
+
+# Docs (auto-generated, don't track changes)
+docs/superpowers/
+
+# Local config
+*.local
+.env
