@@ -67,6 +67,53 @@ def init_db(db_path) -> None:
             ON strategy_signal (signal_date, strategy_name)
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account (
+                id INTEGER PRIMARY KEY,
+                name TEXT DEFAULT '主账户',
+                initial_capital REAL NOT NULL,
+                cash REAL NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trade (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                trade_date TEXT NOT NULL,
+                code TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                price REAL NOT NULL,
+                fee REAL DEFAULT 0,
+                note TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trade_date
+            ON trade (trade_date)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trade_code
+            ON trade (code)
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS holding (
+                account_id INTEGER DEFAULT 1,
+                code TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                cost_price REAL NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (account_id, code)
+            )
+        """)
+
         conn.commit()
     finally:
         conn.close()
