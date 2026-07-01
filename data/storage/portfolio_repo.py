@@ -41,3 +41,47 @@ class PortfolioRepository:
             (new_cash, datetime.now().isoformat()),
         )
         self.db.commit()
+
+    def add_trade(self, trade: dict) -> int:
+        cur = self.db.cursor()
+        cur.execute(
+            """
+            INSERT INTO trade (trade_date, code, direction, quantity, price, fee, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                trade["trade_date"],
+                trade["code"],
+                trade["direction"],
+                trade["quantity"],
+                trade["price"],
+                trade.get("fee", 0),
+                trade.get("note"),
+            ),
+        )
+        self.db.commit()
+        return cur.lastrowid
+
+    def list_trades(self, limit: int = 10) -> list:
+        cur = self.db.cursor()
+        cur.execute(
+            """
+            SELECT * FROM trade
+            ORDER BY trade_date DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def get_trades_by_code(self, code: str) -> list:
+        cur = self.db.cursor()
+        cur.execute(
+            """
+            SELECT * FROM trade
+            WHERE code = ?
+            ORDER BY trade_date DESC
+            """,
+            (code,),
+        )
+        return [dict(row) for row in cur.fetchall()]
