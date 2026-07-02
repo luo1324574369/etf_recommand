@@ -1,7 +1,8 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if __name__ == "__main__" and __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from config.settings import DB_PATH
 from data.storage.db import get_db
@@ -16,7 +17,7 @@ def main():
         ov = svc.get_portfolio_overview(trade_limit=10)
 
         if not ov["account"]:
-            print("\n请先初始化账户: python scripts/init_account.py\n")
+            print("\n请先初始化账户: python -m presentation.cli.init_account\n")
             return
 
         price_map = {}

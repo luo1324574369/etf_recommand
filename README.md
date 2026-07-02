@@ -17,10 +17,15 @@ etf_recommand/
 ├── presentation/            # 表现层（展示 + 交互）
 │   ├── cli/                # 命令行展示模块
 │   │   ├── render.py      # 渲染工具（颜色、表格、分隔线）
-│   │   ├── signal.py      # 策略信号展示
+│   │   ├── signal_render.py # 策略信号展示
 │   │   ├── etf.py         # ETF 详情展示
 │   │   ├── portfolio.py   # 持仓展示
-│   │   └── terminal.py    # 交互式终端菜单（入口：python scripts/terminal.py）
+│   │   ├── terminal.py    # 交互式终端菜单（主入口）
+│   │   ├── run_strategy.py # 策略运行（CLI入口）
+│   │   ├── update_data.py # 数据更新（CLI入口）
+│   │   ├── add_trade.py   # 交易录入（CLI入口）
+│   │   ├── show_portfolio.py # 持仓展示（CLI入口）
+│   │   └── init_account.py # 账户初始化（CLI入口）
 │   ├── routes/             # Web 路由（可选功能）
 │   │   ├── home.py        # 首页信号
 │   │   ├── etf.py         # ETF 详情
@@ -34,7 +39,7 @@ etf_recommand/
 ├── service/                # 服务层（业务逻辑编排）
 │   ├── strategy_service.py # 策略运行、信号查询
 │   ├── portfolio_service.py # 账户、买卖、持仓盈亏计算
-│   └── data_service.py    # ETF 详情、价格、因子计算
+│   └── data_service.py    # ETF 详情、价格、因子计算、数据更新
 │
 ├── strategy/               # 策略层
 │   ├── engine.py          # 策略引擎（因子计算、过滤、评分、排序）
@@ -67,17 +72,11 @@ etf_recommand/
 ├── config/                # 配置层
 │   └── settings.py       # 全局配置（ETF池、策略参数）
 │
-├── scripts/               # 脚本层（入口脚本）
-│   ├── terminal.py        # 交互式终端菜单（主入口）
-│   ├── update_data.py     # 数据更新脚本
-│   ├── run_strategy.py    # 策略运行脚本
-│   ├── generate_strategy_doc.py  # 策略说明文档生成器
-│   ├── init_account.py    # 账户初始化
-│   ├── add_trade.py       # 交易录入（交互式）
-│   └── show_portfolio.py  # 持仓展示
+├── utils/                 # 工具层
+│   ├── date.py           # 日期工具
+│   └── generate_strategy_doc.py # 策略文档生成器
 │
 ├── tests/                # 测试层
-├── utils/                # 工具层
 ├── docs/                 # 文档
 │   └── strategy_doc.md   # 自动生成的大白话策略说明
 └── requirements.txt      # 依赖清单
@@ -96,10 +95,13 @@ pip install -r requirements.txt
 一键启动终端菜单，所有操作通过数字选择完成：
 
 ```bash
-python scripts/terminal.py
+python -m presentation.cli.terminal
 ```
 
+> **架构说明**：终端菜单属于**表现层**，实现在 `presentation/cli/terminal.py`。
+
 菜单选项：
+
 - `[1]` 运行策略
 - `[2]` 更新行情数据
 - `[3]` 全量更新数据
@@ -114,10 +116,11 @@ python scripts/terminal.py
 从 akshare 拉取 ETF 历史行情数据：
 
 ```bash
-python scripts/update_data.py
+python -m presentation.cli.update_data
 ```
 
 可选参数：
+
 - `--full` 全量更新（从 2018 年开始，默认增量更新）
 - `--code 510300,510500` 只更新指定 ETF
 - `--db /path/to/etf.db` 指定数据库路径
@@ -125,10 +128,11 @@ python scripts/update_data.py
 ### 4. 运行策略（命令行展示）
 
 ```bash
-python scripts/run_strategy.py
+python -m presentation.cli.run_strategy
 ```
 
 可选参数：
+
 - `--strategy momentum_weekly` 策略名称（默认: momentum_weekly）
 - `--date 2026-01-01` 信号日期（默认今天）
 - `--db /path/to/etf.db` 指定数据库路径
@@ -149,13 +153,13 @@ python -m presentation.app
 
 ```bash
 # 初始化账户
-python scripts/init_account.py
+python -m presentation.cli.init_account
 
 # 录入交易（交互式）
-python scripts/add_trade.py
+python -m presentation.cli.add_trade
 
 # 查看持仓
-python scripts/show_portfolio.py
+python -m presentation.cli.show_portfolio
 ```
 
 ## 架构说明
@@ -183,17 +187,17 @@ python scripts/show_portfolio.py
 
 ### 各层职责
 
-| 层级 | 职责 | 依赖方向 |
-|------|------|----------|
-| presentation 表现层 | 展示 + 用户交互（CLI/Web） | 只依赖 service 层 |
-| service 服务层 | 业务逻辑编排、接口封装 | 依赖 strategy + data 层 |
-| strategy 策略层 | 因子/过滤/选股引擎 | 只依赖 data 层（价格数据） |
-| backtest 回测层 | 历史回测（预留） | 依赖 strategy + data 层 |
-| data 数据层 | 数据获取 + 存储 | 无上层依赖 |
+| 层级                | 职责                       | 依赖方向                   |
+| ------------------- | -------------------------- | -------------------------- |
+| presentation 表现层 | 展示 + 用户交互（CLI/Web） | 只依赖 service 层          |
+| service 服务层      | 业务逻辑编排、接口封装     | 依赖 strategy + data 层    |
+| strategy 策略层     | 因子/过滤/选股引擎         | 只依赖 data 层（价格数据） |
+| backtest 回测层     | 历史回测（预留）           | 依赖 strategy + data 层    |
+| data 数据层         | 数据获取 + 存储            | 无上层依赖                 |
 
 ### 策略说明
 
-运行 `python scripts/run_strategy.py` 后会自动更新 `docs/strategy_doc.md`，用大白话说明当前策略逻辑。
+运行 `python -m presentation.cli.run_strategy` 后会自动更新 `docs/strategy_doc.md`，用大白话说明当前策略逻辑。
 
 ## 运行测试
 

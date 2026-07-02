@@ -1,6 +1,3 @@
-import json
-from typing import Optional
-
 from config.settings import STRATEGY_CONFIG, DEFAULT_STRATEGY
 from data.storage.etf_repo import ETFRepository
 from data.storage.price_repo import PriceRepository

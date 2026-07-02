@@ -3,14 +3,17 @@ import sys
 import argparse
 from datetime import date
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if __name__ == "__main__" and __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from config.settings import DEFAULT_STRATEGY, DB_PATH
 from data.storage.db import init_db, get_db
 from service.strategy_service import StrategyService
+from presentation.cli.signal_render import render_signals
+from presentation.cli import console
 
 
-def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str(DB_PATH)) -> list:
+def run_strategy(strategy_name: str = DEFAULT_STRATEGY, signal_date: str = None, db_path: str = str(DB_PATH)) -> list:
     if signal_date is None:
         signal_date = date.today().isoformat()
 
@@ -24,19 +27,16 @@ def run_strategy(strategy_name: str, signal_date: str = None, db_path: str = str
             signal_date=signal_date,
         )
 
-        from presentation.cli.signal import render_signals
         render_signals(results, strategy_name, signal_date, etf_name_map)
-
-        from presentation.cli import console
         console.success(f"已保存 {len(results)} 条信号到数据库")
 
         doc_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             "docs",
             "strategy_doc.md",
         )
         os.makedirs(os.path.dirname(doc_path), exist_ok=True)
-        from generate_strategy_doc import generate_strategy_doc
+        from utils.generate_strategy_doc import generate_strategy_doc
         generate_strategy_doc(config, doc_path)
 
         return results

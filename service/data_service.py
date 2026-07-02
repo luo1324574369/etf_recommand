@@ -1,5 +1,9 @@
+from datetime import date
+
+from config.settings import ETF_UNIVERSE
 from data.storage.etf_repo import ETFRepository
 from data.storage.price_repo import PriceRepository
+from data.sources.akshare_source import AkshareDataSource
 from strategy.factors.momentum import MomentumFactor
 from strategy.factors.trend import TrendFactor
 from strategy.factors.volume import VolumeFactor
@@ -62,3 +66,44 @@ class DataService:
             "recent_prices": recent_prices,
             "factors": factors,
         }
+
+    def update_etf_info(self) -> int:
+        self.etf_repo.batch_insert(ETF_UNIVERSE)
+        return len(ETF_UNIVERSE)
+
+    def update_prices(self, codes: list = None, full: bool = False, on_progress=None) -> int:
+        data_source = AkshareDataSource()
+
+        if codes:
+            etf_list = [self.etf_repo.get_etf(code) for code in codes]
+            etf_list = [etf for etf in etf_list if etf]
+        else:
+            etf_list = self.etf_repo.list_etfs(active_only=True)
+
+        end_date = date.today().isoformat()
+        total_inserted = 0
+
+        for idx, etf in enumerate(etf_list, 1):
+            code = etf["code"]
+            name = etf.get("name", code)
+
+            if full:
+                start_date = "2018-01-01"
+            else:
+                latest = self.price_repo.get_latest_date(code)
+                start_date = latest if latest else "2018-01-01"
+
+            if on_progress:
+                on_progress(idx, len(etf_list), name, code, start_date, None)
+
+            try:
+                price_data = data_source.get_daily_price(code, start_date, end_date)
+                inserted = self.price_repo.insert_daily_price(code, price_data)
+                total_inserted += inserted
+                if on_progress:
+                    on_progress(idx, len(etf_list), name, code, start_date, inserted)
+            except Exception as e:
+                if on_progress:
+                    on_progress(idx, len(etf_list), name, code, start_date, e)
+
+        return total_inserted

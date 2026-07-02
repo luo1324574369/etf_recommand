@@ -1,7 +1,8 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if __name__ == "__main__" and __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from config.settings import DB_PATH
 from data.storage.db import init_db, get_db
@@ -38,5 +39,9 @@ def init_account():
         conn.close()
 
 
-if __name__ == "__main__":
+def main():
     init_account()
+
+
+if __name__ == "__main__":
+    main()

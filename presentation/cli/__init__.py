@@ -1,8 +1,7 @@
-from .signal import render_signals
+from .signal_render import render_signals
 from .etf import render_etf_detail
 from .portfolio import render_account_summary, render_holdings, render_recent_trades
 from .render import console
-from .terminal import main as terminal_main
 
 __all__ = [
     "render_signals",
@@ -11,5 +10,4 @@ __all__ = [
     "render_account_summary",
     "render_holdings",
     "render_recent_trades",
-    "terminal_main",
 ]

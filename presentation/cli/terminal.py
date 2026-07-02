@@ -2,25 +2,29 @@ import os
 import sys
 import subprocess
 
-from .render import bold, green, red, yellow, gray, blue
+if __name__ == "__main__" and __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from presentation.cli.render import bold, green, red, yellow, gray, blue
+else:
+    from .render import bold, green, red, yellow, gray, blue
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MENU = [
     ("运行策略", "执行动量轮动选股，生成最新信号",
-     [sys.executable, "scripts/run_strategy.py"]),
+     [sys.executable, "-m", "presentation.cli.run_strategy"]),
     ("更新行情数据", "从akshare拉取最新ETF价格数据",
-     [sys.executable, "scripts/update_data.py"]),
+     [sys.executable, "-m", "presentation.cli.update_data"]),
     ("全量更新数据", "从2018年开始重拉所有历史数据（较慢）",
-     [sys.executable, "scripts/update_data.py", "--full"]),
+     [sys.executable, "-m", "presentation.cli.update_data", "--full"]),
     ("生成策略说明", "根据当前配置重新生成大白话文档",
-     [sys.executable, "scripts/generate_strategy_doc.py"]),
+     [sys.executable, "-m", "utils.generate_strategy_doc"]),
     ("查看持仓", "显示当前账户持仓和交易记录",
-     [sys.executable, "scripts/show_portfolio.py"]),
+     [sys.executable, "-m", "presentation.cli.show_portfolio"]),
     ("录入交易", "买入/卖出操作",
-     [sys.executable, "scripts/add_trade.py"]),
+     [sys.executable, "-m", "presentation.cli.add_trade"]),
     ("初始化账户", "新建或重置模拟账户",
-     [sys.executable, "scripts/init_account.py"]),
+     [sys.executable, "-m", "presentation.cli.init_account"]),
 ]
 
 

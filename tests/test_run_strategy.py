@@ -16,7 +16,7 @@ from strategy.filters.trend_filter import TrendFilter
 from strategy.filters.momentum_filter import MomentumFilter
 from strategy.filters.volume_filter import VolumeFilter
 from service.strategy_service import _build_engine as build_strategy, FACTOR_MAP, FILTER_MAP
-from scripts.run_strategy import run_strategy
+from presentation.cli.run_strategy import run_strategy
 from config.settings import STRATEGY_CONFIG
 
 

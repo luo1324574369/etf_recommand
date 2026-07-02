@@ -9,26 +9,26 @@ bp = Blueprint("cmd", __name__)
 COMMANDS = {
     "update_data": {
         "label": "更新行情数据",
-        "description": "从新浪财经拉取最新ETF价格数据",
-        "command": [sys.executable, "scripts/update_data.py"],
+        "description": "从akshare拉取最新ETF价格数据",
+        "command": [sys.executable, "-m", "presentation.cli.update_data"],
         "success_hint": "数据更新成功，请刷新页面查看最新信号",
     },
     "run_strategy": {
         "label": "运行策略",
         "description": "执行动量轮动策略，生成最新选股信号",
-        "command": [sys.executable, "scripts/run_strategy.py"],
+        "command": [sys.executable, "-m", "presentation.cli.run_strategy"],
         "success_hint": "策略运行成功，信号已保存",
     },
     "update_data_full": {
         "label": "全量更新数据",
         "description": "从2018年开始重新拉取所有历史数据（耗时较长）",
-        "command": [sys.executable, "scripts/update_data.py", "--full"],
+        "command": [sys.executable, "-m", "presentation.cli.update_data", "--full"],
         "success_hint": "全量更新完成",
     },
     "gen_doc": {
         "label": "生成策略说明",
         "description": "根据当前配置重新生成大白话策略说明文档",
-        "command": [sys.executable, "scripts/generate_strategy_doc.py"],
+        "command": [sys.executable, "-m", "utils.generate_strategy_doc"],
         "success_hint": "文档已更新到 docs/strategy_doc.md",
     },
 }
