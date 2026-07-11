@@ -1,5 +1,6 @@
 import time
 import akshare as ak
+import pandas as pd
 
 from data.sources.base import DataSourceBase
 
@@ -65,3 +66,56 @@ class AkshareDataSource(DataSourceBase):
                 )
             return result
         return _retry(_fetch)
+
+    def get_etf_valuation(self, code: str) -> dict:
+        def _fetch():
+            df = ak.fund_etf_fundamental_em(symbol=code)
+            if df is None or df.empty:
+                return {}
+            row = df.iloc[0]
+            return {
+                "code": code,
+                "pe": float(row.get("市盈率", 0)) if pd.notna(row.get("市盈率")) else None,
+                "pb": float(row.get("市净率", 0)) if pd.notna(row.get("市净率")) else None,
+                "ps": float(row.get("市销率", 0)) if pd.notna(row.get("市销率")) else None,
+                "dividend_yield": float(row.get("股息率", 0)) if pd.notna(row.get("股息率")) else None,
+                "nav": float(row.get("最新净值", 0)) if pd.notna(row.get("最新净值")) else None,
+                "premium_rate": float(row.get("溢价率", 0)) if pd.notna(row.get("溢价率")) else None,
+            }
+        try:
+            return _retry(_fetch)
+        except Exception:
+            return {}
+
+    def get_etf_valuation_batch(self, codes: list[str]) -> dict[str, dict]:
+        result = {}
+        for code in codes:
+            try:
+                result[code] = self.get_etf_valuation(code)
+            except Exception:
+                result[code] = {}
+        return result
+
+    def get_index_valuation(self, index_code: str, start_date: str, end_date: str) -> list[dict]:
+        def _fetch():
+            df = ak.index_value_hist_em(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            df = df.sort_values("日期", ascending=True)
+            df["日期"] = df["日期"].astype(str)
+            mask = (df["日期"] >= start_date) & (df["日期"] <= end_date)
+            df = df[mask]
+            result = []
+            for _, row in df.iterrows():
+                result.append({
+                    "trade_date": str(row["日期"]),
+                    "pe": float(row.get("市盈率", 0)) if pd.notna(row.get("市盈率")) else None,
+                    "pb": float(row.get("市净率", 0)) if pd.notna(row.get("市净率")) else None,
+                    "ps": float(row.get("市销率", 0)) if pd.notna(row.get("市销率")) else None,
+                    "dividend_yield": float(row.get("股息率", 0)) if pd.notna(row.get("股息率")) else None,
+                })
+            return result
+        try:
+            return _retry(_fetch)
+        except Exception:
+            return []

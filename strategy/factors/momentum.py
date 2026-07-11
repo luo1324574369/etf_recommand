@@ -5,8 +5,10 @@ class MomentumFactor(FactorBase):
     name = "momentum"
     description = "Period price momentum factor"
 
-    def __init__(self, period: int = 10):
+    def __init__(self, period: int = 10, name: str = None):
         self.period = period
+        if name:
+            self.name = name
 
     def calculate(self, code: str, price_data: list[dict], end_date: str):
         filtered = [item for item in price_data if item["trade_date"] <= end_date]

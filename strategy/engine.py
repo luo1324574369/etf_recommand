@@ -5,11 +5,14 @@ from strategy.factors.trend import TrendFactor
 
 class StrategyEngine:
 
-    def __init__(self, factors, filters, top_n=5, score_weights=None):
+    def __init__(self, factors, filters, top_n=5, score_weights=None, exit_rules=None):
         self.factors = factors
         self.filters = filters
         self.top_n = top_n
         self.score_weights = score_weights or {}
+        self.exit_rules = exit_rules or {}
+        self.market_timing = None
+        self._ma_break_counts = {}
 
     def _calculate_factors(self, code, price_data, end_date) -> dict:
         result = {}
@@ -48,6 +51,12 @@ class StrategyEngine:
                     factor_values[factor_name + "_norm"] = 0.0
 
     def run(self, etf_codes, end_date, price_repo) -> list[dict]:
+        if self.market_timing:
+            filtered = self.market_timing.filter(etf_codes, price_repo, end_date)
+            if not filtered:
+                return []
+            etf_codes = filtered
+
         all_factor_values = {}
         for code in etf_codes:
             price_data = price_repo.get_daily_price(code, end_date=end_date)
@@ -97,7 +106,28 @@ class StrategyEngine:
 
     def check_exit(self, holdings, current_date, price_repo) -> list[dict]:
         sell_signals = []
-        trend_factor = TrendFactor(period=20)
+        ma_period = 20
+        max_loss_pct = 0.08
+        take_profit_pct = None
+        ma_break_days = 1
+
+        if self.exit_rules:
+            if self.exit_rules.get("below_ma20", True):
+                ma_period = self.exit_rules.get("ma_period", 20)
+            max_loss_pct = self.exit_rules.get("max_loss_pct", 0.08)
+            take_profit_pct = self.exit_rules.get("take_profit_pct")
+            ma_break_days = self.exit_rules.get("ma_break_days", 1)
+        else:
+            ma_period = 20
+            max_loss_pct = 0.08
+
+        trend_factor = TrendFactor(period=ma_period)
+
+        market_down = False
+        if self.market_timing:
+            filtered = self.market_timing.filter(list(holdings.keys()), price_repo, current_date)
+            if not filtered:
+                market_down = True
 
         for code, holding_info in holdings.items():
             price_data = price_repo.get_daily_price(code, end_date=current_date)
@@ -109,14 +139,31 @@ class StrategyEngine:
 
             reasons = []
 
-            trend_value = trend_factor.calculate(code, price_data, current_date)
-            if trend_value is not None and trend_value.get("above_ma") is False:
-                reasons.append("below_ma20")
+            if market_down:
+                reasons.append("market_timing_exit")
+
+            below_ma = False
+            if self.exit_rules is None or self.exit_rules.get("below_ma20", True):
+                trend_value = trend_factor.calculate(code, price_data, current_date)
+                if trend_value is not None and trend_value.get("above_ma") is False:
+                    below_ma = True
+
+            if below_ma:
+                self._ma_break_counts[code] = self._ma_break_counts.get(code, 0) + 1
+                if self._ma_break_counts[code] >= ma_break_days:
+                    reasons.append(f"below_ma{ma_period}_{ma_break_days}d")
+            else:
+                self._ma_break_counts[code] = 0
 
             if cost_basis > 0:
                 loss_pct = (cost_basis - current_price) / cost_basis
-                if loss_pct >= 0.08:
-                    reasons.append("stop_loss_8pct")
+                if loss_pct >= max_loss_pct:
+                    reasons.append(f"stop_loss_{int(max_loss_pct*100)}pct")
+
+            if take_profit_pct and cost_basis > 0:
+                profit_pct = (current_price - cost_basis) / cost_basis
+                if profit_pct >= take_profit_pct:
+                    reasons.append(f"take_profit_{int(take_profit_pct*100)}pct")
 
             if reasons:
                 sell_signals.append({

@@ -33,7 +33,8 @@ def test_pages():
     response = client.get("/backtest/")
     print(f"  Status: {response.status_code}")
     assert response.status_code == 200, f"Expected 200, got {response.status_code}"
-    assert "回测功能开发中".encode("utf-8") in response.data
+    assert b"\xe7\xad\x96\xe7\x95\xa5\xe5\x9b\x9e\xe6\xb5\x8b" in response.data
+    assert b"\xe5\xbc\x80\xe5\xa7\x8b\xe5\x9b\x9e\xe6\xb5\x8b" in response.data
     print("  PASSED")
 
     print("\nAll tests passed!")

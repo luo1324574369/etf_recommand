@@ -6,30 +6,40 @@ from strategy.engine import StrategyEngine
 from strategy.factors.momentum import MomentumFactor
 from strategy.factors.trend import TrendFactor
 from strategy.factors.volume import VolumeFactor
+from strategy.factors.mean_reversion import MeanReversionFactor
+from strategy.factors.liquidity import LiquidityFactor
 from strategy.filters.trend_filter import TrendFilter
 from strategy.filters.momentum_filter import MomentumFilter
 from strategy.filters.volume_filter import VolumeFilter
+from strategy.filters.market_timing_filter import MarketTimingFilter
+from strategy.filters.sector_rotation_filter import SectorRotationFilter
+from strategy.filters.liquidity_filter import LiquidityFilter
 
 FACTOR_MAP = {
     "MomentumFactor": MomentumFactor,
     "TrendFactor": TrendFactor,
     "VolumeFactor": VolumeFactor,
+    "MeanReversionFactor": MeanReversionFactor,
+    "LiquidityFactor": LiquidityFactor,
 }
 
 FILTER_MAP = {
     "TrendFilter": TrendFilter,
     "MomentumFilter": MomentumFilter,
     "VolumeFilter": VolumeFilter,
+    "MarketTimingFilter": MarketTimingFilter,
+    "SectorRotationFilter": SectorRotationFilter,
+    "LiquidityFilter": LiquidityFilter,
 }
 
 
-def _build_engine(config: dict) -> StrategyEngine:
+def _build_engine(config: dict, sector_map: dict[str, str] = None) -> StrategyEngine:
     factors = []
     for factor_cfg in config.get("factors", []):
-        class_name = factor_cfg.get("class") or factor_cfg.get("name")
+        class_name = factor_cfg.get("class")
         if class_name not in FACTOR_MAP:
             continue
-        params = {k: v for k, v in factor_cfg.items() if k not in ("class", "name", "weight")}
+        params = {k: v for k, v in factor_cfg.items() if k not in ("class", "weight")}
         factor_cls = FACTOR_MAP[class_name]
         factors.append(factor_cls(**params))
 
@@ -42,17 +52,34 @@ def _build_engine(config: dict) -> StrategyEngine:
             continue
         params = {k: v for k, v in filter_cfg.items() if k not in ("class", "name", "enabled")}
         filter_cls = FILTER_MAP[class_name]
+        # SectorRotationFilter 需要板块映射
+        if class_name == "SectorRotationFilter" and sector_map:
+            params["sector_map"] = sector_map
         filters.append(filter_cls(**params))
 
     top_n = config.get("top_n", config.get("position", {}).get("max_positions", 5))
     score_weights = config.get("score_weights", {})
+    exit_rules = config.get("exit_rules", {})
 
-    return StrategyEngine(
+    engine = StrategyEngine(
         factors=factors,
         filters=filters,
         top_n=top_n,
         score_weights=score_weights,
+        exit_rules=exit_rules,
     )
+
+    market_timing_cfg = config.get("market_timing")
+    if market_timing_cfg and market_timing_cfg.get("enabled", False):
+        engine.market_timing = MarketTimingFilter(
+            benchmark_code=market_timing_cfg.get("benchmark", "510300"),
+            period=market_timing_cfg.get("period", 60),
+            sector_breadth_enabled=market_timing_cfg.get("sector_breadth", {}).get("enabled", True),
+            sector_breadth_ratio=market_timing_cfg.get("sector_breadth", {}).get("min_ratio", 0.4),
+            sector_ma_period=market_timing_cfg.get("sector_breadth", {}).get("ma_period", 60),
+        )
+
+    return engine
 
 
 class StrategyService:
@@ -82,8 +109,9 @@ class StrategyService:
         etfs = self.etf_repo.list_etfs(active_only=True)
         codes = [etf["code"] for etf in etfs]
         etf_name_map = {etf["code"]: etf.get("name", "") for etf in etfs}
+        sector_map = {etf["code"]: etf.get("sector", "其他") for etf in etfs}
 
-        engine = _build_engine(config)
+        engine = _build_engine(config, sector_map=sector_map)
         results = engine.run(codes, signal_date, self.price_repo)
 
         signals = []

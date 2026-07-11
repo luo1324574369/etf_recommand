@@ -1,40 +1,24 @@
 # ETF 量化推荐系统
 
-一个基于 Python 的 ETF 量化选股系统，采用经典五层分层架构，支持命令行终端（优先）和 Web 两种展示方式。
+一个基于 Python 的 ETF 量化选股系统，Streamlit 交互式页面，支持多因子评分、策略回测和净值曲线展示。
 
 ## 技术栈
 
-- **Python 3.x** - 核心开发语言
-- **SQLite** - 轻量级本地数据库，存储 ETF 基础信息和行情数据
-- **akshare** - 开源财经数据接口，用于获取 ETF 行情数据
+- **Python 3.11+** - 核心开发语言
+- **SQLite** - 轻量级本地数据库，存储 ETF 基础信息、行情和估值数据
+- **AkShare** - 开源财经数据接口，获取 ETF 行情和指数 PE 历史数据
+- **Tushare Pro** - 付费金融数据接口，获取个股估值数据（PE/PB/PS）
+- **Backtrader** - 量化回测框架，支持策略历史回测和绩效分析
+- **Streamlit** - 交互式数据可视化页面
+- **Plotly** - 净值曲线等图表绘制
 - **pandas** - 数据处理和分析库
-- **Flask + Jinja2**（可选）- Web 界面，通过 `python -m presentation.app` 启动
 
 ## 项目结构（五层分层架构）
 
 ```
 etf_recommand/
-├── presentation/            # 表现层（展示 + 交互）
-│   ├── cli/                # 命令行展示模块
-│   │   ├── render.py      # 渲染工具（颜色、表格、分隔线）
-│   │   ├── signal_render.py # 策略信号展示
-│   │   ├── etf.py         # ETF 详情展示
-│   │   ├── portfolio.py   # 持仓展示
-│   │   ├── terminal.py    # 交互式终端菜单（主入口）
-│   │   ├── run_strategy.py # 策略运行（CLI入口）
-│   │   ├── update_data.py # 数据更新（CLI入口）
-│   │   ├── add_trade.py   # 交易录入（CLI入口）
-│   │   ├── show_portfolio.py # 持仓展示（CLI入口）
-│   │   └── init_account.py # 账户初始化（CLI入口）
-│   ├── routes/             # Web 路由（可选功能）
-│   │   ├── home.py        # 首页信号
-│   │   ├── etf.py         # ETF 详情
-│   │   ├── portfolio.py   # 持仓管理
-│   │   ├── cmd.py         # 一键操作接口
-│   │   └── backtest.py    # 回测页
-│   ├── templates/          # HTML 模板
-│   ├── static/             # 静态资源
-│   └── app.py             # Flask 应用工厂
+├── presentation/            # 表现层（Streamlit 页面）
+│   └── streamlit_app.py   # Streamlit 量化策略页面（推荐列表/回测/净值曲线）
 │
 ├── service/                # 服务层（业务逻辑编排）
 │   ├── strategy_service.py # 策略运行、信号查询
@@ -43,42 +27,40 @@ etf_recommand/
 │
 ├── strategy/               # 策略层
 │   ├── engine.py          # 策略引擎（因子计算、过滤、评分、排序）
+│   ├── dual_momentum.py   # 双动量ETF轮动策略（含回测函数）
+│   ├── valuation_dca.py   # 估值百分位定投策略（含回测函数）
+│   ├── scoring.py         # Z-score标准化 + 等权加权评分
+│   ├── backtest_utils.py  # 回测公共工具函数
 │   ├── factors/           # 因子库
 │   │   ├── base.py       # 因子基类
 │   │   ├── momentum.py   # 动量因子
-│   │   ├── trend.py      # 趋势因子
-│   │   └── volume.py     # 成交量因子
+│   │   ├── volatility.py # 波动率因子
+│   │   ├── liquidity.py  # 流动性因子
+│   │   └── valuation.py  # 估值百分位因子
 │   └── filters/           # 过滤器库
-│       ├── base.py        # 过滤器基类
-│       ├── momentum_filter.py
-│       ├── trend_filter.py
-│       └── volume_filter.py
-│
-├── backtest/              # 回测层（框架预留）
-│   ├── engine.py          # 回测核心引擎
-│   └── metrics.py         # 回测指标计算
 │
 ├── data/                  # 数据层
 │   ├── sources/           # 数据源
 │   │   ├── base.py       # 数据源基类
-│   │   └── akshare_source.py  # akshare 数据源
+│   │   ├── akshare_source.py  # akshare 数据源
+│   │   └── hybrid_source.py   # 混合数据源（AkShare + Tushare）
 │   └── storage/           # 数据存储
 │       ├── db.py         # 数据库初始化和连接管理
 │       ├── etf_repo.py   # ETF 基础信息仓库
 │       ├── price_repo.py # 行情数据仓库
+│       ├── valuation_repo.py # 估值数据仓库（含PE百分位计算）
 │       ├── signal_repo.py # 策略信号仓库
 │       └── portfolio_repo.py # 持仓跟踪仓库
+│
+├── scripts/               # 脚本
+│   └── verify_factors.py  # 因子验证脚本
 │
 ├── config/                # 配置层
 │   └── settings.py       # 全局配置（ETF池、策略参数）
 │
 ├── utils/                 # 工具层
-│   ├── date.py           # 日期工具
-│   └── generate_strategy_doc.py # 策略文档生成器
-│
 ├── tests/                # 测试层
 ├── docs/                 # 文档
-│   └── strategy_doc.md   # 自动生成的大白话策略说明
 └── requirements.txt      # 依赖清单
 ```
 
@@ -90,98 +72,61 @@ etf_recommand/
 pip install -r requirements.txt
 ```
 
-### 2. 交互式终端模式（推荐）
-
-一键启动终端菜单，所有操作通过数字选择完成：
+### 2. 启动 Streamlit 页面
 
 ```bash
-python -m presentation.cli.terminal
+STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
+  .venv/bin/streamlit run presentation/streamlit_app.py --server.port 8501
 ```
 
-> **架构说明**：终端菜单属于**表现层**，实现在 `presentation/cli/terminal.py`。
+启动后访问 [http://localhost:8501](http://localhost:8501)。
 
-菜单选项：
+> 如果 8501 端口被占用，改用 `--server.port 8502` 等其他端口。
 
-- `[1]` 运行策略
-- `[2]` 更新行情数据
-- `[3]` 全量更新数据
-- `[4]` 生成策略说明
-- `[5]` 查看持仓
-- `[6]` 录入交易
-- `[7]` 初始化账户
-- `[q]` 退出
+**页面功能：**
 
-### 3. 更新数据
+| 页签 | 功能 |
+|------|------|
+| 推荐列表 | Z-score 标准化 + 等权加权评分，ETF 排名 |
+| 因子说明 | 因子方向、标准化方法、加权方式说明 |
+| 回测结果 | 双动量轮动 / 估值定投策略绩效指标 |
+| 净值曲线 | Plotly 交互式净值走势图 |
 
-从 akshare 拉取 ETF 历史行情数据：
+**使用流程：**
 
-```bash
-python -m presentation.cli.update_data
-```
+1. 侧边栏点「拉取ETF列表」→ 选择 ETF 标的
+2. 设置日期范围 → 点「拉取行情数据」
+3. 点「拉取PE历史数据」（获取 5000+ 条指数 PE 历史）
+4. 在「推荐列表」页签点「生成推荐」
+5. 在「回测结果」页签选择策略并点「运行回测」
+6. 在「净值曲线」页签点「生成曲线」
 
-可选参数：
+### 3. 因子验证
 
-- `--full` 全量更新（从 2018 年开始，默认增量更新）
-- `--code 510300,510500` 只更新指定 ETF
-- `--db /path/to/etf.db` 指定数据库路径
-
-### 4. 运行策略（命令行展示）
+验证所有因子计算是否正确（行情因子 + PE百分位 + Z-score标准化）：
 
 ```bash
-python -m presentation.cli.run_strategy
-```
-
-可选参数：
-
-- `--strategy momentum_weekly` 策略名称（默认: momentum_weekly）
-- `--date 2026-01-01` 信号日期（默认今天）
-- `--db /path/to/etf.db` 指定数据库路径
-
-运行后自动在终端输出带颜色和表格的信号报告。
-
-### 5. 启动 Web 界面（可选）
-
-```bash
-python -m presentation.app
-```
-
-启动后访问 [http://localhost:5002](http://localhost:5002)，提供一键操作面板。
-
-### 6. 持仓跟踪（可选）
-
-记录你的买卖情况：
-
-```bash
-# 初始化账户
-python -m presentation.cli.init_account
-
-# 录入交易（交互式）
-python -m presentation.cli.add_trade
-
-# 查看持仓
-python -m presentation.cli.show_portfolio
+.venv/bin/python scripts/verify_factors.py
 ```
 
 ## 架构说明
 
-### 五层分层
+### 四层分层
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  表现层 presentation/   CLI 终端（优先）+ Web（可选）   │
-│    输出信号、ETF详情、持仓、交互式终端菜单              │
+│  表现层 presentation/   Streamlit 页面                  │
+│    推荐列表、因子说明、回测结果、净值曲线                │
 ├─────────────────────────────────────────────────────────┤
 │  服务层 service/        业务逻辑编排                    │
 │    StrategyService / PortfolioService / DataService    │
 ├─────────────────────────────────────────────────────────┤
-│  策略层 strategy/       因子 → 筛选 → 评分 → 排序      │
-│    动量因子、趋势因子、量能因子；三重过滤器              │
+│  策略层 strategy/       因子 → 标准化 → 评分 → 回测     │
+│    动量/波动率/流动性/估值因子；Z-score等权加权          │
+│    双动量轮动 + 估值定投策略（含Backtrader回测）         │
 ├─────────────────────────────────────────────────────────┤
-│  回测层 backtest/      框架预留（暂不实现）            │
-│    历史回测引擎、绩效指标、收益曲线可视化                │
-├─────────────────────────────────────────────────────────┤
-│  数据层 data/          akshare → SQLite → Repository   │
-│    财经数据源、增量更新、六张核心表                      │
+│  数据层 data/          AkShare+Tushare → SQLite → Repo  │
+│    行情数据、5000+条PE历史、ETF→指数映射                │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -189,15 +134,10 @@ python -m presentation.cli.show_portfolio
 
 | 层级                | 职责                       | 依赖方向                   |
 | ------------------- | -------------------------- | -------------------------- |
-| presentation 表现层 | 展示 + 用户交互（CLI/Web） | 只依赖 service 层          |
+| presentation 表现层 | Streamlit 页面 + 交互      | 只依赖 service / strategy 层 |
 | service 服务层      | 业务逻辑编排、接口封装     | 依赖 strategy + data 层    |
-| strategy 策略层     | 因子/过滤/选股引擎         | 只依赖 data 层（价格数据） |
-| backtest 回测层     | 历史回测（预留）           | 依赖 strategy + data 层    |
+| strategy 策略层     | 因子/评分/回测引擎          | 只依赖 data 层（价格数据） |
 | data 数据层         | 数据获取 + 存储            | 无上层依赖                 |
-
-### 策略说明
-
-运行 `python -m presentation.cli.run_strategy` 后会自动更新 `docs/strategy_doc.md`，用大白话说明当前策略逻辑。
 
 ## 运行测试
 
@@ -205,9 +145,7 @@ python -m presentation.cli.show_portfolio
 python -m pytest tests/ -v
 ```
 
-## 扩展路径（AI 相关模块）
-
-以下是一些可扩展的 AI 相关方向：
+## 扩展方向
 
 1. **AI 因子挖掘**
    - 使用深度学习自动挖掘有效因子

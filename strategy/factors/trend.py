@@ -12,15 +12,18 @@ class TrendFactor(FactorBase):
         filtered = [item for item in price_data if item["trade_date"] <= end_date]
         closes = [item["close"] for item in filtered]
 
-        if len(closes) <= self.period:
+        if len(closes) <= self.period + 5:
             return None
 
-        ma_closes = closes[-self.period - 1:-1]
-        ma = sum(ma_closes) / self.period
+        ma_current = sum(closes[-self.period:]) / self.period
+        ma_5_ago = sum(closes[-self.period - 5:-5]) / self.period
         current_price = closes[-1]
 
+        ma_rising = ma_current > ma_5_ago
+
         return {
-            "ma_value": ma,
+            "ma_value": ma_current,
             "price": current_price,
-            "above_ma": current_price > ma,
+            "above_ma": current_price > ma_current,
+            "ma_rising": ma_rising,
         }

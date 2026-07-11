@@ -48,6 +48,43 @@ def init_db(db_path) -> None:
         """)
 
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS etf_valuation (
+                code TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                pe REAL,
+                pb REAL,
+                ps REAL,
+                dividend_yield REAL,
+                nav REAL,
+                premium_rate REAL,
+                PRIMARY KEY (code, trade_date)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_valuation_trade_date
+            ON etf_valuation (trade_date)
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS index_pe_history (
+                code TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                pe REAL,
+                pe_ttm REAL,
+                pe_static REAL,
+                pe_equal REAL,
+                pe_median REAL,
+                PRIMARY KEY (code, trade_date)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pe_history_code
+            ON index_pe_history (code)
+        """)
+
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS strategy_signal (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 signal_date TEXT NOT NULL,
