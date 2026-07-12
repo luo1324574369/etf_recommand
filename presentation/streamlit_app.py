@@ -26,9 +26,11 @@ from strategy.optimizer import (
     VALUATION_DCA_PARAM_RANGES,
 )
 from service.data_service import ensure_data_ready
+from config.settings import ETF_UNIVERSE, DB_PATH
 
 TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 INITIAL_CAPITAL = 1000000
+db_path = DB_PATH
 
 REBALANCE_FREQ_OPTIONS = {
     "5日（周线）": 5,
@@ -58,7 +60,6 @@ st.set_page_config(page_title="ETF量化策略平台", layout="wide")
 
 st.title("📈 ETF量化策略平台")
 
-db_path = "data/etf.db"
 init_db(db_path)
 data_source = HybridDataSource(tushare_token=TUSHARE_TOKEN)
 price_repo = PriceRepository(get_db(db_path))
@@ -126,6 +127,29 @@ def build_trade_table(trade_list):
         })
 
     return pd.DataFrame(rows)
+
+
+def _fmt_metric(val):
+    """格式化绩效指标值"""
+    if val is None:
+        return '-'
+    if isinstance(val, float):
+        if val == float('inf'):
+            return '∞'
+        return f'{val:.2f}'
+    return str(val)
+
+
+def _status_label(status: str) -> str:
+    if status == "pass":
+        return "✅ 通过"
+    elif status == "warning":
+        return "⚠️ 警告"
+    elif status == "fail":
+        return "❌ 失败"
+    elif status == "skip":
+        return "⏭️ 跳过"
+    return status
 
 
 def compute_factor_snapshot(selected_codes):
@@ -251,14 +275,14 @@ def show_etf_detail(code):
 
 with st.sidebar:
     st.subheader("📊 ETF选择")
-    etf_list = etf_repo.list_etfs()
-    etf_options = {f"{e['code']} - {e['name']}": e['code'] for e in etf_list}
+    etf_pool = ETF_UNIVERSE
+    etf_options = {f"{e['code']} - {e['name']}": e['code'] for e in etf_pool}
     all_labels = list(etf_options.keys())
 
     default_codes = ["510300", "510500", "512480"]
     available_defaults = [c for c in default_codes if c in etf_options.values()]
-    if not available_defaults and etf_list:
-        available_defaults = [etf_list[0]['code'], etf_list[1]['code'], etf_list[2]['code']]
+    if not available_defaults and etf_pool:
+        available_defaults = [etf_pool[0]['code'], etf_pool[1]['code'], etf_pool[2]['code']]
     default_labels = [k for k, v in etf_options.items() if v in available_defaults]
 
     if 'etf_multiselect' not in st.session_state:
@@ -393,8 +417,13 @@ if run_clicked:
     if not selected_codes:
         st.error("请至少选择一只ETF")
     else:
-        with st.status("正在准备数据...", expanded=True) as status:
-            st.write("检查并补全数据中...")
+        with st.status("正在检查数据...", expanded=True) as status:
+            progress_placeholder = st.empty()
+            st.write("检查数据完整性...")
+
+            def on_data_progress(msg):
+                progress_placeholder.text(msg)
+
             data_result = ensure_data_ready(
                 selected_codes,
                 start_date.strftime("%Y-%m-%d"),
@@ -403,14 +432,17 @@ if run_clicked:
                 etf_repo,
                 price_repo,
                 valuation_repo,
+                on_progress=on_data_progress,
             )
 
             if data_result['status'] == 'error':
-                status.update(label="数据准备失败", state="error", expanded=True)
-                st.error(f"❌ {data_result['message']}")
+                status.update(label="数据不足，请补充", state="error", expanded=True)
+                st.error("❌ 数据不足，无法运行回测。请先在命令行补充数据：")
+                st.code(data_result['message'], language='bash')
+                st.info("💡 补充完数据后，重新点击「运行回测」即可。")
             else:
-                st.write("✅ 数据准备完成")
-                status.update(label="数据准备完成", state="complete", expanded=False)
+                st.write("✅ 数据检查通过")
+                status.update(label="数据检查完成", state="complete", expanded=False)
 
                 data_dict = {}
                 for code in selected_codes:
@@ -481,8 +513,11 @@ if result:
 
     col5, col6, col7, col8 = st.columns(4)
     with col5:
-        st.metric("买入持有基准", f"{result['benchmark_return']:.2f}%",
-                  delta=f"超额 {result['excess_return']:+.2f}%")
+        comp = result.get('comparison', {})
+        eq_comp = comp.get('comparison', {}).get('等权持有', {})
+        eq_metrics = comp.get('benchmark_metrics', {}).get('等权持有', {})
+        st.metric("等权持有基准", f"{eq_metrics.get('total_return', 0):.2f}%",
+                  delta=f"超额 {eq_comp.get('excess_return', 0):+.2f}%")
     with col6:
         st.metric("交易次数", result['num_trades'])
     with col7:
@@ -492,35 +527,36 @@ if result:
 
     st.markdown("---")
 
-    with st.expander("📋 详细绩效指标", expanded=True):
-        detail_metrics = {
-            '指标': [
-                '初始资金', '最终市值', '总收益率(%)', '基准收益率(%)', '超额收益(%)',
-                '年化收益率(%)', '夏普比率', '最大回撤(%)', '最大回撤持续天数',
-                '交易次数', '盈利次数', '亏损次数', '胜率(%)', '盈亏比',
-                '平均盈利', '平均亏损', '平均持仓天数',
-            ],
-            '值': [
-                f"{INITIAL_CAPITAL:,.0f}",
-                f"{result['final_value']:,.2f}",
-                f"{result['total_return']:.2f}",
-                f"{result['benchmark_return']:.2f}",
-                f"{result['excess_return']:+.2f}",
-                f"{result['annual_return']:.2f}",
-                f"{result['sharpe_ratio']:.2f}",
-                f"{result['max_drawdown']:.2f}",
-                f"{result['max_drawdown_days']:.0f}",
-                result['num_trades'],
-                int(result['num_trades'] * result['win_rate'] / 100) if result['num_trades'] else 0,
-                int(result['num_trades'] * (1 - result['win_rate'] / 100)) if result['num_trades'] else 0,
-                f"{result['win_rate']:.1f}",
-                f"{result['profit_factor']:.2f}",
-                f"{result['avg_win']:,.2f}",
-                f"{result['avg_lost']:,.2f}",
-                f"{result['avg_hold_days']:.1f}",
-            ]
-        }
-        st.dataframe(pd.DataFrame(detail_metrics), use_container_width=True, hide_index=True)
+    with st.expander("📋 策略 vs 基准 绩效对比", expanded=True):
+        comp = result.get('comparison', {})
+        sm = comp.get('strategy_metrics', {})
+        bm = comp.get('benchmark_metrics', {})
+
+        metric_names = ['total_return', 'annual_return', 'volatility', 'sharpe_ratio',
+                       'sortino_ratio', 'max_drawdown', 'calmar_ratio']
+        metric_labels = ['总收益率(%)', '年化收益率(%)', '年化波动率(%)', '夏普比率',
+                        '索提诺比率', '最大回撤(%)', '卡玛比率']
+
+        bench_names = list(bm.keys())
+        cols = ['指标', '策略'] + bench_names
+        rows = []
+        for label, key in zip(metric_labels, metric_names):
+            row = {'指标': label}
+            row['策略'] = _fmt_metric(sm.get(key, 0))
+            for bn in bench_names:
+                row[bn] = _fmt_metric(bm[bn].get(key, 0))
+            rows.append(row)
+
+        comparison_data = comp.get('comparison', {})
+        for bn in bench_names:
+            excess = comparison_data.get(bn, {}).get('excess_return', 0)
+            row = {'指标': f'超额收益(vs {bn})'}
+            row['策略'] = f'{excess:+.2f}%'
+            for b in bench_names:
+                row[b] = '-'
+            rows.append(row)
+
+        st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True, hide_index=True)
 
     st.markdown("---")
     optimize_result = st.session_state.get('optimize_result')
@@ -549,33 +585,178 @@ if result:
             st.dataframe(pd.DataFrame(opt_rows), use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### 📈 净值曲线（策略 vs 基准）")
+    st.markdown("### 📈 净值曲线（策略 vs 多基准）")
+
+    with st.expander("📖 基准说明", expanded=False):
+        st.markdown("""
+        **多基准对比说明**：
+
+        - **等权持有**：所有选中ETF等权配置，买入后不动
+        - **沪深300**：大盘价值风格标尺（510300）
+        - **中证500**：中盘成长风格标尺（510500）
+        - **创业板**：小盘成长风格标尺（159915）
+
+        所有净值均从回测起始日的1.0开始计算，点击图例可隐藏/显示某条线。
+        """)
+
     nav_df = result.get('nav_df')
-    benchmark_nav_df = result.get('benchmark_nav_df')
-    
+    comp = result.get('comparison', {})
+    benchmark_navs = result.get('benchmark_navs', {})
+    bench_names = list(comp.get('benchmark_metrics', {}).keys())
+
     if nav_df is not None and not nav_df.empty:
-        # 合并策略净值和基准净值
         plot_df = nav_df.copy()
-        if benchmark_nav_df is not None and not benchmark_nav_df.empty:
-            plot_df = plot_df.merge(benchmark_nav_df, on='date', how='left')
-            plot_df.ffill(inplace=True)
-        
+        plot_df = plot_df.rename(columns={'nav': '策略'})
+
+        for name, bnav_df in benchmark_navs.items():
+            if not bnav_df.empty:
+                plot_df = plot_df.merge(
+                    bnav_df.rename(columns={'nav': name}),
+                    on='date', how='outer'
+                )
+
+        plot_df.sort_values('date', inplace=True)
+        plot_df.ffill(inplace=True)
+
+        y_cols = ['策略'] + [n for n in bench_names if n in plot_df.columns]
+        color_map = {
+            '策略': '#1f77b4',
+            '等权持有': '#7f7f7f',
+            '沪深300': '#d62728',
+            '中证500': '#2ca02c',
+            '创业板': '#9467bd',
+        }
+
         fig = px.line(
-            plot_df,
-            x='date',
-            y=['nav', 'benchmark_nav'] if 'benchmark_nav' in plot_df.columns else ['nav'],
-            title=f"{st.session_state.get('strategy_type', '')}策略净值曲线 vs 等权买入持有基准",
-            labels={'nav': '策略净值', 'benchmark_nav': '基准净值', 'date': '日期'},
+            plot_df, x='date', y=y_cols,
+            title="策略净值 vs 多基准",
             template='plotly_white',
-            color_discrete_map={'nav': '#1f77b4', 'benchmark_nav': '#ff7f0e'},
+            color_discrete_map=color_map,
+        )
+        fig.update_traces(
+            selector=dict(name='策略'),
+            line_width=3,
         )
         fig.update_layout(
             legend=dict(title=''),
-            yaxis_range=[0.5, 2.5],
+            yaxis_title='净值（起点=1.0）',
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("暂无净值曲线数据")
+
+    st.markdown("---")
+    st.markdown("### 📉 回撤对比")
+    drawdown_df = comp.get('drawdown_df')
+    if drawdown_df is not None and not drawdown_df.empty:
+        dd_cols = [c for c in drawdown_df.columns if c != 'date']
+        dd_color_map = {
+            'strategy': '#1f77b4',
+            '等权持有': '#7f7f7f',
+            '沪深300': '#d62728',
+            '中证500': '#2ca02c',
+            '创业板': '#9467bd',
+        }
+        dd_labels = {'strategy': '策略', '等权持有': '等权持有', '沪深300': '沪深300',
+                     '中证500': '中证500', '创业板': '创业板'}
+        fig_dd = px.line(
+            drawdown_df, x='date', y=dd_cols,
+            title="策略与基准回撤对比",
+            template='plotly_white',
+            color_discrete_map=dd_color_map,
+            labels=dd_labels,
+        )
+        fig_dd.update_traces(
+            selector=dict(name='strategy'),
+            line_width=3,
+        )
+        fig_dd.update_layout(
+            legend=dict(title=''),
+            yaxis_title='回撤(%)',
+        )
+        st.plotly_chart(fig_dd, use_container_width=True)
+    else:
+        st.info("暂无回撤数据")
+
+    st.markdown("---")
+    st.markdown("### 📊 超额收益分析")
+    excess_nav_df = comp.get('excess_nav_df')
+    comparison_data = comp.get('comparison', {})
+    bench_names_excess = list(comparison_data.keys())
+
+    if excess_nav_df is not None and not excess_nav_df.empty and bench_names_excess:
+        selected_bench = st.selectbox("选择对比基准", bench_names_excess, key='excess_bench_select')
+
+        if selected_bench in excess_nav_df.columns:
+            fig_excess = px.line(
+                excess_nav_df, x='date', y=selected_bench,
+                title=f"策略相对{selected_bench}超额净值",
+                template='plotly_white',
+                color_discrete_map={selected_bench: '#1f77b4'},
+            )
+            fig_excess.update_layout(
+                yaxis_title='超额净值（起点=1.0）',
+                showlegend=False,
+            )
+            st.plotly_chart(fig_excess, use_container_width=True)
+
+        sc = comparison_data.get(selected_bench, {})
+        col_ir, col_alpha, col_beta, col_mw, col_qw = st.columns(5)
+        with col_ir:
+            st.metric("信息比率", f"{sc.get('information_ratio', 0):.2f}")
+        with col_alpha:
+            st.metric("Alpha(%)", f"{sc.get('alpha', 0):+.2f}")
+        with col_beta:
+            st.metric("Beta", f"{sc.get('beta', 0):.2f}")
+        with col_mw:
+            wr_m = sc.get('win_rate_monthly')
+            st.metric("月度胜率", f"{wr_m:.1f}%" if wr_m is not None else "数据不足")
+        with col_qw:
+            wr_q = sc.get('win_rate_quarterly')
+            st.metric("季度胜率", f"{wr_q:.1f}%" if wr_q is not None else "数据不足")
+
+        if wr_m is not None:
+            st.caption(f"策略在 {wr_m:.1f}% 的月份跑赢{selected_bench}基准")
+    else:
+        st.info("暂无超额收益数据")
+
+    st.markdown("---")
+    st.markdown("### 🔍 因子校验结果")
+    val_results = valuation_repo.list_validation_results(factor_name="pe_cross_check")
+    if val_results:
+        val_rows = []
+        name_map = {e['code']: e['name'] for e in ETF_UNIVERSE}
+        for v in val_results:
+            code = v['etf_code']
+            name = name_map.get(code, '')
+            if not name:
+                etf_info = etf_repo.get_etf(code)
+                name = etf_info.get('name', '') if etf_info else ''
+            metrics = v.get('metrics', [])
+            metric_dict = {m['name']: m for m in metrics}
+            val_rows.append({
+                "代码": code,
+                "名称": name,
+                "状态": _status_label(v['status']),
+                "数据点": metric_dict.get("重合数据点", {}).get("value", "-"),
+                "相关系数": metric_dict.get("相关系数", {}).get("value", "-"),
+                "平均误差": f"{metric_dict.get('平均相对误差', {}).get('value', '-')}%",
+                "通过率": f"{metric_dict.get('通过率', {}).get('value', '-')}%",
+                "最新本地PE": metric_dict.get("均值比率", {}).get("value", "-"),
+                "校验时间": v.get('validated_at', '')[:19],
+            })
+        val_df = pd.DataFrame(val_rows)
+        st.dataframe(val_df, use_container_width=True, hide_index=True)
+
+        pass_count = sum(1 for v in val_results if v['status'] == 'pass')
+        warn_count = sum(1 for v in val_results if v['status'] == 'warning')
+        fail_count = sum(1 for v in val_results if v['status'] == 'fail')
+        skip_count = sum(1 for v in val_results if v['status'] == 'skip')
+        st.caption(
+            f"共{len(val_results)}只ETF：✅通过{pass_count} ⚠️警告{warn_count} ❌失败{fail_count} ⏭️跳过{skip_count}"
+        )
+    else:
+        st.info("暂无校验结果，运行回测后自动生成")
 
     st.markdown("---")
     st.markdown("### 📝 交易明细")
