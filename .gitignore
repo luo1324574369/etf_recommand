@@ -22,6 +22,8 @@ venv/
 
 # Database
 data/etf.db
+data/etf.db-shm
+data/etf.db-wal
 data/etf_demo.db
 
 # Logs
