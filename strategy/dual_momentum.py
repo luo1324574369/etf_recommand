@@ -13,12 +13,43 @@ class DualMomentumStrategy(bt.Strategy):
 
     def __init__(self):
         self.day_count = 0
+        self.trade_log = []
+        self.cumulative_pnl = 0.0
+        self.prev_positions = {}
         self.inds = {}
         for d in self.datas:
             self.inds[d] = {
                 'short_ret': bt.indicators.RateOfChange(d.close, period=self.p.lookback_short),
                 'long_ret': bt.indicators.RateOfChange(d.close, period=self.p.lookback_long),
             }
+
+    def _log_trade(self, d, direction, size, price, reason):
+        amount = size * price
+        fee = amount * self.p.commission_rate
+        pos = self.getposition(d)
+        if direction == '买入':
+            position_after = pos.size + size
+            pnl = 0.0
+        else:
+            position_after = pos.size - size
+            if pos.price > 0:
+                pnl = (price - pos.price) * size
+            else:
+                pnl = 0.0
+        self.cumulative_pnl += pnl - fee
+        self.trade_log.append({
+            'date': self.data.datetime.date(0).isoformat(),
+            'code': d._name,
+            'direction': direction,
+            'quantity': size,
+            'price': price,
+            'amount': amount,
+            'fee': fee,
+            'position_after': position_after,
+            'pnl': pnl,
+            'cumulative_pnl': self.cumulative_pnl,
+            'reason': reason,
+        })
 
     def next(self):
         self.day_count += 1
@@ -33,18 +64,28 @@ class DualMomentumStrategy(bt.Strategy):
                 continue
             score = 0.5 * short_ret + 0.5 * long_ret
             if score > self.p.min_momentum:
-                momentum_scores.append((d, score))
+                momentum_scores.append((d, score, short_ret, long_ret))
 
         momentum_scores.sort(key=lambda x: x[1], reverse=True)
-        selected = [d for d, _ in momentum_scores[:self.p.top_n]]
+        total_n = len(momentum_scores)
+        selected = [item[0] for item in momentum_scores[:self.p.top_n]]
         selected_codes = {d._name for d in selected}
+
+        code_rank = {}
+        for rank, (d, score, short_ret, long_ret) in enumerate(momentum_scores, 1):
+            code_rank[d._name] = (rank, score, short_ret, long_ret)
 
         for d in self.datas:
             pos = self.getposition(d)
             if d._name not in selected_codes and pos.size > 0:
+                rank = code_rank.get(d._name, (total_n,))[0] if total_n > 0 else 0
+                reason = f"双动量排名第{rank}/{total_n}，调出持仓"
+                price = d.close[0]
+                self._log_trade(d, '卖出', pos.size, price, reason)
                 self.close(d)
 
         if not selected:
+            self.prev_positions = {d._name: self.getposition(d).size for d in self.datas}
             return
 
         total_value = self.broker.get_value() * 0.9
@@ -56,10 +97,19 @@ class DualMomentumStrategy(bt.Strategy):
                 continue
             pos = self.getposition(d)
             target_size = int(per_value / price / 100) * 100
+            rank, score, short_ret, long_ret = code_rank.get(d._name, (0, 0, 0, 0))
             if target_size > pos.size:
-                self.buy(d, size=target_size - pos.size)
+                buy_size = target_size - pos.size
+                reason = f"双动量排名第{rank}/{total_n}，综合得分{score:.2f}，短周期动量{short_ret:.1f}%，长周期动量{long_ret:.1f}%"
+                self._log_trade(d, '买入', buy_size, price, reason)
+                self.buy(d, size=buy_size)
             elif target_size < pos.size:
-                self.sell(d, size=pos.size - target_size)
+                sell_size = pos.size - target_size
+                reason = f"双动量排名第{rank}/{total_n}，仓位调整"
+                self._log_trade(d, '卖出', sell_size, price, reason)
+                self.sell(d, size=sell_size)
+
+        self.prev_positions = {d._name: self.getposition(d).size for d in self.datas}
 
 
 def run_backtest(data_dict, initial_capital=1000000, commission_rate=0.0003,

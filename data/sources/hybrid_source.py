@@ -89,6 +89,7 @@ ETF_INDEX_MAP = {
 }
 
 # ETF代码 → 中证指数代码（用于 stock_zh_index_value_csindex）
+# 用于乐咕乐股不支持的行业/主题指数的 fallback 数据源
 ETF_CSINDEX_MAP = {
     "510300": "000300",
     "510310": "000300",
@@ -102,6 +103,57 @@ ETF_CSINDEX_MAP = {
     "159952": "399006",
     "588000": "000688",
     "588050": "000688",
+    "512480": "990001",  # 中华半导体芯片
+    "512760": "990001",  # 中华半导体芯片
+    "512660": "399967",  # 中证军工
+    "512690": "399967",  # 中证军工
+}
+
+# ETF代码 → Tushare 指数代码（用于 index_dailybasic，仅覆盖大盘指数）
+# Tushare index_dailybasic 只支持 12 个大盘宽基指数，不支持行业指数
+ETF_TUSHARE_INDEX_MAP = {
+    "510050": "000016.SH",  # 上证50
+    "510300": "000300.SH",  # 沪深300
+    "510310": "000300.SH",
+    "510350": "000300.SH",
+    "510500": "000905.SH",  # 中证500
+    "510510": "000905.SH",
+    "512500": "000905.SH",
+    "512100": "000852.SH",  # 中证1000
+    "560010": "000852.SH",
+    "510160": "000906.SH",  # 中证800
+    "159915": "399006.SZ",  # 创业板指
+    "159952": "399006.SZ",
+    "588000": "000688.SH",  # 科创50
+    "588050": "000688.SH",
+    "588090": "000688.SH",
+    "159901": "399330.SZ",  # 深证100
+    "159902": "399330.SZ",
+}
+
+# ETF代码 → Tushare 行业名称（用于 daily_basic 加权计算行业PE）
+# 用于宽基和csindex都不支持的行业ETF
+ETF_INDUSTRY_MAP = {
+    "512480": "半导体",
+    "512760": "半导体",
+    "159995": "半导体",      # 芯片
+    "512660": "航空",         # 军工
+    "512690": "航空",
+    "515060": "航空",
+    "512010": "中成药",       # 医药
+    "512170": "医疗保健",     # 医疗
+    "512800": "银行",
+    "512070": "证券",
+    "512000": "证券",         # 券商
+    "515030": "电气设备",     # 新能源
+    "516160": "电气设备",
+    "515050": "通信设备",     # 5G
+    "515880": "通信设备",
+    "515790": "电气设备",     # 光伏
+    "515080": "煤炭开采",
+    "512200": "全国地产",     # 房地产
+    "512980": "影视音像",     # 传媒
+    "512720": "软件服务",     # 计算机
 }
 
 
@@ -155,7 +207,43 @@ class HybridDataSource:
         return _retry(_fetch)
 
     def get_index_pe_history(self, etf_code: str) -> list[dict]:
-        """通过ETF跟踪指数获取PE历史数据（来源：乐咕乐股）"""
+        """通过ETF跟踪指数获取PE历史数据
+        数据源优先级：
+        1. Tushare index_dailybasic（宽基指数，2014年至今，3000+条）
+        2. 乐咕乐股 stock_index_pe_lg（宽基指数，5000+条历史）
+        3. 中证指数公司 stock_zh_index_value_csindex（行业指数，近20条）
+        """
+        # 数据源1: Tushare index_dailybasic（宽基指数）
+        if self._tushare:
+            ts_code = ETF_TUSHARE_INDEX_MAP.get(etf_code)
+            if ts_code:
+                try:
+                    df = self._tushare.index_dailybasic(ts_code=ts_code)
+                    if df is not None and not df.empty:
+                        result = []
+                        for _, row in df.iterrows():
+                            pe_ttm = row.get("pe_ttm")
+                            pe = row.get("pe")
+                            pe_val = pe_ttm if pd.notna(pe_ttm) and pe_ttm > 0 else (pe if pd.notna(pe) and pe > 0 else None)
+                            if pe_val is None:
+                                continue
+                            # trade_date 格式 YYYYMMDD 转 YYYY-MM-DD
+                            td = str(row["trade_date"])
+                            td = f"{td[:4]}-{td[4:6]}-{td[6:8]}"
+                            result.append({
+                                "trade_date": td,
+                                "pe": float(pe_val),
+                                "pe_ttm": float(pe_ttm) if pd.notna(pe_ttm) else None,
+                                "pe_static": float(pe) if pd.notna(pe) else None,
+                                "pe_equal": None,
+                                "pe_median": None,
+                            })
+                        if result:
+                            return result
+                except Exception:
+                    pass
+
+        # 数据源2: 乐咕乐股（宽基指数）
         index_name = ETF_INDEX_MAP.get(etf_code)
         if not index_name:
             return []
@@ -180,8 +268,102 @@ class HybridDataSource:
                     "pe_median": float(row["滚动市盈率中位数"]) if pd.notna(row.get("滚动市盈率中位数")) else None,
                 })
             return result
+
         try:
-            return _retry(_fetch)
+            result = _retry(_fetch)
+            if result:
+                return result
+        except Exception:
+            pass
+
+        # 数据源3: Tushare daily_basic 行业加权计算（行业ETF，月频采样）
+        industry = ETF_INDUSTRY_MAP.get(etf_code)
+        if industry and self._tushare:
+            result = self._get_industry_pe_history(industry)
+            if result:
+                return result
+
+        # 数据源4: 中证指数公司（行业指数，近20天数据）
+        csindex_code = ETF_CSINDEX_MAP.get(etf_code)
+        if csindex_code:
+            try:
+                df = ak.stock_zh_index_value_csindex(symbol=csindex_code)
+                if df is None or df.empty:
+                    return []
+                result = []
+                for _, row in df.iterrows():
+                    pe_val = row.get("市盈率1")
+                    if pd.notna(pe_val) and pe_val > 0:
+                        result.append({
+                            "trade_date": str(row["日期"]),
+                            "pe": float(pe_val),
+                            "pe_ttm": float(pe_val),
+                            "pe_static": float(row.get("市盈率2")) if pd.notna(row.get("市盈率2")) else None,
+                            "pe_equal": None,
+                            "pe_median": None,
+                        })
+                return result
+            except Exception:
+                return []
+
+        return []
+
+    def _get_industry_pe_history(self, industry: str) -> list[dict]:
+        """用 Tushare daily_basic 加权计算行业PE历史（日频）
+        每个交易日获取全市场PE，筛选行业成分股加权计算
+        5年约1250次API调用，按500次/分钟限制约需2.5分钟
+        """
+        if not self._tushare:
+            return []
+        try:
+            # 1. 获取行业成分股列表
+            basic = self._tushare.stock_basic(exchange='', list_status='L', fields='ts_code,industry')
+            stock_codes = basic[basic['industry'] == industry]['ts_code'].tolist()
+            if not stock_codes:
+                return []
+
+            # 2. 获取交易日历（全部交易日，日频）
+            cal = self._tushare.trade_cal(exchange='SSE', start_date='20150101', end_date='20261231')
+            cal = cal[cal['is_open'] == 1]
+            trade_dates = cal['cal_date'].tolist()
+
+            # 3. 逐日获取全市场PE，筛选行业成分股，加权计算
+            result = []
+            for td in trade_dates:
+                try:
+                    df = self._tushare.daily_basic(trade_date=td, fields='ts_code,pe,total_mv')
+                    if df is None or df.empty:
+                        continue
+                    # 筛选行业成分股
+                    industry_df = df[df['ts_code'].isin(stock_codes)]
+                    industry_df = industry_df.dropna(subset=['pe'])
+                    industry_df = industry_df[industry_df['pe'] > 0]
+                    if industry_df.empty:
+                        continue
+
+                    # 市值加权PE（排除PE>500的异常亏损股）
+                    valid = industry_df[industry_df['pe'] <= 500]
+                    if valid.empty:
+                        continue
+                    total_mv = valid['total_mv'].sum()
+                    if total_mv <= 0:
+                        continue
+                    weighted_pe = (valid['pe'] * valid['total_mv']).sum() / total_mv
+
+                    # 日期格式转换 YYYYMMDD -> YYYY-MM-DD
+                    td_fmt = f"{td[:4]}-{td[4:6]}-{td[6:8]}"
+                    result.append({
+                        "trade_date": td_fmt,
+                        "pe": float(round(weighted_pe, 2)),
+                        "pe_ttm": float(round(weighted_pe, 2)),
+                        "pe_static": None,
+                        "pe_equal": float(round(valid['pe'].mean(), 2)),
+                        "pe_median": float(round(valid['pe'].median(), 2)),
+                    })
+                except Exception:
+                    continue
+
+            return result
         except Exception:
             return []
 

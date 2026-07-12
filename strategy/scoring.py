@@ -206,3 +206,51 @@ def build_rank_table(
     if "综合评分" in df.columns:
         df = df.sort_values("综合评分", ascending=False).reset_index(drop=True)
     return df
+
+
+def compute_factor_history(
+    code: str,
+    prices: list,
+    factor_names: list,
+    pe_history: list = None,
+) -> pd.DataFrame:
+    """
+    逐日计算因子历史值。
+
+    Args:
+        code: ETF代码
+        prices: 行情数据列表（按日期升序，每项含 trade_date, open, high, low, close, volume, amount）
+        factor_names: 需要计算的因子名称列表（如 ['momentum_20d', 'volatility_60d', 'pe_percentile']）
+        pe_history: PE历史数据列表（每项含 trade_date, pe 等），用于计算PE百分位时间序列
+
+    Returns:
+        DataFrame with columns: date, factor1, factor2, ...
+    """
+    pe_pct_series = {}
+    if pe_history:
+        sorted_pe = sorted(pe_history, key=lambda x: x["trade_date"])
+        pe_values = []
+        for item in sorted_pe:
+            pe_val = item.get("pe")
+            if pe_val is not None and pe_val > 0:
+                pe_values.append(pe_val)
+                if len(pe_values) > 0:
+                    rank = sum(1 for v in pe_values if v <= pe_val)
+                    percentile = (rank / len(pe_values)) * 100
+                    pe_pct_series[item["trade_date"]] = percentile
+
+    rows = []
+    for i in range(len(prices)):
+        sub_prices = prices[: i + 1]
+        date = prices[i]["trade_date"]
+        pe_pct = pe_pct_series.get(date) if pe_pct_series else None
+
+        all_factors = compute_all_factors(code, sub_prices, pe_percentile=pe_pct)
+
+        row = {"date": date}
+        for f in factor_names:
+            row[f] = all_factors.get(f)
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    return df

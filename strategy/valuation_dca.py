@@ -14,8 +14,28 @@ class ValuationDCAStrategy(bt.Strategy):
     def __init__(self):
         self.day_count = 0
         self.pe_values = {}
+        self.trade_log = []
+        self.cumulative_pnl = 0.0
         for d in self.datas:
             self.pe_values[d] = []
+
+    def _log_trade(self, d, direction, size, price, reason):
+        amount = size * price
+        fee = amount * self.p.commission_rate
+        position_after = self.getposition(d).size + size
+        self.trade_log.append({
+            'date': self.data.datetime.date(0).isoformat(),
+            'code': d._name,
+            'direction': '买入',
+            'quantity': size,
+            'price': price,
+            'amount': amount,
+            'fee': fee,
+            'position_after': position_after,
+            'pnl': 0.0,
+            'cumulative_pnl': self.cumulative_pnl,
+            'reason': reason,
+        })
 
     def next(self):
         self.day_count += 1
@@ -40,10 +60,13 @@ class ValuationDCAStrategy(bt.Strategy):
 
             if percentile <= self.p.low_pctile:
                 multiplier = 2.0
+                reason = f"PE百分位{percentile:.1f}%，低于{self.p.low_pctile:.0f}%阈值，双倍定投"
             elif percentile >= self.p.high_pctile:
                 multiplier = 0.5
+                reason = f"PE百分位{percentile:.1f}%，高于{self.p.high_pctile:.0f}%阈值，减半定投"
             else:
                 multiplier = 1.0
+                reason = f"PE百分位{percentile:.1f}%，正常定投"
 
             invest_amount = self.p.dca_amount * multiplier
             price = d.close[0]
@@ -52,6 +75,7 @@ class ValuationDCAStrategy(bt.Strategy):
 
             size = int(invest_amount / price / 100) * 100
             if size > 0 and self.broker.getcash() > invest_amount:
+                self._log_trade(d, '买入', size, price, reason)
                 self.buy(d, size=size)
 
 

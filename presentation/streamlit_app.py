@@ -16,15 +16,43 @@ from strategy import dual_momentum, valuation_dca
 from strategy.scoring import (
     compute_all_factors,
     zscore_normalize,
-    equal_weight_score,
-    build_rank_table,
+    compute_factor_history,
     FACTOR_DIRECTIONS,
-    DEFAULT_FACTORS,
     FACTOR_LABELS,
 )
+from strategy.optimizer import (
+    optimize_parameters,
+    DUAL_MOMENTUM_PARAM_RANGES,
+    VALUATION_DCA_PARAM_RANGES,
+)
+from service.data_service import ensure_data_ready
 
-TUSHARE_TOKEN = "513fe191b298257675f19e1ff2acb6be83cd43cefb322a918b1e5d2d"
+TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 INITIAL_CAPITAL = 1000000
+
+REBALANCE_FREQ_OPTIONS = {
+    "5日（周线）": 5,
+    "10日（半月）": 10,
+    "20日（月线）": 20,
+    "60日（季线）": 60,
+    "120日（半年线）": 120,
+    "250日（年线）": 250,
+}
+
+PARAM_PRESETS = {
+    "双动量轮动": [
+        {"name": "🏆 激进高收益型（年化17%+）", "params": {"lookback_short": 20, "lookback_long": 250, "top_n": 1, "rebalance_freq": 10}},
+        {"name": "🥇 最优风险调整型（夏普0.87）", "params": {"lookback_short": 40, "lookback_long": 250, "top_n": 1, "rebalance_freq": 10}},
+        {"name": "🥈 均衡稳健型（年化14.6%）", "params": {"lookback_short": 40, "lookback_long": 250, "top_n": 1, "rebalance_freq": 20}},
+        {"name": "🥉 最低回撤型（回撤17.3%）", "params": {"lookback_short": 80, "lookback_long": 250, "top_n": 2, "rebalance_freq": 10}},
+        {"name": "📊 低频交易型（年化12.4%）", "params": {"lookback_short": 60, "lookback_long": 250, "top_n": 1, "rebalance_freq": 20}},
+        {"name": "⚙️ 自定义参数", "params": None},
+    ],
+    "估值百分位定投": [
+        {"name": "🥇 估值定投最优型", "params": {"dca_freq": 30, "low_pctile": 20, "high_pctile": 80, "valuation_period": 250}},
+        {"name": "⚙️ 自定义参数", "params": None},
+    ],
+}
 
 st.set_page_config(page_title="ETF量化策略平台", layout="wide")
 
@@ -37,190 +65,546 @@ price_repo = PriceRepository(get_db(db_path))
 etf_repo = ETFRepository(get_db(db_path))
 valuation_repo = ValuationRepo(db_path)
 
+
+def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type, params):
+    data_dict = {}
+    for code in selected_codes:
+        prices = price_repo.get_daily_price(code)
+        if prices:
+            df = pd.DataFrame(prices)
+            data_dict[code] = df
+
+    if strategy_type == "双动量轮动":
+        result = dual_momentum.run_backtest(
+            data_dict,
+            initial_capital=INITIAL_CAPITAL,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+            **params,
+        )
+    else:
+        result = valuation_dca.run_backtest(
+            data_dict,
+            initial_capital=INITIAL_CAPITAL,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+            **params,
+        )
+    return result
+
+
+def build_trade_table(trade_list):
+    if not trade_list:
+        return pd.DataFrame()
+
+    rows = []
+    for t in trade_list:
+        code = t.get('code', '')
+        etf_info = etf_repo.get_etf(code)
+        name = etf_info.get('name', '') if etf_info else ''
+        direction = t.get('direction', '')
+        if direction == '买入':
+            direction_display = '🟢 买入'
+        elif direction == '卖出':
+            direction_display = '🔴 卖出'
+        else:
+            direction_display = direction
+
+        rows.append({
+            '日期': t.get('date', ''),
+            '代码': code,
+            '名称': name,
+            '方向': direction_display,
+            '数量': t.get('quantity', 0),
+            '价格': round(t.get('price', 0), 3),
+            '金额': round(t.get('amount', 0), 2),
+            '手续费': round(t.get('fee', 0), 2),
+            '持仓后': t.get('position_after', 0),
+            '当笔盈亏': round(t.get('pnl', 0), 2),
+            '累计盈亏': round(t.get('cumulative_pnl', 0), 2),
+            '调仓原因': t.get('reason', ''),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def compute_factor_snapshot(selected_codes):
+    etf_factors = {}
+    etf_names = {}
+    active_factors = []
+
+    for code in selected_codes:
+        prices = price_repo.get_daily_price(code)
+        if len(prices) < 60:
+            continue
+
+        pe_pct = valuation_repo.get_pe_percentile(code)
+        factors = compute_all_factors(code, prices, pe_percentile=pe_pct)
+
+        if factors:
+            etf_factors[code] = factors
+            etf_info = etf_repo.get_etf(code)
+            etf_names[code] = etf_info.get("name", "") if etf_info else ""
+            for f in factors.keys():
+                if f not in active_factors:
+                    active_factors.append(f)
+
+    if not etf_factors:
+        return {}, {}, [], {}
+
+    zscores = zscore_normalize(etf_factors, active_factors)
+    return etf_factors, zscores, active_factors, etf_names
+
+
+@st.dialog("ETF详情", width="large")
+def show_etf_detail(code):
+    etf_info = etf_repo.get_etf(code)
+    name = etf_info.get('name', '') if etf_info else ''
+    st.subheader(f"{code} · {name}")
+
+    selected_codes = st.session_state.get('selected_codes', [code])
+    if code not in selected_codes:
+        selected_codes = [code] + list(selected_codes)
+
+    etf_factors, zscores, active_factors, etf_names = compute_factor_snapshot(selected_codes)
+
+    st.markdown("#### 因子快照")
+    if code in etf_factors and active_factors:
+        snapshot_rows = []
+        for f in active_factors:
+            raw_val = etf_factors[code].get(f)
+            z_val = zscores.get(code, {}).get(f)
+            direction = FACTOR_DIRECTIONS.get(f, 1)
+            label = FACTOR_LABELS.get(f, f)
+
+            if z_val is not None:
+                if direction == 1:
+                    status = "🟢 有利" if z_val > 0 else "🔴 不利"
+                else:
+                    status = "🟢 有利" if z_val < 0 else "🔴 不利"
+            else:
+                status = "-"
+
+            if raw_val is not None:
+                if f == "avg_amount_20d":
+                    raw_display = f"{round(raw_val / 10000, 0):,.0f} 万"
+                else:
+                    raw_display = f"{round(raw_val, 2)}"
+            else:
+                raw_display = "-"
+
+            z_display = f"{round(z_val, 2)}" if z_val is not None else "-"
+            direction_display = "正向↑" if direction == 1 else "反向↓"
+
+            snapshot_rows.append({
+                '因子名称': label,
+                '原始值': raw_display,
+                'Z-score': z_display,
+                '方向': direction_display,
+                '状态': status,
+            })
+        st.dataframe(pd.DataFrame(snapshot_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("暂无足够因子数据")
+
+    st.markdown("#### 因子历史走势")
+    factor_options = [FACTOR_LABELS.get(f, f) for f in active_factors]
+    if factor_options:
+        selected_factor_label = st.selectbox("选择因子", factor_options, key="detail_factor_select")
+        factor_map = {FACTOR_LABELS.get(f, f): f for f in active_factors}
+        selected_factor = factor_map.get(selected_factor_label)
+
+        if selected_factor:
+            prices = price_repo.get_daily_price(code)
+            pe_history = valuation_repo.get_pe_history(code) if selected_factor in ['pe_percentile', 'pb_percentile'] else None
+            hist_df = compute_factor_history(code, prices, [selected_factor], pe_history=pe_history)
+            if not hist_df.empty and selected_factor in hist_df.columns:
+                fig = px.line(
+                    hist_df,
+                    x='date',
+                    y=selected_factor,
+                    title=f"{selected_factor_label} 历史走势",
+                    labels={'date': '日期', selected_factor: selected_factor_label},
+                    template='plotly_white',
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("暂无历史走势数据")
+    else:
+        st.info("暂无可用因子")
+
+    st.markdown("#### 本次回测交易记录")
+    result = st.session_state.get('result')
+    if result and result.get('trade_list'):
+        code_trades = [t for t in result['trade_list'] if t.get('code') == code]
+        if code_trades:
+            trade_df = build_trade_table(code_trades)
+            st.dataframe(trade_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("该ETF在本次回测中无交易记录")
+    else:
+        st.info("请先运行回测以查看交易记录")
+
+    if st.button("关闭", use_container_width=True):
+        st.rerun()
+
+
 with st.sidebar:
-    st.header("数据管理")
-    if st.button("拉取ETF列表"):
-        with st.spinner("正在拉取..."):
-            etf_list = data_source.get_etf_list()
-            for etf in etf_list[:50]:
-                etf_repo.insert_etf(etf['code'], etf['name'])
-            st.success(f"已拉取 {len(etf_list)} 只ETF")
-
+    st.subheader("📊 ETF选择")
     etf_list = etf_repo.list_etfs()
-    etf_codes = [e['code'] for e in etf_list]
-    selected_codes = st.multiselect("选择ETF", etf_codes, default=["510300", "510500", "512480"])
+    etf_options = {f"{e['code']} - {e['name']}": e['code'] for e in etf_list}
+    all_labels = list(etf_options.keys())
 
+    default_codes = ["510300", "510500", "512480"]
+    available_defaults = [c for c in default_codes if c in etf_options.values()]
+    if not available_defaults and etf_list:
+        available_defaults = [etf_list[0]['code'], etf_list[1]['code'], etf_list[2]['code']]
+    default_labels = [k for k, v in etf_options.items() if v in available_defaults]
+
+    if 'etf_multiselect' not in st.session_state:
+        st.session_state['etf_multiselect'] = default_labels
+
+    def select_all_etfs():
+        st.session_state['etf_multiselect'] = list(all_labels)
+
+    def clear_all_etfs():
+        st.session_state['etf_multiselect'] = []
+
+    col_sel1, col_sel2 = st.columns(2)
+    with col_sel1:
+        st.button("全选", use_container_width=True, key="btn_select_all", on_click=select_all_etfs)
+    with col_sel2:
+        st.button("清空", use_container_width=True, key="btn_clear_all", on_click=clear_all_etfs)
+
+    selected_labels = st.multiselect(
+        "选择ETF",
+        all_labels,
+        key="etf_multiselect",
+    )
+    selected_codes = [etf_options[l] for l in selected_labels]
+    st.session_state['selected_codes'] = selected_codes
+    st.caption(f"已选择 {len(selected_codes)} 只ETF")
+
+    st.markdown("---")
+    st.subheader("📅 日期范围")
     start_date = st.date_input("开始日期", datetime(2019, 1, 1))
     end_date = st.date_input("结束日期", datetime(2024, 12, 31))
 
-    if st.button("拉取行情数据"):
-        with st.spinner("正在拉取..."):
-            prices_by_code = {}
-            for code in selected_codes:
-                prices = data_source.get_daily_price(
-                    code,
-                    start_date.strftime("%Y-%m-%d"),
-                    end_date.strftime("%Y-%m-%d")
-                )
-                prices_by_code[code] = prices
-            price_repo.batch_insert(prices_by_code)
-            st.success(f"已拉取 {len(selected_codes)} 只ETF行情数据")
-
-    if st.button("拉取PE历史数据"):
-        with st.spinner("正在拉取指数PE历史（5000+条）..."):
-            success_count = 0
-            for code in selected_codes:
-                pe_history = data_source.get_index_pe_history(code)
-                if pe_history:
-                    valuation_repo.batch_insert_pe_history(code, pe_history)
-                    success_count += 1
-            st.success(f"已拉取 {success_count}/{len(selected_codes)} 只ETF的PE历史数据")
-
-    st.header("因子配置")
-    default_factors = DEFAULT_FACTORS
-    selected_factors = st.multiselect(
-        "选择因子（等权加权）",
-        list(FACTOR_LABELS.keys()),
-        default=default_factors,
-        format_func=lambda x: FACTOR_LABELS[x],
-    )
-
-    st.header("策略参数")
+    st.markdown("---")
+    st.subheader("⚙️ 策略参数")
     strategy_type = st.selectbox("策略类型", ["双动量轮动", "估值百分位定投"])
-    top_n = st.slider("选择标的数", 1, 5, 3)
+    st.session_state['strategy_type'] = strategy_type
 
-tab1, tab2, tab3, tab4 = st.tabs(["推荐列表", "因子明细", "回测结果", "净值曲线"])
+    presets = PARAM_PRESETS.get(strategy_type, [])
+    preset_names = [p["name"] for p in presets]
+    preset_select = st.selectbox("参数预设", preset_names, index=0)
+    selected_preset = next((p for p in presets if p["name"] == preset_select), None)
+    preset_params = selected_preset.get("params") if selected_preset else None
+    is_custom = preset_params is None
 
-with tab1:
-    st.subheader("📊 ETF推荐列表（Z-score标准化 · 等权加权）")
-    if st.button("生成推荐"):
-        with st.spinner("正在计算因子..."):
-            etf_factors = {}
-            etf_names = {}
+    if strategy_type == "双动量轮动":
+        if is_custom:
+            lookback_short = st.slider("短期动量回看(日)", 5, 120, 60)
+            lookback_long = st.slider("长期动量回看(日)", 20, 300, 120)
+            top_n = st.slider("选择标的数", 1, 10, 3)
+            rebalance_label = st.selectbox(
+                "调仓频率",
+                list(REBALANCE_FREQ_OPTIONS.keys()),
+                index=2,
+            )
+            rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
+        else:
+            lookback_short = preset_params["lookback_short"]
+            lookback_long = preset_params["lookback_long"]
+            top_n = preset_params["top_n"]
+            rebalance_days = preset_params["rebalance_freq"]
+            rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
 
-            for code in selected_codes:
-                prices = price_repo.get_daily_price(code)
-                if len(prices) < 60:
-                    continue
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.info(f"短期动量: {lookback_short}日")
+                st.info(f"长期动量: {lookback_long}日")
+            with col_p2:
+                st.info(f"选择标的: {top_n}只")
+                st.info(f"调仓频率: {rebalance_label}")
 
-                # 优先使用真实PE历史百分位，回退到50.0
-                pe_pct = valuation_repo.get_pe_percentile(code)
-                pe_count = valuation_repo.get_pe_history_count(code)
-                factors = compute_all_factors(code, prices, pe_percentile=pe_pct)
+        params = {
+            "lookback_short": lookback_short,
+            "lookback_long": lookback_long,
+            "top_n": top_n,
+            "rebalance_freq": rebalance_days,
+        }
+    else:
+        if is_custom:
+            dca_label = st.selectbox(
+                "定投频率",
+                list(REBALANCE_FREQ_OPTIONS.keys()),
+                index=2,
+            )
+            dca_freq = REBALANCE_FREQ_OPTIONS[dca_label]
+            low_pctile = st.slider("低估百分位(%)", 10, 50, 30)
+            high_pctile = st.slider("高估百分位(%)", 50, 90, 70)
+            valuation_period = st.slider("估值计算周期(日)", 60, 500, 250)
+        else:
+            dca_freq = preset_params["dca_freq"]
+            low_pctile = preset_params["low_pctile"]
+            high_pctile = preset_params["high_pctile"]
+            valuation_period = preset_params["valuation_period"]
+            dca_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == dca_freq), "20日（月线）")
 
-                if factors:
-                    if pe_count > 0:
-                        factors["pe_latest"] = valuation_repo.get_latest_pe(code)
-                        factors["pe_history_count"] = float(pe_count)
-                    etf_factors[code] = factors
-                    etf_info = etf_repo.get_etf(code)
-                    etf_names[code] = etf_info.get("name", "") if etf_info else ""
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.info(f"定投频率: {dca_label}")
+                st.info(f"低估阈值: {low_pctile}%")
+            with col_p2:
+                st.info(f"高估阈值: {high_pctile}%")
+                st.info(f"估值周期: {valuation_period}日")
 
-            if not etf_factors:
-                st.warning("暂无足够数据，请先拉取行情数据（至少60个交易日）")
+        params = {
+            "dca_freq": dca_freq,
+            "low_pctile": low_pctile,
+            "high_pctile": high_pctile,
+            "valuation_period": valuation_period,
+        }
+
+    st.markdown("---")
+    st.subheader("🚀 参数优化")
+    enable_optimization = st.checkbox("启用自动参数优化", value=False)
+    if enable_optimization:
+        target_metric = st.selectbox(
+            "优化目标",
+            ["sharpe_ratio（夏普比率）", "excess_return（超额收益）", "annual_return（年化收益）"],
+            index=0,
+        )
+        target_metric_map = {
+            "sharpe_ratio（夏普比率）": "sharpe_ratio",
+            "excess_return（超额收益）": "excess_return",
+            "annual_return（年化收益）": "annual_return",
+        }
+        target_metric = target_metric_map[target_metric]
+    else:
+        target_metric = None
+
+    st.markdown("---")
+    run_clicked = st.button("🧪 运行回测", type="primary", use_container_width=True)
+
+
+if run_clicked:
+    if not selected_codes:
+        st.error("请至少选择一只ETF")
+    else:
+        with st.status("正在准备数据...", expanded=True) as status:
+            st.write("检查并补全数据中...")
+            data_result = ensure_data_ready(
+                selected_codes,
+                start_date.strftime("%Y-%m-%d"),
+                end_date.strftime("%Y-%m-%d"),
+                data_source,
+                etf_repo,
+                price_repo,
+                valuation_repo,
+            )
+
+            if data_result['status'] == 'error':
+                status.update(label="数据准备失败", state="error", expanded=True)
+                st.error(f"❌ {data_result['message']}")
             else:
-                active_factors = [
-                    f for f in selected_factors
-                    if any(f in fs for fs in etf_factors.values())
-                ]
-                zscores = zscore_normalize(etf_factors, active_factors)
-                scores = equal_weight_score(zscores, active_factors)
-                df = build_rank_table(etf_factors, zscores, scores, etf_names, active_factors)
+                st.write("✅ 数据准备完成")
+                status.update(label="数据准备完成", state="complete", expanded=False)
 
-                st.success(f"共 {len(df)} 只ETF，基于 {len(active_factors)} 个因子 Z-score 标准化后等权加权")
-                st.dataframe(df, use_container_width=True)
+                data_dict = {}
+                for code in selected_codes:
+                    prices = price_repo.get_daily_price(code)
+                    if prices:
+                        df = pd.DataFrame(prices)
+                        data_dict[code] = df
 
-with tab2:
-    st.subheader("🔍 因子说明")
-    st.markdown("""
-    **因子方向约定**
-    - 正向因子（值越高越好）：动量、成交额、股息率
-    - 反向因子（值越低越好）：波动率、PE/PB百分位
+                if enable_optimization:
+                    with st.spinner("正在参数优化...（可能需要几分钟）"):
+                        if strategy_type == "双动量轮动":
+                            opt_result = optimize_parameters(
+                                dual_momentum,
+                                data_dict,
+                                DUAL_MOMENTUM_PARAM_RANGES,
+                                start_date=start_date.strftime("%Y-%m-%d"),
+                                end_date=end_date.strftime("%Y-%m-%d"),
+                                initial_capital=INITIAL_CAPITAL,
+                                target_metric=target_metric,
+                            )
+                        else:
+                            opt_result = optimize_parameters(
+                                valuation_dca,
+                                data_dict,
+                                VALUATION_DCA_PARAM_RANGES,
+                                start_date=start_date.strftime("%Y-%m-%d"),
+                                end_date=end_date.strftime("%Y-%m-%d"),
+                                initial_capital=INITIAL_CAPITAL,
+                                target_metric=target_metric,
+                            )
+                        
+                        st.session_state['result'] = opt_result['best_result']
+                        st.session_state['optimize_result'] = opt_result
+                        st.session_state['selected_codes_saved'] = selected_codes
+                        
+                        best_params_str = ', '.join(f"{k}={v}" for k, v in opt_result['best_params'].items())
+                        st.success(f"✅ 参数优化完成！最优参数: {best_params_str}（耗时 {opt_result['elapsed_time']:.1f}s）")
+                else:
+                    with st.spinner("正在运行回测..."):
+                        result = run_backtest_for_result(
+                            selected_codes,
+                            start_date,
+                            end_date,
+                            strategy_type,
+                            params,
+                        )
+                        st.session_state['result'] = result
+                        st.session_state['selected_codes_saved'] = selected_codes
+                        st.success(f"✅ {strategy_type} 回测完成（{start_date} ~ {end_date}）")
 
-    **Z-score 标准化**
-    - 对每只ETF的因子值做 (x - μ) / σ 计算
-    - 反向因子额外乘以 -1，确保所有因子方向一致
-    - 极值截断在 [-3, 3] 区间，避免异常值干扰
 
-    **等权加权**
-    - 所有选中因子权重相同，简单平均得到综合评分
-    - 综合评分越高，排名越靠前
-    """)
+result = st.session_state.get('result')
+if result:
+    st.markdown("### 📊 回测概览")
 
-with tab3:
-    st.subheader("🧪 回测结果")
-    if st.button("运行回测"):
-        with st.spinner("正在回测..."):
-            data_dict = {}
-            for code in selected_codes:
-                prices = price_repo.get_daily_price(code)
-                if prices:
-                    df = pd.DataFrame(prices)
-                    data_dict[code] = df
-            
-            if strategy_type == "双动量轮动":
-                result = dual_momentum.run_backtest(
-                    data_dict,
-                    initial_capital=INITIAL_CAPITAL,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"),
-                    top_n=top_n,
-                    lookback_short=60,
-                    lookback_long=120,
-                )
-            else:
-                result = valuation_dca.run_backtest(
-                    data_dict,
-                    initial_capital=INITIAL_CAPITAL,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"),
-                )
-            
-            metrics = {
-                '指标': ['最终市值', '总收益率(%)', '年化收益率(%)', '夏普比率', '最大回撤(%)', '交易次数'],
-                '值': [
-                    f"{result['final_value']:,.2f}",
-                    f"{result['total_return']:.2f}",
-                    f"{result['annual_return']:.2f}",
-                    f"{result['sharpe_ratio']:.2f}",
-                    f"{result['max_drawdown']:.2f}",
-                    result['num_trades'],
-                ]
-            }
-            st.dataframe(pd.DataFrame(metrics), use_container_width=True)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("最终市值", f"{result['final_value']:,.0f}",
+                  delta=f"{result['total_return']:+.2f}%")
+    with col2:
+        st.metric("年化收益率", f"{result['annual_return']:.2f}%")
+    with col3:
+        st.metric("夏普比率", f"{result['sharpe_ratio']:.2f}")
+    with col4:
+        st.metric("最大回撤", f"{result['max_drawdown']:.2f}%",
+                  delta=f"持续 {result['max_drawdown_days']:.0f} 天",
+                  delta_color="inverse")
 
-with tab4:
-    st.subheader("📈 净值曲线")
-    if st.button("生成曲线"):
-        with st.spinner("正在计算..."):
-            data_dict = {}
-            for code in selected_codes:
-                prices = price_repo.get_daily_price(code)
-                if prices:
-                    df = pd.DataFrame(prices)
-                    data_dict[code] = df
-            
-            if strategy_type == "双动量轮动":
-                nav_df = dual_momentum.get_nav_curve(
-                    data_dict,
-                    initial_capital=INITIAL_CAPITAL,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"),
-                    top_n=top_n,
-                    lookback_short=60,
-                    lookback_long=120,
-                )
-            else:
-                nav_df = valuation_dca.get_nav_curve(
-                    data_dict,
-                    initial_capital=INITIAL_CAPITAL,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"),
-                )
-            
-            fig = px.line(nav_df, x='date', y='nav', 
-                         title=f'{strategy_type}策略净值曲线',
-                         labels={'nav': '净值', 'date': '日期'},
-                         template='plotly_white')
-            fig.update_layout(yaxis_range=[0.5, 2.0])
-            st.plotly_chart(fig, use_container_width=True)
+    col5, col6, col7, col8 = st.columns(4)
+    with col5:
+        st.metric("买入持有基准", f"{result['benchmark_return']:.2f}%",
+                  delta=f"超额 {result['excess_return']:+.2f}%")
+    with col6:
+        st.metric("交易次数", result['num_trades'])
+    with col7:
+        st.metric("胜率", f"{result['win_rate']:.1f}%")
+    with col8:
+        st.metric("盈亏比", f"{result['profit_factor']:.2f}")
+
+    st.markdown("---")
+
+    with st.expander("📋 详细绩效指标", expanded=True):
+        detail_metrics = {
+            '指标': [
+                '初始资金', '最终市值', '总收益率(%)', '基准收益率(%)', '超额收益(%)',
+                '年化收益率(%)', '夏普比率', '最大回撤(%)', '最大回撤持续天数',
+                '交易次数', '盈利次数', '亏损次数', '胜率(%)', '盈亏比',
+                '平均盈利', '平均亏损', '平均持仓天数',
+            ],
+            '值': [
+                f"{INITIAL_CAPITAL:,.0f}",
+                f"{result['final_value']:,.2f}",
+                f"{result['total_return']:.2f}",
+                f"{result['benchmark_return']:.2f}",
+                f"{result['excess_return']:+.2f}",
+                f"{result['annual_return']:.2f}",
+                f"{result['sharpe_ratio']:.2f}",
+                f"{result['max_drawdown']:.2f}",
+                f"{result['max_drawdown_days']:.0f}",
+                result['num_trades'],
+                int(result['num_trades'] * result['win_rate'] / 100) if result['num_trades'] else 0,
+                int(result['num_trades'] * (1 - result['win_rate'] / 100)) if result['num_trades'] else 0,
+                f"{result['win_rate']:.1f}",
+                f"{result['profit_factor']:.2f}",
+                f"{result['avg_win']:,.2f}",
+                f"{result['avg_lost']:,.2f}",
+                f"{result['avg_hold_days']:.1f}",
+            ]
+        }
+        st.dataframe(pd.DataFrame(detail_metrics), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    optimize_result = st.session_state.get('optimize_result')
+    if optimize_result and optimize_result.get('all_results'):
+        st.markdown("### 🎯 参数优化结果")
+        col_opt1, col_opt2, col_opt3 = st.columns(3)
+        with col_opt1:
+            st.metric("最优参数", optimize_result['best_params'])
+        with col_opt2:
+            st.metric("优化目标", optimize_result['target_metric'])
+        with col_opt3:
+            st.metric("总组合数", optimize_result['total_combinations'])
+        
+        with st.expander("📊 参数敏感性分析（Top 10）", expanded=True):
+            top_results = optimize_result['all_results'][:10]
+            opt_rows = []
+            for r in top_results:
+                opt_rows.append({
+                    '参数': r.get('param_str', ''),
+                    '总收益(%)': f"{r.get('total_return', 0):.2f}",
+                    '年化(%)': f"{r.get('annual_return', 0):.2f}",
+                    '夏普比率': f"{r.get('sharpe_ratio', 0):.2f}",
+                    '最大回撤(%)': f"{r.get('max_drawdown', 0):.2f}",
+                    '超额收益(%)': f"{r.get('excess_return', 0):.2f}",
+                })
+            st.dataframe(pd.DataFrame(opt_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### 📈 净值曲线（策略 vs 基准）")
+    nav_df = result.get('nav_df')
+    benchmark_nav_df = result.get('benchmark_nav_df')
+    
+    if nav_df is not None and not nav_df.empty:
+        # 合并策略净值和基准净值
+        plot_df = nav_df.copy()
+        if benchmark_nav_df is not None and not benchmark_nav_df.empty:
+            plot_df = plot_df.merge(benchmark_nav_df, on='date', how='left')
+            plot_df.ffill(inplace=True)
+        
+        fig = px.line(
+            plot_df,
+            x='date',
+            y=['nav', 'benchmark_nav'] if 'benchmark_nav' in plot_df.columns else ['nav'],
+            title=f"{st.session_state.get('strategy_type', '')}策略净值曲线 vs 等权买入持有基准",
+            labels={'nav': '策略净值', 'benchmark_nav': '基准净值', 'date': '日期'},
+            template='plotly_white',
+            color_discrete_map={'nav': '#1f77b4', 'benchmark_nav': '#ff7f0e'},
+        )
+        fig.update_layout(
+            legend=dict(title=''),
+            yaxis_range=[0.5, 2.5],
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("暂无净值曲线数据")
+
+    st.markdown("---")
+    st.markdown("### 📝 交易明细")
+    trade_list = result.get('trade_list', [])
+    if trade_list:
+        trade_df = build_trade_table(trade_list)
+        st.dataframe(trade_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("暂无交易记录")
+
+    st.markdown("---")
+    st.markdown("### 🔍 ETF详情查看器")
+
+    detail_codes = st.session_state.get('selected_codes_saved', selected_codes)
+    if detail_codes:
+        col_select, col_btn = st.columns([3, 1])
+        with col_select:
+            detail_code = st.selectbox(
+                "选择ETF查看详情",
+                detail_codes,
+                format_func=lambda x: f"{x} - {etf_repo.get_etf(x).get('name', '') if etf_repo.get_etf(x) else ''}",
+                key="detail_code_selector",
+            )
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("查看详情", type="primary", use_container_width=True):
+                st.session_state['detail_code'] = detail_code
+                show_etf_detail(detail_code)
+    else:
+        st.info("请选择ETF并运行回测")
+else:
+    st.info("👈 请在左侧选择参数，点击「运行回测」开始分析")
