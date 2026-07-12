@@ -76,60 +76,18 @@ def run_backtest(
     drawdown_len = dd.get('max', {}).get('len', 0) if dd else 0
     annual_return = strat.analyzers.returns.get_analysis().get('rnorm100', 0)
 
-    # 买入持有基准（等权配置所有标的）
-    benchmark_return = 0.0
-    benchmark_nav_df = None
-    if data_dict:
-        # 构建基准净值曲线（等权买入持有）
-        # 方法：计算每只ETF的日收益率，取等权平均后复利
-        etf_daily_returns = {}
-        for code, df in data_dict.items():
-            df_copy = df.copy()
-            if start_date:
-                df_copy = df_copy[df_copy['trade_date'] >= start_date]
-            if end_date:
-                df_copy = df_copy[df_copy['trade_date'] <= end_date]
-            df_copy = df_copy.sort_values('trade_date').drop_duplicates('trade_date')
-            if len(df_copy) >= 2:
-                df_copy['daily_return'] = df_copy['close'].pct_change()
-                etf_daily_returns[code] = df_copy[['trade_date', 'daily_return']].dropna()
+    # 多基准对比
+    from strategy.benchmark import build_benchmarks, DEFAULT_BENCHMARKS
+    from strategy.comparator import compare
 
-        if etf_daily_returns:
-            # 合并所有ETF的日收益率，按日期对齐
-            merged = None
-            for code, df_ret in etf_daily_returns.items():
-                df_ret = df_ret.rename(columns={'daily_return': code})
-                if merged is None:
-                    merged = df_ret
-                else:
-                    merged = merged.merge(df_ret, on='trade_date', how='outer')
-
-            if merged is not None and not merged.empty:
-                merged = merged.sort_values('trade_date').ffill()
-                # 等权平均日收益率
-                code_cols = [c for c in merged.columns if c != 'trade_date']
-                merged['avg_daily_return'] = merged[code_cols].mean(axis=1)
-                # 复利计算基准净值
-                benchmark_nav = 1.0
-                benchmark_nav_list = []
-                for _, row in merged.iterrows():
-                    ret = row['avg_daily_return']
-                    if pd.notna(ret):
-                        benchmark_nav *= (1 + ret)
-                        benchmark_nav_list.append({
-                            'date': pd.to_datetime(row['trade_date']),
-                            'benchmark_nav': benchmark_nav,
-                        })
-
-                benchmark_nav_df = pd.DataFrame(benchmark_nav_list)
-                if len(benchmark_nav_df) >= 2:
-                    benchmark_return = (benchmark_nav_df.iloc[-1]['benchmark_nav'] - 1) * 100
+    benchmark_navs = build_benchmarks(data_dict, DEFAULT_BENCHMARKS, start_date, end_date)
+    comparison = compare(nav_df, benchmark_navs)
 
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
-        'benchmark_return': benchmark_return,
-        'excess_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100 - benchmark_return,
+        'benchmark_return': comparison.get('benchmark_metrics', {}).get('等权持有', {}).get('total_return', 0.0),
+        'excess_return': comparison.get('comparison', {}).get('等权持有', {}).get('excess_return', 0.0),
         'sharpe_ratio': sharpe,
         'max_drawdown': drawdown,
         'max_drawdown_days': drawdown_len,
@@ -142,7 +100,8 @@ def run_backtest(
         'avg_hold_days': avg_hold,
         'trade_list': trade_list,
         'nav_df': nav_df,
-        'benchmark_nav_df': benchmark_nav_df,
+        'comparison': comparison,
+        'benchmark_navs': benchmark_navs,
     }
 
 
