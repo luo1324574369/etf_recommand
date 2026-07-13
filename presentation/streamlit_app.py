@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 
 from data.sources.hybrid_source import HybridDataSource, ETF_INDEX_MAP
@@ -585,7 +586,7 @@ if result:
             st.dataframe(pd.DataFrame(opt_rows), use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### 📈 净值曲线（策略 vs 多基准）")
+    st.markdown("### 📈 收益曲线")
 
     with st.expander("📖 基准说明", expanded=False):
         st.markdown("""
@@ -596,54 +597,82 @@ if result:
         - **中证500**：中盘成长风格标尺（510500）
         - **创业板**：小盘成长风格标尺（159915）
 
-        所有净值均从回测起始日的1.0开始计算，点击图例可隐藏/显示某条线。
+        收益曲线从0%开始计算，点击图例可隐藏/显示某条线。
         """)
 
-    nav_df = result.get('nav_df')
     comp = result.get('comparison', {})
-    benchmark_navs = result.get('benchmark_navs', {})
+    cr_df = comp.get('cumulative_return_df')
+    dr_df = comp.get('daily_return_df')
     bench_names = list(comp.get('benchmark_metrics', {}).keys())
 
-    if nav_df is not None and not nav_df.empty:
-        plot_df = nav_df.copy()
-        plot_df = plot_df.rename(columns={'nav': '策略'})
+    if cr_df is not None and not cr_df.empty and bench_names:
+        selected_bench = st.selectbox("选择对比基准", bench_names, key='returns_bench_select', index=0)
 
-        for name, bnav_df in benchmark_navs.items():
-            if not bnav_df.empty:
-                plot_df = plot_df.merge(
-                    bnav_df.rename(columns={'nav': name}),
-                    on='date', how='outer'
-                )
+        fig = go.Figure()
 
-        plot_df.sort_values('date', inplace=True)
-        plot_df.ffill(inplace=True)
+        # 策略收益
+        fig.add_trace(go.Scatter(
+            x=cr_df['date'], y=cr_df['strategy'],
+            name='策略收益',
+            line=dict(color='#1f77b4', width=3),
+            mode='lines',
+        ))
 
-        y_cols = ['策略'] + [n for n in bench_names if n in plot_df.columns]
-        color_map = {
-            '策略': '#1f77b4',
-            '等权持有': '#7f7f7f',
-            '沪深300': '#d62728',
-            '中证500': '#2ca02c',
-            '创业板': '#9467bd',
-        }
+        # 基准收益
+        fig.add_trace(go.Scatter(
+            x=cr_df['date'], y=cr_df[selected_bench],
+            name=f'{selected_bench}收益',
+            line=dict(color='#d62728', width=2),
+            mode='lines',
+        ))
 
-        fig = px.line(
-            plot_df, x='date', y=y_cols,
-            title="策略净值 vs 多基准",
-            template='plotly_white',
-            color_discrete_map=color_map,
-        )
-        fig.update_traces(
-            selector=dict(name='策略'),
-            line_width=3,
-        )
+        # 超额收益
+        excess = cr_df['strategy'] - cr_df[selected_bench]
+        fig.add_trace(go.Scatter(
+            x=cr_df['date'], y=excess,
+            name='超额收益',
+            line=dict(color='#ff7f0e', width=2),
+            mode='lines',
+            fill='tozeroy',
+            fillcolor='rgba(127,127,127,0.2)',
+        ))
+
         fig.update_layout(
+            title="累计收益率对比",
+            template='plotly_white',
             legend=dict(title=''),
-            yaxis_title='净值（起点=1.0）',
+            yaxis=dict(
+                title='收益率(%)',
+                tickformat='.0f',
+            ),
+            xaxis=dict(title='日期'),
+            height=400,
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # 日收益率柱状图
+        if dr_df is not None and not dr_df.empty:
+            colors = ['#2ca02c' if v >= 0 else '#d62728' for v in dr_df['strategy']]
+            fig_daily = go.Figure(go.Bar(
+                x=dr_df['date'],
+                y=dr_df['strategy'],
+                marker_color=colors,
+                name='日收益率',
+            ))
+            fig_daily.update_layout(
+                title="日收益率",
+                template='plotly_white',
+                legend=dict(title=''),
+                yaxis=dict(
+                    title='收益率(%)',
+                    tickformat='.1f',
+                ),
+                xaxis=dict(title='日期'),
+                height=200,
+            )
+            st.plotly_chart(fig_daily, use_container_width=True)
     else:
-        st.info("暂无净值曲线数据")
+        st.info("暂无收益曲线数据")
 
     st.markdown("---")
     st.markdown("### 📉 回撤对比")
