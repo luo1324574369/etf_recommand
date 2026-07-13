@@ -151,6 +151,23 @@ def init_db(db_path) -> None:
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS validation_result (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                etf_code TEXT NOT NULL,
+                factor_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT,
+                metrics_json TEXT,
+                validated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_validation_etf_factor
+            ON validation_result (etf_code, factor_name)
+        """)
+
         conn.commit()
     finally:
         conn.close()

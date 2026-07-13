@@ -117,8 +117,17 @@ def ensure_data_ready(
     etf_repo,
     price_repo,
     valuation_repo,
+    on_progress=None,
 ) -> dict:
-    from data.sources.hybrid_source import ETF_INDEX_MAP
+    """检查数据是否完整，不全则报错并返回命令行补充指令。
+
+    注意：本函数只做检查，不自动获取数据。
+    数据不全时返回 status='error'，message 中包含缺失详情和命令行指令。
+    """
+    from data.sources.hybrid_source import ETF_INDEX_MAP, ETF_CSINDEX_MAP
+
+    # 商品/海外ETF无PE概念，跳过PE检查
+    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}
 
     result = {
         'status': 'ok',
@@ -134,11 +143,9 @@ def ensure_data_ready(
     try:
         etf_list = etf_repo.list_etfs()
         if not etf_list:
-            source_etfs = data_source.get_etf_list()
-            top_50 = source_etfs[:50]
-            for etf in top_50:
+            for etf in ETF_UNIVERSE:
                 etf_repo.insert_etf(etf['code'], etf.get('name', etf['code']))
-            result['details']['etf_list']['count'] = len(top_50)
+            result['details']['etf_list']['count'] = len(ETF_UNIVERSE)
         else:
             result['details']['etf_list']['count'] = len(etf_list)
     except Exception as e:
@@ -147,67 +154,72 @@ def ensure_data_ready(
         result['details']['etf_list']['status'] = 'error'
         return result
 
-    # Step 2: Check price data
-    for code in selected_codes:
+    # Step 2: Check price data（只检查，不自动获取）
+    missing_prices = []
+    for idx, code in enumerate(selected_codes, 1):
+        if on_progress:
+            on_progress(f"检查行情数据: {code} ({idx}/{len(selected_codes)})")
         code_result = {'status': 'ok', 'count': 0, 'inserted': 0}
         try:
             existing = price_repo.get_daily_price(code, start_date, end_date)
             code_result['count'] = len(existing)
             if len(existing) < 20:
-                price_data = data_source.get_daily_price(code, start_date, end_date)
-                inserted = price_repo.insert_daily_price(code, price_data)
-                code_result['inserted'] = inserted
-                code_result['count'] = len(price_repo.get_daily_price(code, start_date, end_date))
-                if code_result['count'] < 20:
-                    code_result['status'] = 'error'
-                    result['details']['price_data']['status'] = 'error'
-                    result['status'] = 'error'
-                    result['message'] = f'Price data insufficient for {code}: only {code_result["count"]} bars'
+                code_result['status'] = 'insufficient'
+                missing_prices.append(code)
         except Exception as e:
             code_result['status'] = 'error'
-            result['details']['price_data']['status'] = 'error'
-            result['status'] = 'error'
-            result['message'] = f'Price data check failed for {code}: {str(e)}'
+            missing_prices.append(code)
         result['details']['price_data']['per_code'][code] = code_result
-        if result['status'] == 'error':
-            return result
 
-    # Step 3: Check PE history
-    # 阈值说明：宽基指数(3000+条)，行业ETF(139条月频)，csindex(20条)
-    # 要求 >=100 条，确保行业ETF用加权PE而非csindex的20条
+    if missing_prices:
+        result['status'] = 'error'
+        result['details']['price_data']['status'] = 'insufficient'
+        codes_str = ' '.join(missing_prices)
+        result['message'] = (
+            f"行情数据不足: {missing_prices} (各不足20条)\n"
+            f"请在命令行运行以下命令补充数据:\n\n"
+            f"  .venv/bin/python scripts/prepare_data.py {codes_str} --prices-only\n"
+        )
+        return result
+
+    # Step 3: Check PE history（只检查，不自动获取）
     PE_MIN_RECORDS = 100
+    missing_pe = []
+
     for code in selected_codes:
+        if code in PE_NOT_APPLICABLE:
+            result['details']['pe_history']['per_code'][code] = {
+                'status': 'skip', 'count': 0, 'inserted': 0,
+                'message': 'PE not applicable'
+            }
+            continue
+
         code_result = {'status': 'ok', 'count': 0, 'inserted': 0}
         try:
-            if code not in ETF_INDEX_MAP:
+            if code not in ETF_INDEX_MAP and code not in ETF_CSINDEX_MAP:
                 code_result['status'] = 'error'
-                result['details']['pe_history']['status'] = 'error'
-                result['status'] = 'error'
-                result['message'] = f'ETF {code} not found in ETF_INDEX_MAP'
-                result['details']['pe_history']['per_code'][code] = code_result
-                return result
-
-            count = valuation_repo.get_pe_history_count(code)
-            code_result['count'] = count
-            if count < PE_MIN_RECORDS:
-                pe_data = data_source.get_index_pe_history(code)
-                valuation_repo.batch_insert_pe_history(code, pe_data)
-                new_count = valuation_repo.get_pe_history_count(code)
-                code_result['inserted'] = new_count - count
-                code_result['count'] = new_count
-                if new_count < PE_MIN_RECORDS:
-                    code_result['status'] = 'error'
-                    result['details']['pe_history']['status'] = 'error'
-                    result['status'] = 'error'
-                    result['message'] = f'PE history insufficient for {code}: only {new_count} records (need >= {PE_MIN_RECORDS})'
-        except Exception as e:
+                missing_pe.append(code)
+            else:
+                count = valuation_repo.get_pe_history_count(code)
+                code_result['count'] = count
+                if count < PE_MIN_RECORDS:
+                    code_result['status'] = 'insufficient'
+                    missing_pe.append(code)
+        except Exception:
             code_result['status'] = 'error'
-            result['details']['pe_history']['status'] = 'error'
-            result['status'] = 'error'
-            result['message'] = f'PE history check failed for {code}: {str(e)}'
+            missing_pe.append(code)
         result['details']['pe_history']['per_code'][code] = code_result
-        if result['status'] == 'error':
-            return result
+
+    if missing_pe:
+        result['status'] = 'error'
+        result['details']['pe_history']['status'] = 'insufficient'
+        codes_str = ' '.join(missing_pe)
+        result['message'] = (
+            f"PE历史数据不足: {missing_pe} (需≥{PE_MIN_RECORDS}条)\n"
+            f"请在命令行运行以下命令补充数据:\n\n"
+            f"  .venv/bin/python scripts/prepare_data.py {codes_str} --pe-only\n"
+        )
+        return result
 
     result['message'] = 'All data ready'
     return result

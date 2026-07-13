@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from data.storage.db import get_db
 
 
@@ -196,5 +197,98 @@ class ValuationRepo:
                 WHERE code = ? AND pe IS NOT NULL
             """, (code,)).fetchone()
             return row[0] if row else 0
+        finally:
+            conn.close()
+
+    # ── 校验结果存储 ──────────────────────────────────
+
+    def save_validation_result(self, result: dict) -> int:
+        conn = get_db(self.db_path)
+        try:
+            cursor = conn.execute("""
+                INSERT INTO validation_result
+                (etf_code, factor_name, status, message, metrics_json)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                result.get("etf_code"),
+                result.get("factor_name"),
+                result.get("status"),
+                result.get("message"),
+                json.dumps(result.get("metrics", []), ensure_ascii=False),
+            ))
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def batch_save_validation_results(self, results: list[dict]) -> int:
+        conn = get_db(self.db_path)
+        try:
+            count = 0
+            for result in results:
+                conn.execute("""
+                    INSERT INTO validation_result
+                    (etf_code, factor_name, status, message, metrics_json)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    result.get("etf_code"),
+                    result.get("factor_name"),
+                    result.get("status"),
+                    result.get("message"),
+                    json.dumps(result.get("metrics", []), ensure_ascii=False),
+                ))
+                count += 1
+            conn.commit()
+            return count
+        finally:
+            conn.close()
+
+    def get_latest_validation(self, etf_code: str, factor_name: str) -> dict | None:
+        conn = get_db(self.db_path)
+        try:
+            row = conn.execute("""
+                SELECT * FROM validation_result
+                WHERE etf_code = ? AND factor_name = ?
+                ORDER BY validated_at DESC LIMIT 1
+            """, (etf_code, factor_name)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            if d.get("metrics_json"):
+                d["metrics"] = json.loads(d["metrics_json"])
+            else:
+                d["metrics"] = []
+            return d
+        finally:
+            conn.close()
+
+    def list_validation_results(self, factor_name: str = None) -> list[dict]:
+        conn = get_db(self.db_path)
+        try:
+            query = """
+                SELECT vr.* FROM validation_result vr
+                INNER JOIN (
+                    SELECT etf_code, factor_name, MAX(validated_at) as latest_at
+                    FROM validation_result
+            """
+            params = []
+            if factor_name:
+                query += " WHERE factor_name = ?"
+                params.append(factor_name)
+            query += """
+                    GROUP BY etf_code, factor_name
+                ) t ON vr.etf_code = t.etf_code AND vr.factor_name = t.factor_name AND vr.validated_at = t.latest_at
+                ORDER BY vr.etf_code
+            """
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for row in rows:
+                d = dict(row)
+                if d.get("metrics_json"):
+                    d["metrics"] = json.loads(d["metrics_json"])
+                else:
+                    d["metrics"] = []
+                results.append(d)
+            return results
         finally:
             conn.close()
