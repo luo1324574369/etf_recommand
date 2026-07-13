@@ -132,6 +132,45 @@ class TestComparator(unittest.TestCase):
         self.assertIn('strategy_metrics', result)
         self.assertEqual(len(result['benchmark_metrics']), 0)
 
+    def test_cumulative_return_df(self):
+        """累计收益率DataFrame"""
+        strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
+        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
+        result = compare(strategy_nav, benchmark_navs)
+
+        cr_df = result['cumulative_return_df']
+        self.assertIsInstance(cr_df, pd.DataFrame)
+        self.assertIn('date', cr_df.columns)
+        self.assertIn('strategy', cr_df.columns)
+        self.assertIn('等权持有', cr_df.columns)
+        self.assertAlmostEqual(cr_df.iloc[0]['strategy'], 0.0, places=2)
+        self.assertAlmostEqual(cr_df.iloc[0]['等权持有'], 0.0, places=2)
+
+    def test_daily_return_df(self):
+        """日收益率DataFrame"""
+        strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
+        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
+        result = compare(strategy_nav, benchmark_navs)
+
+        dr_df = result['daily_return_df']
+        self.assertIsInstance(dr_df, pd.DataFrame)
+        self.assertIn('date', dr_df.columns)
+        self.assertIn('strategy', dr_df.columns)
+        self.assertIn('等权持有', dr_df.columns)
+        self.assertTrue(pd.isna(dr_df.iloc[0]['strategy']))
+
+    def test_cumulative_return_values(self):
+        """累计收益率计算正确"""
+        strategy_nav = self._make_nav_df([0.10])  # nav: [1.0, 1.10]
+        benchmark_navs = {'等权持有': self._make_nav_df([0.05])}  # nav: [1.0, 1.05]
+        result = compare(strategy_nav, benchmark_navs)
+
+        cr_df = result['cumulative_return_df']
+        self.assertEqual(len(cr_df), 2)
+        self.assertAlmostEqual(cr_df.iloc[0]['strategy'], 0.0, places=2)
+        self.assertAlmostEqual(cr_df.iloc[1]['strategy'], 10.0, places=2)
+        self.assertAlmostEqual(cr_df.iloc[1]['等权持有'], 5.0, places=2)
+
 
 if __name__ == '__main__':
     unittest.main()

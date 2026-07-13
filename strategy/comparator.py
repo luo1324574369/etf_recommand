@@ -133,12 +133,40 @@ def compare(
     excess_nav_df = pd.DataFrame(excess_nav_data)
     drawdown_df = pd.DataFrame(drawdown_data)
 
+    cr_data = {'date': strategy_nav['date'].values}
+    dr_data = {'date': strategy_nav['date'].values}
+
+    cr_data['strategy'] = (strategy_nav['nav'] / strategy_nav.iloc[0]['nav'] - 1) * 100
+    dr_data['strategy'] = strategy_nav['nav'].pct_change() * 100
+
+    for name, nav_df in benchmark_navs.items():
+        if nav_df.empty:
+            continue
+        nav_df = nav_df.copy()
+        nav_df['date'] = pd.to_datetime(nav_df['date'])
+
+        nav_aligned = strategy_nav[['date']].merge(
+            nav_df[['date', 'nav']], on='date', how='left'
+        ).ffill()
+
+        if nav_aligned['nav'].iloc[0] > 0:
+            cr_data[name] = (nav_aligned['nav'] / nav_aligned.iloc[0]['nav'] - 1) * 100
+        else:
+            cr_data[name] = [0.0] * len(strategy_nav)
+
+        dr_data[name] = nav_aligned['nav'].pct_change() * 100
+
+    cumulative_return_df = pd.DataFrame(cr_data)
+    daily_return_df = pd.DataFrame(dr_data)
+
     return {
         'strategy_metrics': strategy_metrics,
         'benchmark_metrics': benchmark_metrics,
         'comparison': comparison,
         'excess_nav_df': excess_nav_df,
         'drawdown_df': drawdown_df,
+        'cumulative_return_df': cumulative_return_df,
+        'daily_return_df': daily_return_df,
     }
 
 
