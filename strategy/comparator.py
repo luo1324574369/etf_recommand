@@ -41,6 +41,25 @@ def compare(
     # 3. 对齐策略和基准的交易日
     strategy_nav = strategy_nav.copy()
     strategy_nav['date'] = pd.to_datetime(strategy_nav['date'])
+    strategy_nav = strategy_nav.reset_index(drop=True)
+
+    # 过滤基准数据到策略日期范围内
+    if not strategy_nav.empty:
+        min_date = strategy_nav['date'].min()
+        max_date = strategy_nav['date'].max()
+        filtered_benchmark_navs = {}
+        for name, bnav in benchmark_navs.items():
+            if bnav.empty:
+                continue
+            bnav = bnav.copy()
+            bnav['date'] = pd.to_datetime(bnav['date'])
+            bnav = bnav[(bnav['date'] >= min_date) & (bnav['date'] <= max_date)]
+            if not bnav.empty:
+                first_nav = bnav.iloc[0]['nav']
+                if first_nav > 0:
+                    bnav['nav'] = bnav['nav'] / first_nav
+                filtered_benchmark_navs[name] = bnav.reset_index(drop=True)
+        benchmark_navs = filtered_benchmark_navs
 
     # 4. 计算对比指标
     comparison = {}
@@ -78,7 +97,10 @@ def compare(
             first_nav = valid.iloc[0]['nav']
             first_bench = valid.iloc[0]['benchmark_nav']
             excess_nav = (valid['nav'] / first_nav) / (valid['benchmark_nav'] / first_bench)
-            excess_nav_data[name] = excess_nav.values
+            excess_nav_aligned = strategy_nav[['date']].merge(
+                excess_nav.reset_index(), on='date', how='left'
+            ).ffill()
+            excess_nav_data[name] = excess_nav_aligned[0].values
         else:
             excess_nav_data[name] = [1.0] * len(strategy_nav)
 

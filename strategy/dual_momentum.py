@@ -9,6 +9,7 @@ class DualMomentumStrategy(bt.Strategy):
         ('rebalance_freq', 20),
         ('commission_rate', 0.0003),
         ('min_momentum', 0),
+        ('start_date', None),  # 回测起始日，None表示不限
     )
 
     def __init__(self):
@@ -52,6 +53,12 @@ class DualMomentumStrategy(bt.Strategy):
         })
 
     def next(self):
+        # 回测起始日之前不交易
+        if self.p.start_date:
+            current_date = self.data.datetime.date(0)
+            if current_date < self.p.start_date:
+                return
+
         self.day_count += 1
         if self.day_count % self.p.rebalance_freq != 0:
             return

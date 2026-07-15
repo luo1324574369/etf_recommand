@@ -9,6 +9,7 @@ class ValuationDCAStrategy(bt.Strategy):
         ('low_pctile', 30),
         ('high_pctile', 70),
         ('commission_rate', 0.0003),
+        ('start_date', None),
     )
 
     def __init__(self):
@@ -38,6 +39,11 @@ class ValuationDCAStrategy(bt.Strategy):
         })
 
     def next(self):
+        if self.p.start_date:
+            current_date = self.data.datetime.date(0)
+            if current_date < self.p.start_date:
+                return
+
         self.day_count += 1
 
         for d in self.datas:
