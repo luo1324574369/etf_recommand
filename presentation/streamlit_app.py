@@ -68,7 +68,7 @@ etf_repo = ETFRepository(get_db(db_path))
 valuation_repo = ValuationRepo(db_path)
 
 
-def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type, params):
+def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type, params, constraints_dict):
     data_dict = {}
     for code in selected_codes:
         prices = price_repo.get_daily_price(code)
@@ -76,13 +76,15 @@ def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type,
             df = pd.DataFrame(prices)
             data_dict[code] = df
 
+    full_params = {**params, 'constraints': constraints_dict}
+
     if strategy_type == "双动量轮动":
         result = dual_momentum.run_backtest(
             data_dict,
             initial_capital=INITIAL_CAPITAL,
             start_date=start_date.strftime("%Y-%m-%d"),
             end_date=end_date.strftime("%Y-%m-%d"),
-            **params,
+            **full_params,
         )
     else:
         result = valuation_dca.run_backtest(
@@ -90,7 +92,7 @@ def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type,
             initial_capital=INITIAL_CAPITAL,
             start_date=start_date.strftime("%Y-%m-%d"),
             end_date=end_date.strftime("%Y-%m-%d"),
-            **params,
+            **full_params,
         )
     return result
 
@@ -393,6 +395,38 @@ with st.sidebar:
         }
 
     st.markdown("---")
+    st.subheader("🔒 风控约束")
+    enable_constraints = st.checkbox("启用约束条件", value=True)
+    if enable_constraints:
+        long_only = st.checkbox("单向做多（禁止卖空）", value=True)
+        max_positions = st.slider("最大持仓数", 1, 10, 5)
+        max_position_pct = st.slider("单仓位上限(%)", 10, 100, 40, step=5)
+        slippage_rate = st.slider("滑点率(%)", 0.0, 1.0, 0.1, step=0.05)
+        t_plus_one = st.checkbox("T+1交易约束", value=True)
+        min_trade_amount = st.slider("最低交易金额(元)", 1000, 50000, 5000, step=1000)
+        max_monthly_turnover = st.slider("月度换手率上限(%)", 20, 200, 100, step=10)
+
+        constraints_dict = {
+            "long_only": long_only,
+            "max_positions": max_positions,
+            "max_position_pct": max_position_pct,
+            "slippage_rate": slippage_rate,
+            "t_plus_one": t_plus_one,
+            "min_trade_amount": min_trade_amount,
+            "max_monthly_turnover": max_monthly_turnover,
+        }
+    else:
+        constraints_dict = {
+            "long_only": True,
+            "max_positions": 999,
+            "max_position_pct": 100.0,
+            "slippage_rate": 0.0,
+            "t_plus_one": False,
+            "min_trade_amount": 0,
+            "max_monthly_turnover": 9999.0,
+        }
+
+    st.markdown("---")
     st.subheader("🚀 参数优化")
     enable_optimization = st.checkbox("启用自动参数优化", value=False)
     if enable_optimization:
@@ -489,6 +523,7 @@ if run_clicked:
                             end_date,
                             strategy_type,
                             params,
+                            constraints_dict,
                         )
                         st.session_state['result'] = result
                         st.session_state['selected_codes_saved'] = selected_codes

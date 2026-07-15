@@ -1,4 +1,5 @@
 import backtrader as bt
+from strategy.constraints import StrategyConstraints
 
 
 class ValuationDCAStrategy(bt.Strategy):
@@ -10,6 +11,7 @@ class ValuationDCAStrategy(bt.Strategy):
         ('high_pctile', 70),
         ('commission_rate', 0.0003),
         ('start_date', None),
+        ('constraints', None),
     )
 
     def __init__(self):
@@ -19,6 +21,12 @@ class ValuationDCAStrategy(bt.Strategy):
         self.cumulative_pnl = 0.0
         for d in self.datas:
             self.pe_values[d] = []
+        if self.p.constraints is None:
+            self.constraints = StrategyConstraints()
+        elif isinstance(self.p.constraints, dict):
+            self.constraints = StrategyConstraints(**self.p.constraints)
+        else:
+            self.constraints = self.p.constraints
 
     def _log_trade(self, d, direction, size, price, reason):
         amount = size * price
@@ -38,6 +46,14 @@ class ValuationDCAStrategy(bt.Strategy):
             'reason': reason,
         })
 
+    def _get_current_positions_mv(self):
+        positions = {}
+        for d in self.datas:
+            pos = self.getposition(d)
+            if pos.size > 0:
+                positions[d._name] = pos.size * d.close[0]
+        return positions
+
     def next(self):
         if self.p.start_date:
             current_date = self.data.datetime.date(0)
@@ -54,6 +70,10 @@ class ValuationDCAStrategy(bt.Strategy):
 
         if self.day_count % self.p.dca_freq != 0:
             return
+
+        current_date = self.data.datetime.date(0)
+        total_value = self.broker.get_value()
+        current_positions = self._get_current_positions_mv()
 
         for d in self.datas:
             prices = self.pe_values[d]
@@ -79,10 +99,29 @@ class ValuationDCAStrategy(bt.Strategy):
             if price <= 0:
                 continue
 
-            size = int(invest_amount / price / 100) * 100
-            if size > 0 and self.broker.getcash() > invest_amount:
-                self._log_trade(d, '买入', size, price, reason)
-                self.buy(d, size=size)
+            buy_price = self.constraints.apply_slippage_buy(price)
+            size = int(invest_amount / buy_price / 100) * 100
+            buy_amount = size * buy_price
+
+            if size <= 0 or self.broker.getcash() < buy_amount:
+                continue
+
+            ok, reason_c = self.constraints.can_buy(
+                d._name, buy_price, buy_amount, current_positions, total_value, current_date
+            )
+            if not ok:
+                continue
+            ok_t, reason_t = self.constraints.check_turnover(
+                buy_amount, total_value, current_date
+            )
+            if not ok_t:
+                continue
+
+            self._log_trade(d, '买入', size, buy_price, reason)
+            self.constraints.record_buy(d._name, current_date)
+            self.constraints.record_turnover(d._name, buy_amount, current_date)
+            self.buy(d, size=size, price=buy_price)
+            current_positions = self._get_current_positions_mv()
 
 
 def run_backtest(data_dict, initial_capital=1000000, commission_rate=0.0003,

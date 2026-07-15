@@ -1,4 +1,5 @@
 import backtrader as bt
+from strategy.constraints import StrategyConstraints
 
 
 class DualMomentumStrategy(bt.Strategy):
@@ -9,7 +10,8 @@ class DualMomentumStrategy(bt.Strategy):
         ('rebalance_freq', 20),
         ('commission_rate', 0.0003),
         ('min_momentum', 0),
-        ('start_date', None),  # 回测起始日，None表示不限
+        ('start_date', None),
+        ('constraints', None),
     )
 
     def __init__(self):
@@ -23,6 +25,12 @@ class DualMomentumStrategy(bt.Strategy):
                 'short_ret': bt.indicators.RateOfChange(d.close, period=self.p.lookback_short),
                 'long_ret': bt.indicators.RateOfChange(d.close, period=self.p.lookback_long),
             }
+        if self.p.constraints is None:
+            self.constraints = StrategyConstraints()
+        elif isinstance(self.p.constraints, dict):
+            self.constraints = StrategyConstraints(**self.p.constraints)
+        else:
+            self.constraints = self.p.constraints
 
     def _log_trade(self, d, direction, size, price, reason):
         amount = size * price
@@ -52,8 +60,16 @@ class DualMomentumStrategy(bt.Strategy):
             'reason': reason,
         })
 
+    def _get_current_positions_mv(self):
+        """获取当前持仓市值"""
+        positions = {}
+        for d in self.datas:
+            pos = self.getposition(d)
+            if pos.size > 0:
+                positions[d._name] = pos.size * d.close[0]
+        return positions
+
     def next(self):
-        # 回测起始日之前不交易
         if self.p.start_date:
             current_date = self.data.datetime.date(0)
             if current_date < self.p.start_date:
@@ -82,39 +98,67 @@ class DualMomentumStrategy(bt.Strategy):
         for rank, (d, score, short_ret, long_ret) in enumerate(momentum_scores, 1):
             code_rank[d._name] = (rank, score, short_ret, long_ret)
 
+        current_date = self.data.datetime.date(0)
+        total_value = self.broker.get_value()
+        current_positions = self._get_current_positions_mv()
+
         for d in self.datas:
             pos = self.getposition(d)
             if d._name not in selected_codes and pos.size > 0:
+                sell_amount = pos.size * d.close[0]
+                ok, reason = self.constraints.can_sell(
+                    d._name, d.close[0], sell_amount, pos.size, current_date
+                )
+                if not ok:
+                    continue
                 rank = code_rank.get(d._name, (total_n,))[0] if total_n > 0 else 0
-                reason = f"双动量排名第{rank}/{total_n}，调出持仓"
-                price = d.close[0]
-                self._log_trade(d, '卖出', pos.size, price, reason)
+                reason_str = f"双动量排名第{rank}/{total_n}，调出持仓"
+                price = self.constraints.apply_slippage_sell(d.close[0])
+                self._log_trade(d, '卖出', pos.size, price, reason_str)
+                self.constraints.record_turnover(d._name, sell_amount, current_date)
                 self.close(d)
 
         if not selected:
             self.prev_positions = {d._name: self.getposition(d).size for d in self.datas}
             return
 
-        total_value = self.broker.get_value() * 0.9
-        per_value = total_value / len(selected)
+        max_single_mv = total_value * self.constraints.max_position_pct / 100
 
         for d in selected:
             price = d.close[0]
             if price <= 0:
                 continue
             pos = self.getposition(d)
-            target_size = int(per_value / price / 100) * 100
+            current_mv = pos.size * price
+            buy_budget = max(0, max_single_mv - current_mv)
+
+            if buy_budget <= 0:
+                continue
+
+            buy_price = self.constraints.apply_slippage_buy(price)
+            target_size = int(buy_budget / buy_price / 100) * 100
+            if target_size <= 0:
+                continue
+            buy_amount = target_size * buy_price
+
+            current_positions = self._get_current_positions_mv()
+            ok, reason = self.constraints.can_buy(
+                d._name, buy_price, buy_amount, current_positions, total_value, current_date
+            )
+            if not ok:
+                continue
+            ok_t, reason_t = self.constraints.check_turnover(
+                buy_amount, total_value, current_date
+            )
+            if not ok_t:
+                continue
+
             rank, score, short_ret, long_ret = code_rank.get(d._name, (0, 0, 0, 0))
-            if target_size > pos.size:
-                buy_size = target_size - pos.size
-                reason = f"双动量排名第{rank}/{total_n}，综合得分{score:.2f}，短周期动量{short_ret:.1f}%，长周期动量{long_ret:.1f}%"
-                self._log_trade(d, '买入', buy_size, price, reason)
-                self.buy(d, size=buy_size)
-            elif target_size < pos.size:
-                sell_size = pos.size - target_size
-                reason = f"双动量排名第{rank}/{total_n}，仓位调整"
-                self._log_trade(d, '卖出', sell_size, price, reason)
-                self.sell(d, size=sell_size)
+            reason_str = f"双动量排名第{rank}/{total_n}，综合得分{score:.2f}，短周期动量{short_ret:.1f}%，长周期动量{long_ret:.1f}%"
+            self._log_trade(d, '买入', target_size, buy_price, reason_str)
+            self.constraints.record_buy(d._name, current_date)
+            self.constraints.record_turnover(d._name, buy_amount, current_date)
+            self.buy(d, size=target_size, price=buy_price)
 
         self.prev_positions = {d._name: self.getposition(d).size for d in self.datas}
 
