@@ -12,6 +12,7 @@ class StrategyConstraints:
     参数:
         long_only: 单向做多，不允许做空
         max_positions: 最大持仓数量
+        min_positions: 最少持仓数量
         max_position_pct: 单仓位上限(%)
         slippage_rate: 滑点率(%)，买入上浮，卖出下浮
         t_plus_one: T+1约束，当日买入不能当日卖出
@@ -23,6 +24,7 @@ class StrategyConstraints:
         self,
         long_only: bool = True,
         max_positions: int = 5,
+        min_positions: int = 0,
         max_position_pct: float = 40.0,
         slippage_rate: float = 0.1,
         t_plus_one: bool = True,
@@ -31,6 +33,7 @@ class StrategyConstraints:
     ):
         self.long_only = long_only
         self.max_positions = max_positions
+        self.min_positions = min_positions
         self.max_position_pct = max_position_pct
         self.slippage_rate = slippage_rate
         self.t_plus_one = t_plus_one
@@ -98,6 +101,7 @@ class StrategyConstraints:
         amount: float,
         current_position_size: int,
         current_date: date,
+        current_positions: Dict[str, float] = None,
     ) -> Tuple[bool, str]:
         """检查是否可以卖出
 
@@ -107,6 +111,7 @@ class StrategyConstraints:
             amount: 卖出金额
             current_position_size: 当前持仓数量(股)
             current_date: 当前日期
+            current_positions: 当前持仓 {code: 市值}，用于检查最少持仓数
 
         Returns:
             (是否可以卖出, 原因)
@@ -118,6 +123,13 @@ class StrategyConstraints:
             buy_date = self._buy_dates.get(code)
             if buy_date and buy_date >= current_date:
                 return False, "T+1约束，当日买入不能当日卖出"
+
+        # 检查最少持仓数量：如果本次卖出会清仓该标的，需确保持仓数不低于下限
+        if self.min_positions > 0 and current_positions is not None:
+            current_count = sum(1 for v in current_positions.values() if v > 0)
+            is_full_close = current_position_size * price <= amount + 1
+            if is_full_close and current_count - 1 < self.min_positions:
+                return False, f"卖出后持仓数{current_count - 1}低于下限{self.min_positions}"
 
         return True, ""
 

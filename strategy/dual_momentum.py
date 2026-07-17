@@ -107,7 +107,8 @@ class DualMomentumStrategy(bt.Strategy):
             if d._name not in selected_codes and pos.size > 0:
                 sell_amount = pos.size * d.close[0]
                 ok, reason = self.constraints.can_sell(
-                    d._name, d.close[0], sell_amount, pos.size, current_date
+                    d._name, d.close[0], sell_amount, pos.size, current_date,
+                    current_positions=current_positions
                 )
                 if not ok:
                     continue

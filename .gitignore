@@ -29,6 +29,9 @@ data/etf_demo.db
 # Logs
 *.log
 
+# Optimization results (one-time output)
+walk_forward_presets_result.json
+
 # Docs (auto-generated, don't track changes)
 docs/superpowers/
 

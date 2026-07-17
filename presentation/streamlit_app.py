@@ -13,7 +13,7 @@ from data.storage.db import init_db, get_db
 from data.storage.price_repo import PriceRepository
 from data.storage.etf_repo import ETFRepository
 from data.storage.valuation_repo import ValuationRepo
-from strategy import dual_momentum, valuation_dca
+from strategy import dual_momentum
 from strategy.scoring import (
     compute_all_factors,
     zscore_normalize,
@@ -21,13 +21,10 @@ from strategy.scoring import (
     FACTOR_DIRECTIONS,
     FACTOR_LABELS,
 )
-from strategy.optimizer import (
-    optimize_parameters,
-    DUAL_MOMENTUM_PARAM_RANGES,
-    VALUATION_DCA_PARAM_RANGES,
-)
+from strategy.optimizer import optimize_parameters, DUAL_MOMENTUM_PARAM_RANGES
+from strategy.walk_forward import generate_walk_forward_presets
 from service.data_service import ensure_data_ready
-from config.settings import ETF_UNIVERSE, DB_PATH
+from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
 
 TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 INITIAL_CAPITAL = 1000000
@@ -40,21 +37,6 @@ REBALANCE_FREQ_OPTIONS = {
     "60日（季线）": 60,
     "120日（半年线）": 120,
     "250日（年线）": 250,
-}
-
-PARAM_PRESETS = {
-    "双动量轮动": [
-        {"name": "🏆 激进高收益型（年化17%+）", "params": {"lookback_short": 20, "lookback_long": 250, "top_n": 1, "rebalance_freq": 10}},
-        {"name": "🥇 最优风险调整型（夏普0.87）", "params": {"lookback_short": 40, "lookback_long": 250, "top_n": 1, "rebalance_freq": 10}},
-        {"name": "🥈 均衡稳健型（年化14.6%）", "params": {"lookback_short": 40, "lookback_long": 250, "top_n": 1, "rebalance_freq": 20}},
-        {"name": "🥉 最低回撤型（回撤17.3%）", "params": {"lookback_short": 80, "lookback_long": 250, "top_n": 2, "rebalance_freq": 10}},
-        {"name": "📊 低频交易型（年化12.4%）", "params": {"lookback_short": 60, "lookback_long": 250, "top_n": 1, "rebalance_freq": 20}},
-        {"name": "⚙️ 自定义参数", "params": None},
-    ],
-    "估值百分位定投": [
-        {"name": "🥇 估值定投最优型", "params": {"dca_freq": 30, "low_pctile": 20, "high_pctile": 80, "valuation_period": 250}},
-        {"name": "⚙️ 自定义参数", "params": None},
-    ],
 }
 
 st.set_page_config(page_title="ETF量化策略平台", layout="wide")
@@ -78,22 +60,13 @@ def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type,
 
     full_params = {**params, 'constraints': constraints_dict}
 
-    if strategy_type == "双动量轮动":
-        result = dual_momentum.run_backtest(
-            data_dict,
-            initial_capital=INITIAL_CAPITAL,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
-            **full_params,
-        )
-    else:
-        result = valuation_dca.run_backtest(
-            data_dict,
-            initial_capital=INITIAL_CAPITAL,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
-            **full_params,
-        )
+    result = dual_momentum.run_backtest(
+        data_dict,
+        initial_capital=INITIAL_CAPITAL,
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
+        **full_params,
+    )
     return result
 
 
@@ -319,80 +292,56 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")
-    strategy_type = st.selectbox("策略类型", ["双动量轮动", "估值百分位定投"])
+    strategy_type = "双动量轮动"
     st.session_state['strategy_type'] = strategy_type
 
-    presets = PARAM_PRESETS.get(strategy_type, [])
-    preset_names = [p["name"] for p in presets]
-    preset_select = st.selectbox("参数预设", preset_names, index=0)
-    selected_preset = next((p for p in presets if p["name"] == preset_select), None)
+    dynamic_presets = st.session_state.get('dynamic_presets', {}).get(strategy_type, [])
+    if dynamic_presets:
+        preset_options = list(dynamic_presets)
+    else:
+        presets = PARAM_PRESETS.get(strategy_type, [])
+        preset_options = [
+            {"name": p["name"], "params": p["params"], "is_dynamic": False}
+            for p in presets
+        ]
+
+    preset_names = [p["name"] for p in preset_options]
+    preset_select = st.selectbox("参数预设", preset_names, index=0, key="preset_select")
+    selected_preset = next((p for p in preset_options if p["name"] == preset_select), None)
     preset_params = selected_preset.get("params") if selected_preset else None
     is_custom = preset_params is None
 
-    if strategy_type == "双动量轮动":
-        if is_custom:
-            lookback_short = st.slider("短期动量回看(日)", 5, 120, 60)
-            lookback_long = st.slider("长期动量回看(日)", 20, 300, 120)
-            top_n = st.slider("选择标的数", 1, 10, 3)
-            rebalance_label = st.selectbox(
-                "调仓频率",
-                list(REBALANCE_FREQ_OPTIONS.keys()),
-                index=2,
-            )
-            rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
-        else:
-            lookback_short = preset_params["lookback_short"]
-            lookback_long = preset_params["lookback_long"]
-            top_n = preset_params["top_n"]
-            rebalance_days = preset_params["rebalance_freq"]
-            rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
-
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.info(f"短期动量: {lookback_short}日")
-                st.info(f"长期动量: {lookback_long}日")
-            with col_p2:
-                st.info(f"选择标的: {top_n}只")
-                st.info(f"调仓频率: {rebalance_label}")
-
-        params = {
-            "lookback_short": lookback_short,
-            "lookback_long": lookback_long,
-            "top_n": top_n,
-            "rebalance_freq": rebalance_days,
-        }
+    if is_custom:
+        lookback_short = st.slider("短期动量回看(日)", 5, 120, 60)
+        lookback_long = st.slider("长期动量回看(日)", 20, 300, 120)
+        top_n = st.slider("选择标的数", 1, 10, 3)
+        rebalance_label = st.selectbox(
+            "调仓频率",
+            list(REBALANCE_FREQ_OPTIONS.keys()),
+            index=2,
+        )
+        rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
     else:
-        if is_custom:
-            dca_label = st.selectbox(
-                "定投频率",
-                list(REBALANCE_FREQ_OPTIONS.keys()),
-                index=2,
-            )
-            dca_freq = REBALANCE_FREQ_OPTIONS[dca_label]
-            low_pctile = st.slider("低估百分位(%)", 10, 50, 30)
-            high_pctile = st.slider("高估百分位(%)", 50, 90, 70)
-            valuation_period = st.slider("估值计算周期(日)", 60, 500, 250)
-        else:
-            dca_freq = preset_params["dca_freq"]
-            low_pctile = preset_params["low_pctile"]
-            high_pctile = preset_params["high_pctile"]
-            valuation_period = preset_params["valuation_period"]
-            dca_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == dca_freq), "20日（月线）")
+        lookback_short = preset_params["lookback_short"]
+        lookback_long = preset_params["lookback_long"]
+        top_n = preset_params["top_n"]
+        rebalance_days = preset_params["rebalance_freq"]
+        rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
 
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.info(f"定投频率: {dca_label}")
-                st.info(f"低估阈值: {low_pctile}%")
-            with col_p2:
-                st.info(f"高估阈值: {high_pctile}%")
-                st.info(f"估值周期: {valuation_period}日")
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            st.info(f"短期动量: {lookback_short}日")
+            st.info(f"长期动量: {lookback_long}日")
+        with col_p2:
+            st.info(f"选择标的: {top_n}只")
+            st.info(f"调仓频率: {rebalance_label}")
 
-        params = {
-            "dca_freq": dca_freq,
-            "low_pctile": low_pctile,
-            "high_pctile": high_pctile,
-            "valuation_period": valuation_period,
-        }
+    params = {
+        "lookback_short": lookback_short,
+        "lookback_long": lookback_long,
+        "top_n": top_n,
+        "rebalance_freq": rebalance_days,
+    }
 
     st.markdown("---")
     st.subheader("🔒 风控约束")
@@ -400,6 +349,7 @@ with st.sidebar:
     if enable_constraints:
         long_only = st.checkbox("单向做多（禁止卖空）", value=True)
         max_positions = st.slider("最大持仓数", 1, 10, 5)
+        min_positions = st.slider("最少持仓数", 0, 10, 0, help="卖出后持仓数不能低于此值，0表示不限制")
         max_position_pct = st.slider("单仓位上限(%)", 10, 100, 40, step=5)
         slippage_rate = st.slider("滑点率(%)", 0.0, 1.0, 0.1, step=0.05)
         t_plus_one = st.checkbox("T+1交易约束", value=True)
@@ -409,6 +359,7 @@ with st.sidebar:
         constraints_dict = {
             "long_only": long_only,
             "max_positions": max_positions,
+            "min_positions": min_positions,
             "max_position_pct": max_position_pct,
             "slippage_rate": slippage_rate,
             "t_plus_one": t_plus_one,
@@ -419,6 +370,7 @@ with st.sidebar:
         constraints_dict = {
             "long_only": True,
             "max_positions": 999,
+            "min_positions": 0,
             "max_position_pct": 100.0,
             "slippage_rate": 0.0,
             "t_plus_one": False,
@@ -427,23 +379,9 @@ with st.sidebar:
         }
 
     st.markdown("---")
-    st.subheader("🚀 参数优化")
-    enable_optimization = st.checkbox("启用自动参数优化", value=False)
-    if enable_optimization:
-        target_metric = st.selectbox(
-            "优化目标",
-            ["sharpe_ratio（夏普比率）", "excess_return（超额收益）", "annual_return（年化收益）"],
-            index=0,
-        )
-        target_metric_map = {
-            "sharpe_ratio（夏普比率）": "sharpe_ratio",
-            "excess_return（超额收益）": "excess_return",
-            "annual_return（年化收益）": "annual_return",
-        }
-        target_metric = target_metric_map[target_metric]
-    else:
-        target_metric = None
-
+    if st.button("🔬 优化参数预设", use_container_width=True,
+                 help="运行Walk-Forward优化，生成5个差异化参数预设（约1-5分钟）"):
+        st.session_state['optimize_clicked'] = True
     st.markdown("---")
     run_clicked = st.button("🧪 运行回测", type="primary", use_container_width=True)
 
@@ -486,48 +424,116 @@ if run_clicked:
                         df = pd.DataFrame(prices)
                         data_dict[code] = df
 
-                if enable_optimization:
-                    with st.spinner("正在参数优化...（可能需要几分钟）"):
-                        if strategy_type == "双动量轮动":
-                            opt_result = optimize_parameters(
-                                dual_momentum,
-                                data_dict,
-                                DUAL_MOMENTUM_PARAM_RANGES,
-                                start_date=start_date.strftime("%Y-%m-%d"),
-                                end_date=end_date.strftime("%Y-%m-%d"),
-                                initial_capital=INITIAL_CAPITAL,
-                                target_metric=target_metric,
-                            )
-                        else:
-                            opt_result = optimize_parameters(
-                                valuation_dca,
-                                data_dict,
-                                VALUATION_DCA_PARAM_RANGES,
-                                start_date=start_date.strftime("%Y-%m-%d"),
-                                end_date=end_date.strftime("%Y-%m-%d"),
-                                initial_capital=INITIAL_CAPITAL,
-                                target_metric=target_metric,
-                            )
-                        
-                        st.session_state['result'] = opt_result['best_result']
-                        st.session_state['optimize_result'] = opt_result
-                        st.session_state['selected_codes_saved'] = selected_codes
-                        
-                        best_params_str = ', '.join(f"{k}={v}" for k, v in opt_result['best_params'].items())
-                        st.success(f"✅ 参数优化完成！最优参数: {best_params_str}（耗时 {opt_result['elapsed_time']:.1f}s）")
-                else:
-                    with st.spinner("正在运行回测..."):
-                        result = run_backtest_for_result(
-                            selected_codes,
-                            start_date,
-                            end_date,
-                            strategy_type,
-                            params,
-                            constraints_dict,
-                        )
-                        st.session_state['result'] = result
-                        st.session_state['selected_codes_saved'] = selected_codes
-                        st.success(f"✅ {strategy_type} 回测完成（{start_date} ~ {end_date}）")
+                with st.spinner("正在运行回测..."):
+                    result = run_backtest_for_result(
+                        selected_codes,
+                        start_date,
+                        end_date,
+                        strategy_type,
+                        params,
+                        constraints_dict,
+                    )
+                    st.session_state['result'] = result
+                    st.session_state['selected_codes_saved'] = selected_codes
+                    st.success(f"✅ {strategy_type} 回测完成（{start_date} ~ {end_date}）")
+
+
+if st.session_state.get('optimize_clicked'):
+    st.session_state['optimize_clicked'] = False
+    if not selected_codes:
+        st.error("请至少选择一只ETF")
+    else:
+        with st.status("正在运行Walk-Forward优化...", expanded=True) as status:
+            st.write("加载数据...")
+
+            data_dict = {}
+            for code in selected_codes:
+                prices = price_repo.get_daily_price(code)
+                if prices:
+                    df = pd.DataFrame(prices)
+                    data_dict[code] = df
+
+            progress_bar = st.progress(0.0)
+            status_text = st.empty()
+
+            def on_progress(current, total, msg):
+                pct = current / total if total > 0 else 0
+                progress_bar.progress(pct)
+                status_text.text(f"({current}/{total}) {msg}")
+
+            wf_result = generate_walk_forward_presets(
+                data_dict,
+                start_date.strftime("%Y-%m-%d"),
+                end_date.strftime("%Y-%m-%d"),
+                DUAL_MOMENTUM_PARAM_RANGES,
+                max_combinations=144,
+                progress_callback=on_progress,
+            )
+
+            progress_bar.progress(1.0)
+
+            if wf_result.get('presets'):
+                st.session_state['wf_presets'] = wf_result['presets']
+                st.session_state['wf_windows'] = wf_result.get('windows', [])
+                st.session_state['wf_elapsed'] = wf_result.get('elapsed_time', 0)
+
+                # 更新预设列表
+                dynamic_presets = []
+                for p in wf_result['presets']:
+                    m = p['metrics']
+                    dynamic_presets.append({
+                        "name": f"{p['name']}（年化{m.get('full_annual_return', 0):.1f}%/夏普{m.get('full_sharpe_ratio', 0):.2f}）",
+                        "params": p['params'],
+                    })
+                dynamic_presets.append({"name": "⚙️ 自定义参数", "params": None})
+
+                if 'dynamic_presets' not in st.session_state:
+                    st.session_state['dynamic_presets'] = {}
+                st.session_state['dynamic_presets']['双动量轮动'] = dynamic_presets
+
+                status.update(label=f"✅ Walk-Forward优化完成（{wf_result['elapsed_time']:.1f}s）",
+                            state="complete", expanded=False)
+                st.success(f"生成 {len(wf_result['presets'])} 个预设，请在上方选择后点击「运行回测」")
+                st.rerun()
+            else:
+                status.update(label="优化失败", state="error", expanded=True)
+                st.error("未能生成预设，请检查数据是否充足")
+
+
+wf_presets = st.session_state.get('wf_presets')
+if wf_presets:
+    st.markdown("### 🔬 Walk-Forward验证报告")
+    wf_windows = st.session_state.get('wf_windows', [])
+    wf_elapsed = st.session_state.get('wf_elapsed', 0)
+    st.caption(f"验证窗口数: {len(wf_windows)} | 耗时: {wf_elapsed:.1f}s")
+
+    preset_rows = []
+    for p in wf_presets:
+        m = p['metrics']
+        preset_rows.append({
+            '预设风格': p['name'],
+            '全周期年化(%)': f"{m.get('full_annual_return', 0):.2f}",
+            '全周期夏普': f"{m.get('full_sharpe_ratio', 0):.2f}",
+            '全周期回撤(%)': f"{m.get('full_max_drawdown', 0):.2f}",
+            '窗口CAGR(%)': f"{m.get('cagr', 0):.2f}",
+            '平均夏普': f"{m.get('avg_sharpe_ratio', 0):.2f}",
+            '平均回撤(%)': f"{m.get('avg_max_drawdown', 0):.2f}",
+            '鲁棒性得分': f"{m.get('robustness_score', 0):.2f}",
+            '最差夏普': f"{m.get('worst_sharpe', 0):.2f}",
+            '参数': ', '.join(f"{k}={v}" for k, v in p['params'].items()),
+        })
+    st.dataframe(pd.DataFrame(preset_rows), use_container_width=True, hide_index=True)
+
+    with st.expander("📋 验证窗口详情", expanded=False):
+        window_rows = []
+        for i, w in enumerate(wf_windows):
+            window_rows.append({
+                '窗口': f"窗口{i+1}",
+                '验证期': f"{w['val_start']} ~ {w['val_end']}",
+            })
+        st.dataframe(pd.DataFrame(window_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
 
 
 result = st.session_state.get('result')
@@ -593,32 +599,6 @@ if result:
             rows.append(row)
 
         st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-    optimize_result = st.session_state.get('optimize_result')
-    if optimize_result and optimize_result.get('all_results'):
-        st.markdown("### 🎯 参数优化结果")
-        col_opt1, col_opt2, col_opt3 = st.columns(3)
-        with col_opt1:
-            st.metric("最优参数", optimize_result['best_params'])
-        with col_opt2:
-            st.metric("优化目标", optimize_result['target_metric'])
-        with col_opt3:
-            st.metric("总组合数", optimize_result['total_combinations'])
-        
-        with st.expander("📊 参数敏感性分析（Top 10）", expanded=True):
-            top_results = optimize_result['all_results'][:10]
-            opt_rows = []
-            for r in top_results:
-                opt_rows.append({
-                    '参数': r.get('param_str', ''),
-                    '总收益(%)': f"{r.get('total_return', 0):.2f}",
-                    '年化(%)': f"{r.get('annual_return', 0):.2f}",
-                    '夏普比率': f"{r.get('sharpe_ratio', 0):.2f}",
-                    '最大回撤(%)': f"{r.get('max_drawdown', 0):.2f}",
-                    '超额收益(%)': f"{r.get('excess_return', 0):.2f}",
-                })
-            st.dataframe(pd.DataFrame(opt_rows), use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.markdown("### 📈 收益曲线")
