@@ -210,3 +210,166 @@ def analyze_factor(
         'ic_mean': icir_result['ic_mean'],
         'ic_positive_ratio': icir_result['ic_positive_ratio'],
     }
+
+
+def analyze_all_etfs(
+    etf_codes: List[str],
+    price_repo,
+    valuation_repo,
+    start_date: str,
+    end_date: str,
+    factor_names: List[str] = None,
+    forward_period: int = 20,
+) -> Dict:
+    """全ETF池因子检验汇总
+
+    Args:
+        etf_codes: ETF代码列表
+        price_repo: PriceRepository实例
+        valuation_repo: ValuationRepo实例
+        start_date: 开始日期 (YYYY-MM-DD)
+        end_date: 结束日期 (YYYY-MM-DD)
+        factor_names: 因子名列表，None=默认['momentum_60d', 'pe_percentile', 'volatility_60d']
+        forward_period: 前瞻周期
+
+    Returns:
+        {factor_name: {ic_mean, icir, ic_positive_ratio, monotonicity, verdict, ic_series, stratified}}
+    """
+    from strategy.scoring import compute_all_factors
+
+    if factor_names is None:
+        factor_names = ['momentum_60d', 'pe_percentile', 'volatility_60d']
+
+    # 收集所有ETF的历史数据
+    all_factor_rows = []
+    all_return_rows = []
+    all_prices = []
+
+    for code in etf_codes:
+        prices = price_repo.get_daily_price(code)
+        if not prices or len(prices) < 120:
+            continue
+
+        # 转为DataFrame
+        df = pd.DataFrame(prices)
+        df['trade_date'] = pd.to_datetime(df['trade_date'])
+        df = df.sort_values('trade_date')
+        df = df[(df['trade_date'] >= start_date) & (df['trade_date'] <= end_date)]
+
+        if len(df) < 120:
+            continue
+
+        # 获取PE历史
+        pe_history = valuation_repo.get_pe_history(code) if hasattr(valuation_repo, 'get_pe_history') else None
+        pe_pct_series = {}
+        if pe_history:
+            sorted_pe = sorted(pe_history, key=lambda x: x.get('trade_date', ''))
+            pe_values = []
+            for item in sorted_pe:
+                pe_val = item.get('pe')
+                trade_date = item.get('trade_date')
+                if pe_val and pe_val > 0 and trade_date:
+                    pe_values.append(pe_val)
+                    if pe_values:
+                        rank = sum(1 for v in pe_values if v <= pe_val)
+                        pe_pct_series[trade_date] = (rank / len(pe_values)) * 100
+
+        # 逐日计算因子值
+        prices_list = df.to_dict('records')
+        for i in range(60, len(prices_list)):  # 从第60天开始（确保有足够历史）
+            sub_prices = prices_list[:i + 1]
+            current_date = prices_list[i]['trade_date']
+            date_str = current_date.strftime('%Y-%m-%d')
+
+            pe_pct = pe_pct_series.get(date_str)
+            factors = compute_all_factors(code, sub_prices, pe_percentile=pe_pct)
+
+            row = {'date': current_date, 'code': code}
+            for f in factor_names:
+                row[f] = factors.get(f)
+            all_factor_rows.append(row)
+
+        # 前瞻收益
+        price_df = df[['trade_date', 'close']].copy()
+        price_df['code'] = code
+        all_prices.append(price_df)
+
+    if not all_factor_rows or not all_prices:
+        return {}
+
+    factor_df = pd.DataFrame(all_factor_rows)
+    prices_df = pd.concat(all_prices, ignore_index=True)
+
+    # 计算前瞻收益
+    forward_df = compute_forward_returns(prices_df, period=forward_period)
+
+    # 按月度采样（取每月最后一个交易日）
+    factor_df['month'] = factor_df['date'].dt.to_period('M')
+    monthly_factor = factor_df.groupby(['month', 'code']).last().reset_index()
+    monthly_factor['date'] = monthly_factor['month'].dt.to_timestamp(how='end')
+
+    forward_df['month'] = forward_df['trade_date'].dt.to_period('M')
+    monthly_forward = forward_df.groupby(['month', 'code']).last().reset_index()
+    monthly_forward['date'] = monthly_forward['month'].dt.to_timestamp(how='end')
+
+    # 对每个因子做检验
+    result = {}
+    for factor in factor_names:
+        if factor not in monthly_factor.columns:
+            continue
+        result[factor] = analyze_factor(
+            monthly_factor[['date', 'code', factor]],
+            monthly_forward[['date', 'code', 'forward_return']],
+            factor,
+        )
+
+    return result
+
+
+def main():
+    """命令行入口"""
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description='因子有效性检验')
+    parser.add_argument('--factor', type=str, default=None, help='单个因子名')
+    parser.add_argument('--all', action='store_true', help='检验所有因子')
+    parser.add_argument('--start', type=str, default='2019-01-01', help='开始日期')
+    parser.add_argument('--end', type=str, default='2024-12-31', help='结束日期')
+    parser.add_argument('--output', type=str, default=None, help='输出JSON文件路径')
+    args = parser.parse_args()
+
+    sys.path.insert(0, '.')
+
+    from data.storage.db import init_db, get_db
+    from data.storage.price_repo import PriceRepository
+    from data.storage.valuation_repo import ValuationRepo
+    from config.settings import ETF_UNIVERSE, DB_PATH
+
+    init_db(DB_PATH)
+    price_repo = PriceRepository(get_db(DB_PATH))
+    valuation_repo = ValuationRepo(str(DB_PATH))
+
+    etf_codes = [e['code'] for e in ETF_UNIVERSE]
+    report = analyze_all_etfs(etf_codes, price_repo, valuation_repo, args.start, args.end)
+
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+        print(f"报告已保存到 {args.output}")
+    else:
+        print(f"\n{'='*60}")
+        print(f"因子有效性分析报告 ({args.start} ~ {args.end})")
+        print(f"ETF数: {len(etf_codes)}")
+        print(f"{'='*60}\n")
+        print(f"{'因子':<20} {'RankIC均值':<12} {'ICIR':<10} {'IC正比例':<10} {'单调性':<8} {'判定':<8}")
+        print('-' * 70)
+        for factor, metrics in report.items():
+            icir_val = metrics.get('icir', {}).get('icir', 0)
+            print(f"{factor:<20} {metrics['ic_mean']:<12.4f} {icir_val:<10.3f} "
+                  f"{metrics['ic_positive_ratio']:<10.1%} {metrics['monotonicity']:<8} {metrics['verdict']:<8}")
+
+
+if __name__ == '__main__':
+    main()
