@@ -32,6 +32,7 @@ class StrategyConstraints:
         t_plus_one: bool = True,
         min_trade_amount: float = 5000.0,
         max_monthly_turnover: float = 100.0,
+        max_per_sector: int = 0,
     ):
         self.long_only = long_only
         self.max_positions = max_positions
@@ -42,6 +43,7 @@ class StrategyConstraints:
         self.t_plus_one = t_plus_one
         self.min_trade_amount = min_trade_amount
         self.max_monthly_turnover = max_monthly_turnover
+        self.max_per_sector = max_per_sector
 
         self._buy_dates: Dict[str, date] = {}
         self._monthly_turnover: Dict[str, float] = {}
@@ -64,6 +66,7 @@ class StrategyConstraints:
         total_value: float,
         current_date: date,
         effective_cash: float = None,
+        code_to_sector: Dict[str, str] = None,
     ) -> Tuple[bool, str]:
         """检查是否可以买入
 
@@ -104,6 +107,18 @@ class StrategyConstraints:
 
         if effective_cash is not None and amount > effective_cash + 1e-6:
             return False, f"买入金额{amount:.0f}超过可用现金{effective_cash:.0f}"
+
+        # 风格分散检查：新标的（当前未持仓）才检查
+        if self.max_per_sector > 0 and code_to_sector:
+            target_sector = code_to_sector.get(code)
+            if target_sector:
+                current_sector_count = sum(
+                    1 for c, mv in current_positions.items()
+                    if mv > 0 and code_to_sector.get(c) == target_sector
+                )
+                if code not in current_positions or current_positions.get(code, 0) <= 0:
+                    if current_sector_count >= self.max_per_sector:
+                        return False, f"{target_sector}风格持仓{current_sector_count}只已达上限{self.max_per_sector}"
 
         return True, ""
 

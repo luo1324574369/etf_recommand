@@ -123,3 +123,44 @@ class TestStrategyConstraints:
         positions = {'510300': 30000}
         ok, reason = c.can_buy('510500', 1.0, 80000, positions, 200000, date.today())
         assert ok
+
+    def test_can_buy_sector_limit(self):
+        """买入时风格分散检查 - 超限拒绝"""
+        c = StrategyConstraints(max_per_sector=2)
+        code_to_sector = {'510300': '宽基', '510500': '宽基', '512480': '科技',
+                          '159995': '科技'}
+        # 已持仓2只宽基
+        positions = {'510300': 10000, '510500': 10000}
+        # 买入第3只宽基 → 拒绝
+        code_to_sector['588000'] = '宽基'
+        ok, reason = c.can_buy('588000', 1.0, 20000, positions, 100000,
+                                date.today(), code_to_sector=code_to_sector)
+        assert not ok
+        assert '宽基' in reason and '上限' in reason
+
+    def test_can_buy_sector_add_position(self):
+        """已持仓的加仓不受风格限制"""
+        c = StrategyConstraints(max_per_sector=1)
+        code_to_sector = {'512480': '科技'}
+        positions = {'512480': 10000}
+        # 加仓已持仓的科技ETF → 允许
+        ok, reason = c.can_buy('512480', 1.0, 5000, positions, 100000,
+                                date.today(), code_to_sector=code_to_sector)
+        assert ok
+
+    def test_can_buy_sector_no_constraint(self):
+        """max_per_sector=0时不检查风格"""
+        c = StrategyConstraints(max_per_sector=0)
+        code_to_sector = {'510300': '宽基'}
+        positions = {'510300': 10000, '510500': 10000}
+        ok, reason = c.can_buy('588000', 1.0, 20000, positions, 100000,
+                                date.today(), code_to_sector=code_to_sector)
+        assert ok
+
+    def test_can_buy_sector_no_mapping(self):
+        """code_to_sector=None时不检查风格"""
+        c = StrategyConstraints(max_per_sector=2)
+        positions = {'510300': 10000, '510500': 10000}
+        ok, reason = c.can_buy('588000', 1.0, 20000, positions, 100000,
+                                date.today(), code_to_sector=None)
+        assert ok
