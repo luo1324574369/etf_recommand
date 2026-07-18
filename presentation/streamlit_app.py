@@ -60,13 +60,32 @@ def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type,
 
     full_params = {**params, 'constraints': constraints_dict}
 
-    result = dual_momentum.run_backtest(
-        data_dict,
-        initial_capital=INITIAL_CAPITAL,
-        start_date=start_date.strftime("%Y-%m-%d"),
-        end_date=end_date.strftime("%Y-%m-%d"),
-        **full_params,
-    )
+    if strategy_type == "双动量轮动":
+        result = dual_momentum.run_backtest(
+            data_dict,
+            initial_capital=INITIAL_CAPITAL,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+            **full_params,
+        )
+    elif strategy_type == "多因子轮动":
+        from strategy import multi_factor
+        full_params['valuation_repo'] = valuation_repo
+        result = multi_factor.run_backtest(
+            data_dict,
+            initial_capital=INITIAL_CAPITAL,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+            **full_params,
+        )
+    else:
+        result = dual_momentum.run_backtest(
+            data_dict,
+            initial_capital=INITIAL_CAPITAL,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+            **full_params,
+        )
     return result
 
 
@@ -292,7 +311,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")
-    strategy_type = "双动量轮动"
+    strategy_options = ["双动量轮动", "多因子轮动"]
+    strategy_type = st.selectbox("策略类型", strategy_options, index=0, key="strategy_select")
     st.session_state['strategy_type'] = strategy_type
 
     dynamic_presets = st.session_state.get('dynamic_presets', {}).get(strategy_type, [])
@@ -312,36 +332,70 @@ with st.sidebar:
     is_custom = preset_params is None
 
     if is_custom:
-        lookback_short = st.slider("短期动量回看(日)", 5, 120, 60)
-        lookback_long = st.slider("长期动量回看(日)", 20, 300, 120)
-        top_n = st.slider("选择标的数", 1, 10, 3)
-        rebalance_label = st.selectbox(
-            "调仓频率",
-            list(REBALANCE_FREQ_OPTIONS.keys()),
-            index=2,
-        )
-        rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
+        if strategy_type == "双动量轮动":
+            lookback_short = st.slider("短期动量回看(日)", 5, 120, 60)
+            lookback_long = st.slider("长期动量回看(日)", 20, 300, 120)
+            top_n = st.slider("选择标的数", 1, 10, 3)
+            rebalance_label = st.selectbox(
+                "调仓频率",
+                list(REBALANCE_FREQ_OPTIONS.keys()),
+                index=2,
+            )
+            rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
+        else:  # 多因子轮动
+            lookback_momentum = st.slider("动量回看(日)", 10, 120, 60)
+            lookback_volatility = st.slider("波动率回看(日)", 10, 120, 60)
+            top_n = st.slider("选择标的数", 1, 10, 3)
+            rebalance_label = st.selectbox(
+                "调仓频率",
+                list(REBALANCE_FREQ_OPTIONS.keys()),
+                index=2,
+            )
+            rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
     else:
-        lookback_short = preset_params["lookback_short"]
-        lookback_long = preset_params["lookback_long"]
-        top_n = preset_params["top_n"]
-        rebalance_days = preset_params["rebalance_freq"]
-        rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
+        if strategy_type == "双动量轮动":
+            lookback_short = preset_params["lookback_short"]
+            lookback_long = preset_params["lookback_long"]
+            top_n = preset_params["top_n"]
+            rebalance_days = preset_params["rebalance_freq"]
+            rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
 
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            st.info(f"短期动量: {lookback_short}日")
-            st.info(f"长期动量: {lookback_long}日")
-        with col_p2:
-            st.info(f"选择标的: {top_n}只")
-            st.info(f"调仓频率: {rebalance_label}")
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.info(f"短期动量: {lookback_short}日")
+                st.info(f"长期动量: {lookback_long}日")
+            with col_p2:
+                st.info(f"选择标的: {top_n}只")
+                st.info(f"调仓频率: {rebalance_label}")
+        else:  # 多因子轮动
+            lookback_momentum = preset_params["lookback_momentum"]
+            lookback_volatility = preset_params["lookback_volatility"]
+            top_n = preset_params["top_n"]
+            rebalance_days = preset_params["rebalance_freq"]
+            rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
 
-    params = {
-        "lookback_short": lookback_short,
-        "lookback_long": lookback_long,
-        "top_n": top_n,
-        "rebalance_freq": rebalance_days,
-    }
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.info(f"动量回看: {lookback_momentum}日")
+                st.info(f"波动率回看: {lookback_volatility}日")
+            with col_p2:
+                st.info(f"选择标的: {top_n}只")
+                st.info(f"调仓频率: {rebalance_label}")
+
+    if strategy_type == "双动量轮动":
+        params = {
+            "lookback_short": lookback_short,
+            "lookback_long": lookback_long,
+            "top_n": top_n,
+            "rebalance_freq": rebalance_days,
+        }
+    else:  # 多因子轮动
+        params = {
+            "lookback_momentum": lookback_momentum,
+            "lookback_volatility": lookback_volatility,
+            "top_n": top_n,
+            "rebalance_freq": rebalance_days,
+        }
 
     st.markdown("---")
     st.subheader("🔒 风控约束")
@@ -356,6 +410,8 @@ with st.sidebar:
         t_plus_one = st.checkbox("T+1交易约束", value=True)
         min_trade_amount = st.slider("最低交易金额(元)", 1000, 50000, 5000, step=1000)
         max_monthly_turnover = st.slider("月度换手率上限(%)", 20, 200, 100, step=10)
+        max_per_sector = st.slider("单一风格上限", 0, 10, 2,
+                                   help="同一sector(如科技、医药)最多持仓数，0=不限制")
 
         constraints_dict = {
             "long_only": long_only,
@@ -367,6 +423,7 @@ with st.sidebar:
             "t_plus_one": t_plus_one,
             "min_trade_amount": min_trade_amount,
             "max_monthly_turnover": max_monthly_turnover,
+            "max_per_sector": max_per_sector,
         }
     else:
         constraints_dict = {
@@ -379,6 +436,7 @@ with st.sidebar:
             "t_plus_one": False,
             "min_trade_amount": 0,
             "max_monthly_turnover": 9999.0,
+            "max_per_sector": 0,
         }
 
     st.markdown("---")

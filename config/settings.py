@@ -233,4 +233,19 @@ PARAM_PRESETS = {
         {"name": "📊 低频交易型", "params": {"lookback_short": 40, "lookback_long": 250, "top_n": 2, "rebalance_freq": 60}},
         {"name": "⚙️ 自定义参数", "params": None},
     ],
+    "多因子轮动": [
+        {"name": "⚖️ 等权三因子基线", "params": {
+            "lookback_momentum": 60, "lookback_volatility": 60,
+            "top_n": 3, "rebalance_freq": 20,
+        }},
+        {"name": "🛡️ 防御型(低波优先)", "params": {
+            "lookback_momentum": 120, "lookback_volatility": 60,
+            "top_n": 2, "rebalance_freq": 60,
+        }},
+        {"name": "📈 进攻型(动量优先)", "params": {
+            "lookback_momentum": 20, "lookback_volatility": 120,
+            "top_n": 4, "rebalance_freq": 10,
+        }},
+        {"name": "⚙️ 自定义参数", "params": None},
+    ],
 }
