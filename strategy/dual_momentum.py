@@ -15,7 +15,7 @@ class DualMomentumStrategy(bt.Strategy):
     )
 
     def __init__(self):
-        self.day_count = 0
+        self.day_count = self.p.rebalance_freq - 1
         self.trade_log = []
         self.cumulative_pnl = 0.0
         self.prev_positions = {}

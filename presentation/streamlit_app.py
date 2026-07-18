@@ -543,6 +543,35 @@ result = st.session_state.get('result')
 if result:
     st.markdown("### 📊 回测概览")
 
+    trade_list = result.get('trade_list', [])
+    nav_df = result.get('nav_df', pd.DataFrame())
+
+    if trade_list and not nav_df.empty:
+        first_trade_date = trade_list[0].get('date', '')
+        start_date_str = str(nav_df.iloc[0]['date'])[:10]
+        from datetime import datetime
+        try:
+            first_dt = datetime.strptime(first_trade_date, '%Y-%m-%d')
+            start_dt = datetime.strptime(start_date_str, '%Y-%m-%d')
+            empty_days = (first_dt - start_dt).days
+            total_days = len(nav_df)
+            pct_empty = empty_days / max(total_days, 1) * 100
+
+            if empty_days > 5:
+                if pct_empty > 30:
+                    icon = "⚠️"
+                    msg = f"首笔交易在 {first_trade_date}，回测前 {empty_days} 天（{pct_empty:.0f}%）空仓"
+                    tip = "策略等待动量信号转正后才入场，震荡市/熊市初期可能长期空仓。可尝试降低 lookback 或调小 min_momentum 阈值。"
+                else:
+                    icon = "ℹ️"
+                    msg = f"首笔交易在 {first_trade_date}，回测前 {empty_days} 天空仓（正常预热）"
+                    tip = "策略在动量信号转正后入场，属正常行为。"
+                st.info(f"{icon} {msg}\n\n💡 {tip}")
+        except (ValueError, KeyError):
+            pass
+    elif not trade_list:
+        st.warning("⚠️ 回测区间内无任何交易。可能原因：动量信号全部为负、ETF数量不足、或约束条件过严。")
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("最终市值", f"{result['final_value']:,.0f}",
