@@ -57,6 +57,7 @@ class DualMomentumStrategy(bt.Strategy):
             'position_after': position_after,
             'pnl': pnl,
             'cumulative_pnl': self.cumulative_pnl,
+            'cash_after': self.broker.get_cash(),
             'reason': reason,
         })
 
@@ -100,37 +101,65 @@ class DualMomentumStrategy(bt.Strategy):
 
         current_date = self.data.datetime.date(0)
         total_value = self.broker.get_value()
+        max_single_mv = total_value * self.constraints.max_position_pct / 100
+
         current_positions = self._get_current_positions_mv()
+        pending_sell_amounts = 0.0
 
         for d in self.datas:
             pos = self.getposition(d)
-            if d._name not in selected_codes and pos.size > 0:
-                sell_amount = pos.size * d.close[0]
+            if pos.size <= 0:
+                continue
+
+            price = d.close[0]
+            current_mv = pos.size * price
+
+            if d._name not in selected_codes:
+                sell_amount = current_mv
                 ok, reason = self.constraints.can_sell(
-                    d._name, d.close[0], sell_amount, pos.size, current_date,
+                    d._name, price, sell_amount, pos.size, current_date,
                     current_positions=current_positions
                 )
                 if not ok:
                     continue
                 rank = code_rank.get(d._name, (total_n,))[0] if total_n > 0 else 0
                 reason_str = f"双动量排名第{rank}/{total_n}，调出持仓"
-                price = self.constraints.apply_slippage_sell(d.close[0])
-                self._log_trade(d, '卖出', pos.size, price, reason_str)
+                sell_price = self.constraints.apply_slippage_sell(price)
+                self._log_trade(d, '卖出', pos.size, sell_price, reason_str)
                 self.constraints.record_turnover(d._name, sell_amount, current_date)
+                pending_sell_amounts += sell_amount
                 self.close(d)
+                current_positions.pop(d._name, None)
+            else:
+                if current_mv > max_single_mv * 1.05:
+                    excess_mv = current_mv - max_single_mv
+                    sell_shares = int(excess_mv / price / 100) * 100
+                    if sell_shares <= 0:
+                        continue
+                    sell_amount = sell_shares * price
+                    ok, reason = self.constraints.can_sell(
+                        d._name, price, sell_amount, pos.size, current_date,
+                        current_positions=current_positions
+                    )
+                    if not ok:
+                        continue
+                    rank, score, short_ret, long_ret = code_rank.get(d._name, (0, 0, 0, 0))
+                    reason_str = f"双动量排名第{rank}/{total_n}，超配减仓（当前{current_mv/total_value*100:.1f}%→目标{self.constraints.max_position_pct}%）"
+                    sell_price = self.constraints.apply_slippage_sell(price)
+                    self._log_trade(d, '卖出', sell_shares, sell_price, reason_str)
+                    self.constraints.record_turnover(d._name, sell_amount, current_date)
+                    pending_sell_amounts += sell_amount
+                    self.sell(d, size=sell_shares, price=sell_price)
+                    current_positions[d._name] = current_mv - sell_amount
 
-        if not selected:
-            self.prev_positions = {d._name: self.getposition(d).size for d in self.datas}
-            return
-
-        max_single_mv = total_value * self.constraints.max_position_pct / 100
+        effective_cash = self.broker.get_cash() + pending_sell_amounts
 
         for d in selected:
             price = d.close[0]
             if price <= 0:
                 continue
             pos = self.getposition(d)
-            current_mv = pos.size * price
+            current_mv = current_positions.get(d._name, 0)
             buy_budget = max(0, max_single_mv - current_mv)
 
             if buy_budget <= 0:
@@ -142,9 +171,15 @@ class DualMomentumStrategy(bt.Strategy):
                 continue
             buy_amount = target_size * buy_price
 
-            current_positions = self._get_current_positions_mv()
+            if buy_amount > effective_cash + 1e-6:
+                target_size = int(effective_cash / buy_price / 100) * 100
+                if target_size <= 0:
+                    continue
+                buy_amount = target_size * buy_price
+
             ok, reason = self.constraints.can_buy(
-                d._name, buy_price, buy_amount, current_positions, total_value, current_date
+                d._name, buy_price, buy_amount, current_positions, total_value,
+                current_date, effective_cash=effective_cash
             )
             if not ok:
                 continue
@@ -160,6 +195,8 @@ class DualMomentumStrategy(bt.Strategy):
             self.constraints.record_buy(d._name, current_date)
             self.constraints.record_turnover(d._name, buy_amount, current_date)
             self.buy(d, size=target_size, price=buy_price)
+            effective_cash -= buy_amount
+            current_positions[d._name] = current_mv + buy_amount
 
         self.prev_positions = {d._name: self.getposition(d).size for d in self.datas}
 

@@ -93,3 +93,33 @@ class TestStrategyConstraints:
         c.record_turnover('510300', 30000, today)
         ok, reason = c.check_turnover(30000, 100000, today)
         assert ok
+
+    def test_max_total_exposure(self):
+        """总仓位上限-超额拒绝"""
+        c = StrategyConstraints(max_total_exposure_pct=80)
+        positions = {'510300': 50000, '510500': 25000}
+        ok, reason = c.can_buy('159915', 1.0, 10000, positions, 100000, date.today(), effective_cash=25000)
+        assert not ok
+        assert '总仓位' in reason
+
+    def test_max_total_exposure_pass(self):
+        """总仓位上限-通过"""
+        c = StrategyConstraints(max_total_exposure_pct=95)
+        positions = {'510300': 30000, '510500': 30000}
+        ok, reason = c.can_buy('159915', 1.0, 10000, positions, 100000, date.today(), effective_cash=40000)
+        assert ok
+
+    def test_effective_cash_check(self):
+        """现金检查-不足拒绝"""
+        c = StrategyConstraints(max_total_exposure_pct=100)
+        positions = {'510300': 30000}
+        ok, reason = c.can_buy('510500', 1.0, 80000, positions, 200000, date.today(), effective_cash=50000)
+        assert not ok
+        assert '可用现金' in reason
+
+    def test_effective_cash_none_backward_compat(self):
+        """现金检查-不传参时向后兼容"""
+        c = StrategyConstraints(max_total_exposure_pct=100)
+        positions = {'510300': 30000}
+        ok, reason = c.can_buy('510500', 1.0, 80000, positions, 200000, date.today())
+        assert ok

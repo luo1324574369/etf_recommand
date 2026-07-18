@@ -351,6 +351,7 @@ with st.sidebar:
         max_positions = st.slider("最大持仓数", 1, 10, 5)
         min_positions = st.slider("最少持仓数", 0, 10, 0, help="卖出后持仓数不能低于此值，0表示不限制")
         max_position_pct = st.slider("单仓位上限(%)", 10, 100, 40, step=5)
+        max_total_exposure_pct = st.slider("总仓位上限(%)", 20, 100, 95, step=5, help="所有持仓总市值/总资金的上限，留现金缓冲")
         slippage_rate = st.slider("滑点率(%)", 0.0, 1.0, 0.1, step=0.05)
         t_plus_one = st.checkbox("T+1交易约束", value=True)
         min_trade_amount = st.slider("最低交易金额(元)", 1000, 50000, 5000, step=1000)
@@ -361,6 +362,7 @@ with st.sidebar:
             "max_positions": max_positions,
             "min_positions": min_positions,
             "max_position_pct": max_position_pct,
+            "max_total_exposure_pct": max_total_exposure_pct,
             "slippage_rate": slippage_rate,
             "t_plus_one": t_plus_one,
             "min_trade_amount": min_trade_amount,
@@ -372,6 +374,7 @@ with st.sidebar:
             "max_positions": 999,
             "min_positions": 0,
             "max_position_pct": 100.0,
+            "max_total_exposure_pct": 100.0,
             "slippage_rate": 0.0,
             "t_plus_one": False,
             "min_trade_amount": 0,

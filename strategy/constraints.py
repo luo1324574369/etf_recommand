@@ -14,6 +14,7 @@ class StrategyConstraints:
         max_positions: 最大持仓数量
         min_positions: 最少持仓数量
         max_position_pct: 单仓位上限(%)
+        max_total_exposure_pct: 总仓位上限(%)，所有持仓总市值/总资金
         slippage_rate: 滑点率(%)，买入上浮，卖出下浮
         t_plus_one: T+1约束，当日买入不能当日卖出
         min_trade_amount: 最低交易金额(元)
@@ -26,6 +27,7 @@ class StrategyConstraints:
         max_positions: int = 5,
         min_positions: int = 0,
         max_position_pct: float = 40.0,
+        max_total_exposure_pct: float = 95.0,
         slippage_rate: float = 0.1,
         t_plus_one: bool = True,
         min_trade_amount: float = 5000.0,
@@ -35,6 +37,7 @@ class StrategyConstraints:
         self.max_positions = max_positions
         self.min_positions = min_positions
         self.max_position_pct = max_position_pct
+        self.max_total_exposure_pct = max_total_exposure_pct
         self.slippage_rate = slippage_rate
         self.t_plus_one = t_plus_one
         self.min_trade_amount = min_trade_amount
@@ -60,6 +63,7 @@ class StrategyConstraints:
         current_positions: Dict[str, float],
         total_value: float,
         current_date: date,
+        effective_cash: float = None,
     ) -> Tuple[bool, str]:
         """检查是否可以买入
 
@@ -70,6 +74,7 @@ class StrategyConstraints:
             current_positions: 当前持仓 {code: 市值}
             total_value: 总市值
             current_date: 当前日期
+            effective_cash: 可用现金（含待释放卖出资金），None表示不检查
 
         Returns:
             (是否可以买入, 原因)
@@ -91,6 +96,14 @@ class StrategyConstraints:
         if code not in current_positions or current_positions.get(code, 0) <= 0:
             if current_count >= self.max_positions:
                 return False, f"持仓数量{current_count}已达上限{self.max_positions}"
+
+        total_mv = sum(current_positions.values())
+        if total_mv + amount > total_value * self.max_total_exposure_pct / 100 + 1e-6:
+            new_pct = (total_mv + amount) / total_value * 100
+            return False, f"总仓位将达{new_pct:.1f}%，超过上限{self.max_total_exposure_pct}%"
+
+        if effective_cash is not None and amount > effective_cash + 1e-6:
+            return False, f"买入金额{amount:.0f}超过可用现金{effective_cash:.0f}"
 
         return True, ""
 
