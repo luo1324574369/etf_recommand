@@ -444,6 +444,10 @@ with st.sidebar:
                  help="运行Walk-Forward优化，生成5个差异化参数预设（约1-5分钟）"):
         st.session_state['optimize_clicked'] = True
     st.markdown("---")
+    if st.button("🔬 因子分析", use_container_width=True,
+                 help="检验各因子在ETF池中的有效性（RankIC/ICIR/分层回测）"):
+        st.session_state['factor_analysis_clicked'] = True
+    st.markdown("---")
     run_clicked = st.button("🧪 运行回测", type="primary", use_container_width=True)
 
 
@@ -595,6 +599,97 @@ if wf_presets:
         st.dataframe(pd.DataFrame(window_rows), use_container_width=True, hide_index=True)
 
     st.markdown("---")
+
+
+# 因子分析弹窗（独立于回测结果）
+if st.session_state.get('factor_analysis_clicked'):
+    @st.dialog("因子有效性分析", width="large")
+    def show_factor_analysis():
+        from strategy.factor_analysis import analyze_all_etfs
+        from strategy.scoring import FACTOR_LABELS
+
+        with st.spinner("正在计算因子有效性（约30-60秒）..."):
+            try:
+                report = analyze_all_etfs(
+                    etf_codes=[e['code'] for e in ETF_UNIVERSE],
+                    price_repo=price_repo,
+                    valuation_repo=valuation_repo,
+                    start_date=start_date.strftime("%Y-%m-%d"),
+                    end_date=end_date.strftime("%Y-%m-%d"),
+                )
+            except Exception as e:
+                st.error(f"因子分析失败: {e}")
+                return
+
+        if not report:
+            st.warning("无可用因子数据，请确保ETF行情和PE数据已更新")
+            return
+
+        st.markdown(f"**分析区间**: {start_date} ~ {end_date} | **ETF数**: {len(ETF_UNIVERSE)}")
+
+        # 因子汇总表
+        summary_rows = []
+        for factor, metrics in report.items():
+            icir_info = metrics.get('icir', {})
+            summary_rows.append({
+                '因子': FACTOR_LABELS.get(factor, factor),
+                'RankIC均值': f"{metrics.get('ic_mean', 0):.4f}",
+                'ICIR': f"{icir_info.get('icir', 0):.3f}",
+                'IC正比例': f"{metrics.get('ic_positive_ratio', 0):.1%}",
+                '单调性': metrics.get('monotonicity', '-'),
+                '判定': metrics.get('verdict', '-'),
+            })
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+        # 因子切换 + 详情图表
+        factor_options = list(report.keys())
+        if factor_options:
+            selected_factor = st.selectbox("选择因子查看详情", factor_options)
+            if selected_factor:
+                m = report[selected_factor]
+
+                # IC时间序列
+                ic_series = m.get('ic_series', [])
+                if ic_series:
+                    ic_df = pd.DataFrame(ic_series)
+                    fig_ic = go.Figure()
+                    fig_ic.add_trace(go.Bar(
+                        x=ic_df['date'], y=ic_df['ic'],
+                        name='月度IC', marker_color='blue'
+                    ))
+                    fig_ic.add_trace(go.Scatter(
+                        x=ic_df['date'], y=ic_df['ic'].cumsum(),
+                        name='累计IC', yaxis='y2',
+                        line=dict(color='red', width=2)
+                    ))
+                    fig_ic.update_layout(
+                        title=f"{FACTOR_LABELS.get(selected_factor, selected_factor)} 月度IC序列",
+                        yaxis=dict(title="月度IC"),
+                        yaxis2=dict(title="累计IC", overlaying='y', side='right'),
+                        template='plotly_white',
+                    )
+                    st.plotly_chart(fig_ic, use_container_width=True)
+
+                # 分层回测
+                strat_data = m.get('stratified', [])
+                if strat_data:
+                    strat_df = pd.DataFrame(strat_data)
+                    strat_df['cum_return'] = strat_df.groupby('group')['avg_return'].transform(
+                        lambda x: (1 + x).cumprod() - 1
+                    )
+                    fig_strat = px.line(
+                        strat_df, x='date', y='cum_return', color='group',
+                        title=f"{FACTOR_LABELS.get(selected_factor, selected_factor)} 分层回测累计收益",
+                        labels={'date': '日期', 'cum_return': '累计收益', 'group': '分组'},
+                        template='plotly_white',
+                    )
+                    st.plotly_chart(fig_strat, use_container_width=True)
+
+        if st.button("关闭", use_container_width=True):
+            st.session_state['factor_analysis_clicked'] = False
+            st.rerun()
+
+    show_factor_analysis()
 
 
 result = st.session_state.get('result')
