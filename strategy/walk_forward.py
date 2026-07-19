@@ -114,27 +114,32 @@ def calculate_robustness_score(sharpes: List[float]) -> float:
 
 
 def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
-                         params: Dict[str, Any], start_date: str, end_date: str) -> Optional[Dict[str, float]]:
+                         params: Dict[str, Any], start_date: str, end_date: str,
+                         extra_params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, float]]:
     """运行单次回测，返回关键指标
 
     Args:
-        strategy_module: 策略模块（如 dual_momentum）
+        strategy_module: 策略模块（如 dual_momentum, multi_factor）
         data_dict: ETF行情数据
         params: 策略参数字典
         start_date: 回测起始日期
         end_date: 回测结束日期
+        extra_params: 额外回测参数（如 valuation_repo），会合并到 params 中
 
     Returns:
         包含 annual_return, sharpe_ratio, max_drawdown, num_trades, total_return 的字典，
         回测失败时返回None
     """
     try:
+        full_params = {**params}
+        if extra_params:
+            full_params.update(extra_params)
         result = strategy_module.run_backtest(
             data_dict,
             initial_capital=1000000,
             start_date=start_date,
             end_date=end_date,
-            **params,
+            **full_params,
         )
         total_return = result.get('total_return', None)
         if total_return is None:
@@ -180,6 +185,8 @@ def generate_walk_forward_presets(
     param_ranges: Dict[str, List[Any]],
     max_combinations: int = 144,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    strategy_module=None,
+    extra_params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """生成Walk-Forward参数预设
 
@@ -193,6 +200,8 @@ def generate_walk_forward_presets(
         param_ranges: 参数范围字典，如 {'top_n': [1,2,3], 'rebalance_freq': [20,60]}
         max_combinations: 最大参数组合数限制，默认144
         progress_callback: 进度回调函数 (current, total, message)
+        strategy_module: 策略模块（需有 run_backtest 函数），默认 None 时使用 dual_momentum
+        extra_params: 额外回测参数（如 valuation_repo），会合并到每次回测的参数中
 
     Returns:
         {
@@ -218,7 +227,8 @@ def generate_walk_forward_presets(
             'elapsed_time': 耗时(秒),
         }
     """
-    from strategy import dual_momentum
+    if strategy_module is None:
+        from strategy import dual_momentum as strategy_module
 
     start_time = time.time()
 
@@ -259,8 +269,9 @@ def generate_walk_forward_presets(
                 )
 
             metrics = _run_single_backtest(
-                dual_momentum, data_dict, params,
+                strategy_module, data_dict, params,
                 w['val_start'], w['val_end'],
+                extra_params=extra_params,
             )
             if metrics is not None:
                 window_results.append(metrics)
@@ -274,8 +285,9 @@ def generate_walk_forward_presets(
             )
 
         full_metrics = _run_single_backtest(
-            dual_momentum, data_dict, params,
+            strategy_module, data_dict, params,
             start_date, end_date,
+            extra_params=extra_params,
         )
 
         if not window_results and full_metrics is None:

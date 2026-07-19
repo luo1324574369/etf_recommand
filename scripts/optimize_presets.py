@@ -102,12 +102,15 @@ def main():
     from config.settings import ETF_UNIVERSE, DB_PATH
     from data.storage.db import init_db, get_db
     from data.storage.price_repo import PriceRepository
+    from data.storage.valuation_repo import ValuationRepo
+    from strategy import multi_factor
     from strategy.optimizer import MULTI_FACTOR_PARAM_RANGES
     from strategy.walk_forward import generate_walk_forward_presets
     from tabulate import tabulate
 
     init_db(DB_PATH)
     price_repo = PriceRepository(get_db(DB_PATH))
+    valuation_repo = ValuationRepo(DB_PATH)
 
     # 加载行情数据
     data_dict = {}
@@ -134,6 +137,8 @@ def main():
         MULTI_FACTOR_PARAM_RANGES,
         max_combinations=args.max_combinations,
         progress_callback=print_progress,
+        strategy_module=multi_factor,
+        extra_params={'valuation_repo': valuation_repo},
     )
     elapsed = time.time() - start_time
 
