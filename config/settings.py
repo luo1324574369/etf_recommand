@@ -225,6 +225,8 @@ PARAM_PRESETS = {
     {"name": "🥈 均衡稳健型", "params": {"lookback_momentum": 60, "lookback_volatility": 60, "top_n": 3, "rebalance_freq": 10}},
     {"name": "🥉 最低回撤型", "params": {"lookback_momentum": 60, "lookback_volatility": 20, "top_n": 3, "rebalance_freq": 60}},
     {"name": "📊 低频交易型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 2, "rebalance_freq": 60}},
+    {"name": "🎯 最高窗口CAGR型", "params": {"lookback_momentum": 120, "lookback_volatility": 120, "top_n": 3, "rebalance_freq": 10}},
+    {"name": "🛡️ 最佳最差夏普型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 4, "rebalance_freq": 10}},
     {"name": "⚙️ 自定义参数", "params": None},
 ],
 }
