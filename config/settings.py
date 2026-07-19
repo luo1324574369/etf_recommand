@@ -219,32 +219,11 @@ WEB_CONFIG = {
 }
 
 PARAM_PRESETS = {
-    "双动量轮动": [
-        # Walk-Forward 优化预设（回测区间 2019-01-01 ~ 2024-12-31，33只ETF全池）
-        # 🏆 激进高收益型：年化4.10%, 夏普0.45, 回撤12.49%
-        {"name": "🏆 激进高收益型", "params": {"lookback_short": 20, "lookback_long": 250, "top_n": 3, "rebalance_freq": 60}},
-        # 🥈 均衡稳健型：年化2.18%, 夏普0.33, 回撤10.55%（最低回撤）
-        {"name": "🥈 均衡稳健型", "params": {"lookback_short": 20, "lookback_long": 250, "top_n": 2, "rebalance_freq": 60}},
-        # 🥇 最优风险调整型：年化-0.12%, 鲁棒性得分-0.31（最差夏普最优）
-        {"name": "🥇 最优风险调整型", "params": {"lookback_short": 20, "lookback_long": 250, "top_n": 3, "rebalance_freq": 20}},
-        # 🥉 最低回撤型：年化0.18%, 回撤14.71%, 窗口CAGR 21.48%
-        {"name": "🥉 最低回撤型", "params": {"lookback_short": 60, "lookback_long": 250, "top_n": 2, "rebalance_freq": 60}},
-        # 📊 低频交易型：年化0.11%, 交易次数10, 窗口CAGR 13.80%
-        {"name": "📊 低频交易型", "params": {"lookback_short": 40, "lookback_long": 250, "top_n": 2, "rebalance_freq": 60}},
-        {"name": "⚙️ 自定义参数", "params": None},
-    ],
     "多因子轮动": [
+        # 待运行 `scripts/optimize_presets.py` 生成 Walk-Forward 优化预设
         {"name": "⚖️ 等权三因子基线", "params": {
             "lookback_momentum": 60, "lookback_volatility": 60,
             "top_n": 3, "rebalance_freq": 20,
-        }},
-        {"name": "🛡️ 防御型(低波优先)", "params": {
-            "lookback_momentum": 120, "lookback_volatility": 60,
-            "top_n": 2, "rebalance_freq": 60,
-        }},
-        {"name": "📈 进攻型(动量优先)", "params": {
-            "lookback_momentum": 20, "lookback_volatility": 120,
-            "top_n": 4, "rebalance_freq": 10,
         }},
         {"name": "⚙️ 自定义参数", "params": None},
     ],
