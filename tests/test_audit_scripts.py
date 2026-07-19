@@ -89,5 +89,60 @@ class TestAuditSurvivorship(unittest.TestCase):
             os.unlink(db_path)
 
 
+class TestAuditLookahead(unittest.TestCase):
+    """前视偏差审计脚本测试"""
+
+    def test_script_exists(self):
+        script_path = Path(__file__).parent.parent / 'scripts' / 'audit_lookahead.py'
+        self.assertTrue(script_path.exists())
+
+    def test_help_message(self):
+        result = subprocess.run(
+            [sys.executable, 'scripts/audit_lookahead.py', '--help'],
+            capture_output=True, text=True, cwd=Path(__file__).parent.parent
+        )
+        self.assertEqual(result.returncode, 0)
+
+    def test_static_check_detects_no_shift(self):
+        """静态检查能识别未加 shift 的 rolling 调用"""
+        # 构造临时可疑文件
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("""
+import pandas as pd
+def bad_function(df):
+    return df['close'].rolling(20).mean()  # 未加 shift(1)
+""")
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [sys.executable, 'scripts/audit_lookahead.py',
+                 '--static-only', '--target', temp_path],
+                capture_output=True, text=True, cwd=Path(__file__).parent.parent
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('rolling', result.stdout)
+        finally:
+            os.unlink(temp_path)
+
+    def test_static_check_passes_clean_code(self):
+        """干净代码（已加 shift）→ 退出码 0"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("""
+import pandas as pd
+def good_function(df):
+    return df['close'].rolling(20).mean().shift(1)
+""")
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [sys.executable, 'scripts/audit_lookahead.py',
+                 '--static-only', '--target', temp_path],
+                capture_output=True, text=True, cwd=Path(__file__).parent.parent
+            )
+            self.assertEqual(result.returncode, 0)
+        finally:
+            os.unlink(temp_path)
+
+
 if __name__ == '__main__':
     unittest.main()
