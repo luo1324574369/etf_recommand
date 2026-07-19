@@ -73,10 +73,11 @@ def update_presets_in_settings(settings_path: str, new_presets: List[Dict[str, A
 
     new_list_src = _build_presets_list_source(new_presets)
 
-    lines = src.splitlines(keepends=True)
-    start_offset = sum(len(l) for l in lines[:target_node.lineno - 1])
-    end_offset = sum(len(l) for l in lines[:target_node.end_lineno])
-    replaced = src[:start_offset] + new_list_src + src[end_offset:]
+    src_bytes = src.encode('utf-8')
+    lines_bytes = src_bytes.splitlines(keepends=True)
+    start_offset = sum(len(l) for l in lines_bytes[:target_node.lineno - 1]) + target_node.col_offset
+    end_offset = sum(len(l) for l in lines_bytes[:target_node.end_lineno - 1]) + target_node.end_col_offset
+    replaced = (src_bytes[:start_offset] + new_list_src.encode('utf-8') + src_bytes[end_offset:]).decode('utf-8')
 
     Path(settings_path).write_text(replaced, encoding='utf-8')
 
