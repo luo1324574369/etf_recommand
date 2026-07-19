@@ -44,6 +44,11 @@ class MultiFactorStrategy(bt.Strategy):
         # code_to_sector默认为空，由外部设置
         self.code_to_sector = {}
 
+        # 换手率追踪：每个调仓周期累加买入金额
+        self._turnover_records = []  # [{'date': str, 'buy_amount': float, 'total_value': float}]
+        self._current_period_buys = 0.0  # 当前调仓周期累计买入金额
+        self._current_period_date = None  # 当前调仓日
+
     def _log_trade(self, d, direction, size, price, reason):
         amount = size * price
         fee = amount * self.p.commission_rate
@@ -51,6 +56,8 @@ class MultiFactorStrategy(bt.Strategy):
         if direction == '买入':
             position_after = pos.size + size
             pnl = 0.0
+            # 累加买入金额到当前周期
+            self._current_period_buys += amount
         else:
             position_after = pos.size - size
             if pos.price > 0:
@@ -156,6 +163,21 @@ class MultiFactorStrategy(bt.Strategy):
             current_date = self.data.datetime.date(0)
             if current_date < self.p.start_date:
                 return
+
+        # 换手率追踪：在调仓日入口处记录上一周期的换手
+        current_date = self.data.datetime.date(0)
+        current_iso = current_date.isoformat()
+        if self._current_period_date is not None and self.day_count % self.p.rebalance_freq == 0:
+            total_value = self.broker.get_value()
+            self._turnover_records.append({
+                'date': self._current_period_date,
+                'buy_amount': self._current_period_buys,
+                'total_value': total_value,
+            })
+            self._current_period_buys = 0.0
+            self._current_period_date = current_iso
+        elif self._current_period_date is None:
+            self._current_period_date = current_iso
 
         self.day_count += 1
         if self.day_count % self.p.rebalance_freq != 0:

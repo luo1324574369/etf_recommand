@@ -97,6 +97,30 @@ def run_backtest(
     benchmark_navs = build_benchmarks(data_dict, DEFAULT_BENCHMARKS, start_date, end_date)
     comparison = compare(nav_df, benchmark_navs)
 
+    # 计算换手率
+    turnover_records = getattr(strat, '_turnover_records', [])
+    total_buys = sum(r['buy_amount'] for r in turnover_records)
+
+    # 年化换手率
+    days = 0
+    if start_date and end_date:
+        try:
+            days = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days
+        except Exception:
+            days = 0
+    years = days / 365.25 if days > 0 else 1
+    turnover_annual = (total_buys / initial_capital / years * 100) if years > 0 else 0
+
+    # 累计换手率
+    turnover_total = (total_buys / initial_capital * 100)
+
+    # 换手率序列
+    turnover_series = pd.DataFrame(turnover_records) if turnover_records else pd.DataFrame()
+    if not turnover_series.empty:
+        turnover_series['turnover_pct'] = (
+            turnover_series['buy_amount'] / turnover_series['total_value'] * 100
+        )
+
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
@@ -116,6 +140,9 @@ def run_backtest(
         'nav_df': nav_df,
         'comparison': comparison,
         'benchmark_navs': benchmark_navs,
+        'turnover_total_pct': float(turnover_total),
+        'turnover_annual_pct': float(turnover_annual),
+        'turnover_series': turnover_series,
     }
 
 
