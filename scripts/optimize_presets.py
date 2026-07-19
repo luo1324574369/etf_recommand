@@ -182,8 +182,9 @@ def main():
         benchmark_applied = wf_result.get('benchmark_applied', False)
         filtered_count = wf_result.get('benchmark_filtered_count', 0)
         all_count = wf_result.get('all_results_count', 0)
-        status = "✅ 已应用" if benchmark_applied else "⚠️ 回退(组合不足5)"
+        status = "✅ 已应用" if benchmark_applied else "⚠️ 回退(组合不足3)"
         print(f"沪深300基准年化: {hs300_annual_return:.2f}% | {status} | 跑赢组合: {filtered_count}/{all_count}")
+    print(f"预设数量: {len(wf_result['presets'])} 个 (动态3-7)")
     print("=" * 60 + "\n")
 
     table_rows = []

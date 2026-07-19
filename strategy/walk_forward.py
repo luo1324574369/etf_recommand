@@ -1,22 +1,24 @@
 """Walk-Forward参数优化引擎
 
 使用Anchored Walk-Forward方法验证参数鲁棒性，
-生成5个差异化的参数预设。
+生成3-7个差异化的参数预设。
 
 算法流程:
     1. 分割时间区间为6个月的验证窗口
-    2. 对每个参数组合在所有窗口跑回测验证
+    2. 对每个参数组合在所有窗口跑回测验证（多进程并行）
     3. 计算鲁棒性得分 = 0.7 * 平均夏普 + 0.3 * 最差夏普
-    4. 按不同优化目标选出5个差异化预设
+    4. 按不同优化目标选出3-7个差异化预设
     5. 去重: 每个预设的参数组合必须不同
 """
 import itertools
+import os
 import time
 from typing import Dict, List, Any, Optional, Callable
+from multiprocessing import get_context
 import pandas as pd
 
 
-# 5种预设风格定义
+# 7种预设风格定义（按优先级排序，动态选择3-7个）
 PRESET_STYLES = [
     {
         'key': 'high_return',
@@ -49,6 +51,20 @@ PRESET_STYLES = [
         'name': '📊 低频交易型',
         'metric': 'full_num_trades',
         'sort_order': 'asc',
+        'min_return': 0,
+    },
+    {
+        'key': 'high_cagr',
+        'name': '🎯 最高窗口CAGR型',
+        'metric': 'cagr',
+        'sort_order': 'desc',
+        'min_return': 0,
+    },
+    {
+        'key': 'best_worst_sharpe',
+        'name': '🛡️ 最佳最差夏普型',
+        'metric': 'worst_sharpe',
+        'sort_order': 'desc',
         'min_return': 0,
     },
 ]
@@ -161,6 +177,109 @@ def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
         return None
 
 
+# 模块级变量，供 worker 进程 fork 后使用（避免每次 pickle data_dict）
+_WORKER_DATA_DICT = None
+_WORKER_STRATEGY_MODULE = None
+_WORKER_EXTRA_PARAMS = None
+_WORKER_WINDOWS = None
+_WORKER_START_DATE = None
+_WORKER_END_DATE = None
+
+
+def _worker_init(data_dict, strategy_module, extra_params, windows, start_date, end_date):
+    """worker 进程初始化，设置模块级变量"""
+    global _WORKER_DATA_DICT, _WORKER_STRATEGY_MODULE, _WORKER_EXTRA_PARAMS
+    global _WORKER_WINDOWS, _WORKER_START_DATE, _WORKER_END_DATE
+    _WORKER_DATA_DICT = data_dict
+    _WORKER_STRATEGY_MODULE = strategy_module
+    _WORKER_EXTRA_PARAMS = extra_params
+    _WORKER_WINDOWS = windows
+    _WORKER_START_DATE = start_date
+    _WORKER_END_DATE = end_date
+
+
+def _worker_process_combo(combo_info):
+    """worker 进程处理单个参数组合
+
+    Args:
+        combo_info: (combo_tuple, param_names)
+
+    Returns:
+        单个组合的结果字典，或 None（失败时）
+    """
+    combo, param_names = combo_info
+    params = dict(zip(param_names, combo))
+    window_results = []
+
+    # 跑所有验证窗口
+    for w in _WORKER_WINDOWS:
+        metrics = _run_single_backtest(
+            _WORKER_STRATEGY_MODULE, _WORKER_DATA_DICT, params,
+            w['val_start'], w['val_end'],
+            extra_params=_WORKER_EXTRA_PARAMS,
+        )
+        if metrics is not None:
+            window_results.append(metrics)
+
+    # 跑全周期回测
+    full_metrics = _run_single_backtest(
+        _WORKER_STRATEGY_MODULE, _WORKER_DATA_DICT, params,
+        _WORKER_START_DATE, _WORKER_END_DATE,
+        extra_params=_WORKER_EXTRA_PARAMS,
+    )
+
+    if not window_results and full_metrics is None:
+        return None
+
+    # 窗口指标
+    if window_results:
+        avg_sharpe = sum(r['sharpe_ratio'] for r in window_results) / len(window_results)
+        avg_drawdown = sum(r['max_drawdown'] for r in window_results) / len(window_results)
+        avg_trades = sum(r['num_trades'] for r in window_results) / len(window_results)
+        sharpes = [r['sharpe_ratio'] for r in window_results]
+        robustness = calculate_robustness_score(sharpes)
+        worst_sharpe = min(sharpes) if sharpes else 0
+        window_total_returns = [r['total_return'] for r in window_results]
+        window_cagr = _cagr_from_returns(window_total_returns)
+    else:
+        avg_sharpe = 0
+        avg_drawdown = 0
+        avg_trades = 0
+        robustness = 0
+        worst_sharpe = 0
+        window_cagr = 0
+
+    # 全周期指标
+    if full_metrics is not None:
+        full_annual = full_metrics['annual_return']
+        full_sharpe = full_metrics['sharpe_ratio']
+        full_drawdown = full_metrics['max_drawdown']
+        full_trades = full_metrics['num_trades']
+    else:
+        full_annual = 0
+        full_sharpe = 0
+        full_drawdown = 0
+        full_trades = 0
+
+    return {
+        'params': params.copy(),
+        'param_str': str(params),
+        'metrics': {
+            'cagr': window_cagr,
+            'avg_sharpe_ratio': avg_sharpe,
+            'avg_max_drawdown': avg_drawdown,
+            'avg_num_trades': avg_trades,
+            'robustness_score': robustness,
+            'worst_sharpe': worst_sharpe,
+            'validation_windows': len(window_results),
+            'full_annual_return': full_annual,
+            'full_sharpe_ratio': full_sharpe,
+            'full_max_drawdown': full_drawdown,
+            'full_num_trades': full_trades,
+        },
+    }
+
+
 def _cagr_from_returns(total_returns_pct: List[float]) -> float:
     """从多段收益率计算复合年化增长率(CAGR)
 
@@ -253,97 +372,43 @@ def generate_walk_forward_presets(
     if len(all_combinations) > max_combinations:
         all_combinations = all_combinations[:max_combinations]
 
-    total_steps = len(all_combinations) * (len(windows) + 1)
-    current_step = 0
+    total_steps = len(all_combinations)
 
-    # 3. 对每个参数组合在所有窗口验证 + 全周期回测
+    # 3. 多进程并行：对每个参数组合在所有窗口验证 + 全周期回测
+    combo_infos = [(combo, param_names) for combo in all_combinations]
+
+    # 判断 CPU 核数，并行跑
+    n_workers = min(os.cpu_count() or 1, 8, len(all_combinations))
+    use_parallel = n_workers > 1 and len(all_combinations) > 1
+
     all_results = []
-    for combo in all_combinations:
-        params = dict(zip(param_names, combo))
-        window_results = []
-
-        # 跑所有验证窗口
-        for w in windows:
+    if use_parallel:
+        # fork 模式下 worker 继承父进程内存，data_dict 零拷贝
+        ctx = get_context('fork')
+        with ctx.Pool(
+            processes=n_workers,
+            initializer=_worker_init,
+            initargs=(data_dict, strategy_module, extra_params, windows, start_date, end_date),
+        ) as pool:
             if progress_callback:
-                current_step += 1
-                progress_callback(
-                    current_step, total_steps,
-                    f"验证参数: {params} | 窗口: {w['val_start']}~{w['val_end']}",
-                )
-
-            metrics = _run_single_backtest(
-                strategy_module, data_dict, params,
-                w['val_start'], w['val_end'],
-                extra_params=extra_params,
-            )
-            if metrics is not None:
-                window_results.append(metrics)
-
-        # 跑全周期回测
-        if progress_callback:
-            current_step += 1
-            progress_callback(
-                current_step, total_steps,
-                f"全周期回测: {params}",
-            )
-
-        full_metrics = _run_single_backtest(
-            strategy_module, data_dict, params,
-            start_date, end_date,
-            extra_params=extra_params,
-        )
-
-        if not window_results and full_metrics is None:
-            continue
-
-        # 窗口指标
-        if window_results:
-            avg_sharpe = sum(r['sharpe_ratio'] for r in window_results) / len(window_results)
-            avg_drawdown = sum(r['max_drawdown'] for r in window_results) / len(window_results)
-            avg_trades = sum(r['num_trades'] for r in window_results) / len(window_results)
-            sharpes = [r['sharpe_ratio'] for r in window_results]
-            robustness = calculate_robustness_score(sharpes)
-            worst_sharpe = min(sharpes) if sharpes else 0
-            # 用各窗口总收益率计算CAGR
-            window_total_returns = [r['total_return'] for r in window_results]
-            window_cagr = _cagr_from_returns(window_total_returns)
-        else:
-            avg_sharpe = 0
-            avg_drawdown = 0
-            avg_trades = 0
-            robustness = 0
-            worst_sharpe = 0
-            window_cagr = 0
-
-        # 全周期指标
-        if full_metrics is not None:
-            full_annual = full_metrics['annual_return']
-            full_sharpe = full_metrics['sharpe_ratio']
-            full_drawdown = full_metrics['max_drawdown']
-            full_trades = full_metrics['num_trades']
-        else:
-            full_annual = 0
-            full_sharpe = 0
-            full_drawdown = 0
-            full_trades = 0
-
-        all_results.append({
-            'params': params.copy(),
-            'param_str': str(params),
-            'metrics': {
-                'cagr': window_cagr,
-                'avg_sharpe_ratio': avg_sharpe,
-                'avg_max_drawdown': avg_drawdown,
-                'avg_num_trades': avg_trades,
-                'robustness_score': robustness,
-                'worst_sharpe': worst_sharpe,
-                'validation_windows': len(window_results),
-                'full_annual_return': full_annual,
-                'full_sharpe_ratio': full_sharpe,
-                'full_max_drawdown': full_drawdown,
-                'full_num_trades': full_trades,
-            },
-        })
+                # 带进度回调的 imap_unordered
+                for i, result in enumerate(pool.imap_unordered(_worker_process_combo, combo_infos), 1):
+                    if result is not None:
+                        all_results.append(result)
+                    progress_callback(i, total_steps, f"完成 {i}/{total_steps} 个参数组合")
+            else:
+                for result in pool.imap_unordered(_worker_process_combo, combo_infos):
+                    if result is not None:
+                        all_results.append(result)
+    else:
+        # 串行回退（单核或单组合）
+        _worker_init(data_dict, strategy_module, extra_params, windows, start_date, end_date)
+        for i, combo_info in enumerate(combo_infos, 1):
+            result = _worker_process_combo(combo_info)
+            if result is not None:
+                all_results.append(result)
+            if progress_callback:
+                progress_callback(i, total_steps, f"完成 {i}/{total_steps} 个参数组合")
 
     elapsed_time = time.time() - start_time
 
@@ -355,7 +420,7 @@ def generate_walk_forward_presets(
             'elapsed_time': elapsed_time,
         }
 
-    # 4. 按不同风格选出5个差异化预设（去重）
+    # 4. 动态选出3-7个差异化预设（按效果差异化去重）
     # 基准收益筛选：若设置了 min_full_annual_return，先过滤掉未跑赢基准的组合
     benchmark_filtered_results = all_results
     benchmark_applied = False
@@ -365,8 +430,8 @@ def generate_walk_forward_presets(
             if r['metrics'].get('full_annual_return', 0) > min_full_annual_return
         ]
         benchmark_applied = True
-        if len(benchmark_filtered_results) < 5:
-            # 筛选后组合数不足5个，回退到不筛选
+        if len(benchmark_filtered_results) < 3:
+            # 筛选后组合数不足3个，回退到不筛选
             benchmark_filtered_results = all_results
             benchmark_applied = False
 
@@ -374,6 +439,9 @@ def generate_walk_forward_presets(
     presets = []
 
     for style in PRESET_STYLES:
+        if len(presets) >= 7:
+            break
+
         metric = style['metric']
         sort_order = style['sort_order']
 
@@ -411,9 +479,6 @@ def generate_walk_forward_presets(
                 'params': result['params'].copy(),
                 'metrics': result['metrics'].copy(),
             })
-            break
-
-        if len(presets) >= 5:
             break
 
     return {

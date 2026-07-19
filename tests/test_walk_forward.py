@@ -80,10 +80,10 @@ def test_cagr_from_returns():
 
 
 def test_generate_presets_returns_5():
-    """测试生成5个差异化预设
+    """测试生成3-7个差异化预设
 
     使用模拟数据生成Walk-Forward预设，验证：
-    - 返回5个预设
+    - 返回3-7个预设（动态差异化）
     - 参数组合不重复
     - 每个预设有 name/params/metrics 字段
     """
@@ -111,8 +111,9 @@ def test_generate_presets_returns_5():
     )
     # 验证返回结构
     assert 'presets' in result
-    # 验证返回5个预设
-    assert len(result['presets']) == 5, f"期望5个预设，实际{len(result['presets'])}"
+    # 验证返回3-7个预设（动态差异化）
+    n_presets = len(result['presets'])
+    assert 3 <= n_presets <= 7, f"期望3-7个预设，实际{n_presets}"
     # 验证预设参数不重复
     param_strs = set()
     for p in result['presets']:
