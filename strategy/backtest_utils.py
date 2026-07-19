@@ -91,7 +91,7 @@ def run_backtest(
     annual_return = strat.analyzers.returns.get_analysis().get('rnorm100', 0)
 
     # 多基准对比
-    from strategy.benchmark import build_benchmarks, DEFAULT_BENCHMARKS
+    from strategy.benchmark import build_benchmarks, DEFAULT_BENCHMARKS, PRIMARY_BENCHMARK
     from strategy.comparator import compare
 
     benchmark_navs = build_benchmarks(data_dict, DEFAULT_BENCHMARKS, start_date, end_date)
@@ -100,8 +100,8 @@ def run_backtest(
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
-        'benchmark_return': comparison.get('benchmark_metrics', {}).get('等权持有', {}).get('total_return', 0.0),
-        'excess_return': comparison.get('comparison', {}).get('等权持有', {}).get('excess_return', 0.0),
+        'benchmark_return': comparison.get('benchmark_metrics', {}).get(PRIMARY_BENCHMARK, {}).get('total_return', 0.0),
+        'excess_return': comparison.get('comparison', {}).get(PRIMARY_BENCHMARK, {}).get('excess_return', 0.0),
         'sharpe_ratio': sharpe,
         'max_drawdown': drawdown,
         'max_drawdown_days': drawdown_len,
