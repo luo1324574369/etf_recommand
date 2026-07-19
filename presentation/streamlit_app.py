@@ -13,7 +13,6 @@ from data.storage.db import init_db, get_db
 from data.storage.price_repo import PriceRepository
 from data.storage.etf_repo import ETFRepository
 from data.storage.valuation_repo import ValuationRepo
-from strategy import dual_momentum
 from strategy.scoring import (
     compute_all_factors,
     zscore_normalize,
@@ -21,7 +20,6 @@ from strategy.scoring import (
     FACTOR_DIRECTIONS,
     FACTOR_LABELS,
 )
-from strategy.optimizer import optimize_parameters, DUAL_MOMENTUM_PARAM_RANGES
 from service.data_service import ensure_data_ready
 from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
 
@@ -49,7 +47,7 @@ etf_repo = ETFRepository(get_db(db_path))
 valuation_repo = ValuationRepo(db_path)
 
 
-def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type, params, constraints_dict):
+def run_backtest_for_result(selected_codes, start_date, end_date, params, constraints_dict):
     data_dict = {}
     for code in selected_codes:
         prices = price_repo.get_daily_price(code)
@@ -58,33 +56,16 @@ def run_backtest_for_result(selected_codes, start_date, end_date, strategy_type,
             data_dict[code] = df
 
     full_params = {**params, 'constraints': constraints_dict}
+    full_params['valuation_repo'] = valuation_repo
 
-    if strategy_type == "双动量轮动":
-        result = dual_momentum.run_backtest(
-            data_dict,
-            initial_capital=INITIAL_CAPITAL,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
-            **full_params,
-        )
-    elif strategy_type == "多因子轮动":
-        from strategy import multi_factor
-        full_params['valuation_repo'] = valuation_repo
-        result = multi_factor.run_backtest(
-            data_dict,
-            initial_capital=INITIAL_CAPITAL,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
-            **full_params,
-        )
-    else:
-        result = dual_momentum.run_backtest(
-            data_dict,
-            initial_capital=INITIAL_CAPITAL,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
-            **full_params,
-        )
+    from strategy import multi_factor
+    result = multi_factor.run_backtest(
+        data_dict,
+        initial_capital=INITIAL_CAPITAL,
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
+        **full_params,
+    )
     return result
 
 
@@ -310,15 +291,13 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")
-    strategy_options = ["双动量轮动", "多因子轮动"]
-    strategy_type = st.selectbox("策略类型", strategy_options, index=0, key="strategy_select")
-    st.session_state['strategy_type'] = strategy_type
+    st.caption("多因子轮动策略：动量 + 估值 + 低波动 等权合成")
 
-    dynamic_presets = st.session_state.get('dynamic_presets', {}).get(strategy_type, [])
+    dynamic_presets = st.session_state.get('dynamic_presets', {}).get('多因子轮动', [])
     if dynamic_presets:
         preset_options = list(dynamic_presets)
     else:
-        presets = PARAM_PRESETS.get(strategy_type, [])
+        presets = PARAM_PRESETS.get('多因子轮动', [])
         preset_options = [
             {"name": p["name"], "params": p["params"], "is_dynamic": False}
             for p in presets
@@ -331,70 +310,36 @@ with st.sidebar:
     is_custom = preset_params is None
 
     if is_custom:
-        if strategy_type == "双动量轮动":
-            lookback_short = st.slider("短期动量回看(日)", 5, 120, 60)
-            lookback_long = st.slider("长期动量回看(日)", 20, 300, 120)
-            top_n = st.slider("选择标的数", 1, 10, 3)
-            rebalance_label = st.selectbox(
-                "调仓频率",
-                list(REBALANCE_FREQ_OPTIONS.keys()),
-                index=2,
-            )
-            rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
-        else:  # 多因子轮动
-            lookback_momentum = st.slider("动量回看(日)", 10, 120, 60)
-            lookback_volatility = st.slider("波动率回看(日)", 10, 120, 60)
-            top_n = st.slider("选择标的数", 1, 10, 3)
-            rebalance_label = st.selectbox(
-                "调仓频率",
-                list(REBALANCE_FREQ_OPTIONS.keys()),
-                index=2,
-            )
-            rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
+        lookback_momentum = st.slider("动量回看(日)", 10, 120, 60)
+        lookback_volatility = st.slider("波动率回看(日)", 10, 120, 60)
+        top_n = st.slider("选择标的数", 1, 10, 3)
+        rebalance_label = st.selectbox(
+            "调仓频率",
+            list(REBALANCE_FREQ_OPTIONS.keys()),
+            index=2,
+        )
+        rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
     else:
-        if strategy_type == "双动量轮动":
-            lookback_short = preset_params["lookback_short"]
-            lookback_long = preset_params["lookback_long"]
-            top_n = preset_params["top_n"]
-            rebalance_days = preset_params["rebalance_freq"]
-            rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
+        lookback_momentum = preset_params["lookback_momentum"]
+        lookback_volatility = preset_params["lookback_volatility"]
+        top_n = preset_params["top_n"]
+        rebalance_days = preset_params["rebalance_freq"]
+        rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
 
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.info(f"短期动量: {lookback_short}日")
-                st.info(f"长期动量: {lookback_long}日")
-            with col_p2:
-                st.info(f"选择标的: {top_n}只")
-                st.info(f"调仓频率: {rebalance_label}")
-        else:  # 多因子轮动
-            lookback_momentum = preset_params["lookback_momentum"]
-            lookback_volatility = preset_params["lookback_volatility"]
-            top_n = preset_params["top_n"]
-            rebalance_days = preset_params["rebalance_freq"]
-            rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            st.info(f"动量回看: {lookback_momentum}日")
+            st.info(f"波动率回看: {lookback_volatility}日")
+        with col_p2:
+            st.info(f"选择标的: {top_n}只")
+            st.info(f"调仓频率: {rebalance_label}")
 
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.info(f"动量回看: {lookback_momentum}日")
-                st.info(f"波动率回看: {lookback_volatility}日")
-            with col_p2:
-                st.info(f"选择标的: {top_n}只")
-                st.info(f"调仓频率: {rebalance_label}")
-
-    if strategy_type == "双动量轮动":
-        params = {
-            "lookback_short": lookback_short,
-            "lookback_long": lookback_long,
-            "top_n": top_n,
-            "rebalance_freq": rebalance_days,
-        }
-    else:  # 多因子轮动
-        params = {
-            "lookback_momentum": lookback_momentum,
-            "lookback_volatility": lookback_volatility,
-            "top_n": top_n,
-            "rebalance_freq": rebalance_days,
-        }
+    params = {
+        "lookback_momentum": lookback_momentum,
+        "lookback_volatility": lookback_volatility,
+        "top_n": top_n,
+        "rebalance_freq": rebalance_days,
+    }
 
     st.markdown("---")
     st.subheader("🔒 风控约束")
@@ -488,13 +433,12 @@ if run_clicked:
                         selected_codes,
                         start_date,
                         end_date,
-                        strategy_type,
                         params,
                         constraints_dict,
                     )
                     st.session_state['result'] = result
                     st.session_state['selected_codes_saved'] = selected_codes
-                    st.success(f"✅ {strategy_type} 回测完成（{start_date} ~ {end_date}）")
+                    st.success(f"✅ 多因子轮动 回测完成（{start_date} ~ {end_date}）")
 
 
 # 因子分析弹窗（独立于回测结果）
