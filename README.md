@@ -27,10 +27,12 @@ etf_recommand/
 │
 ├── strategy/               # 策略层
 │   ├── engine.py          # 策略引擎（因子计算、过滤、评分、排序）
-│   ├── dual_momentum.py   # 双动量ETF轮动策略（含回测函数）
-│   ├── valuation_dca.py   # 估值百分位定投策略（含回测函数）
+│   ├── multi_factor.py    # 多因子轮动策略（动量+估值+低波等权）
+│   ├── factor_analysis.py # 因子有效性检验（RankIC/ICIR/分层回测）
 │   ├── scoring.py         # Z-score标准化 + 等权加权评分
 │   ├── backtest_utils.py  # 回测公共工具函数
+│   ├── optimizer.py       # 参数网格搜索 + 参数范围常量
+│   ├── walk_forward.py    # Walk-Forward 优化引擎（5风格预设生成）
 │   ├── factors/           # 因子库
 │   │   ├── base.py       # 因子基类
 │   │   ├── momentum.py   # 动量因子
@@ -53,7 +55,8 @@ etf_recommand/
 │       └── portfolio_repo.py # 持仓跟踪仓库
 │
 ├── scripts/               # 脚本
-│   └── verify_factors.py  # 因子验证脚本
+│   ├── verify_factors.py  # 因子验证脚本
+│   └── optimize_presets.py # Walk-Forward 参数优化 CLI（结果写回 settings.py）
 │
 ├── config/                # 配置层
 │   └── settings.py       # 全局配置（ETF池、策略参数）
@@ -89,17 +92,31 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 |------|------|
 | 推荐列表 | Z-score 标准化 + 等权加权评分，ETF 排名 |
 | 因子说明 | 因子方向、标准化方法、加权方式说明 |
-| 回测结果 | 双动量轮动 / 估值定投策略绩效指标 |
-| 净值曲线 | Plotly 交互式净值走势图 |
+| 回测结果 | 多因子轮动策略绩效指标（动量+估值+低波） |
+| 净值曲线 | Plotly 交互式净值走势图（策略 vs 等权基准） |
+| 因子分析 | RankIC/ICIR/分层回测有效性检验（侧边栏按钮触发） |
 
 **使用流程：**
 
-1. 侧边栏点「拉取ETF列表」→ 选择 ETF 标的
-2. 设置日期范围 → 点「拉取行情数据」
-3. 点「拉取PE历史数据」（获取 5000+ 条指数 PE 历史）
-4. 在「推荐列表」页签点「生成推荐」
-5. 在「回测结果」页签选择策略并点「运行回测」
-6. 在「净值曲线」页签点「生成曲线」
+1. 侧边栏选择 ETF 标的（默认 33 只全池）
+2. 设置日期范围
+3. 选择参数预设（5 个 Walk-Forward 优化预设之一，或自定义）
+4. 点「运行回测」查看绩效指标、净值曲线、交易明细
+5. 点「🔬 因子分析」检验因子有效性
+
+### 参数预设优化（CLI）
+
+预设由 Walk-Forward 优化生成，UI 不提供优化入口。重新生成预设：
+
+````bash
+.venv/bin/python scripts/optimize_presets.py --start 2019-01-01 --end 2024-12-31
+````
+
+- 默认 144 参数组合 × 12 验证窗口，耗时约 1-3 分钟
+- 生成 5 个差异化预设（激进高收益/最优风险调整/均衡稳健/最低回撤/低频交易）
+- 自动写回 `config/settings.py`，原文件备份至 `.bak`
+- 加 `--dry-run` 仅查看结果不写回
+- 加 `--output report.json` 额外输出 JSON 报告
 
 ### 3. 因子验证
 
@@ -116,14 +133,14 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  表现层 presentation/   Streamlit 页面                  │
-│    推荐列表、因子说明、回测结果、净值曲线                │
+│    推荐列表、因子说明、回测结果、净值曲线、因子分析      │
 ├─────────────────────────────────────────────────────────┤
 │  服务层 service/        业务逻辑编排                    │
 │    StrategyService / PortfolioService / DataService    │
 ├─────────────────────────────────────────────────────────┤
 │  策略层 strategy/       因子 → 标准化 → 评分 → 回测     │
-│    动量/波动率/流动性/估值因子；Z-score等权加权          │
-│    双动量轮动 + 估值定投策略（含Backtrader回测）         │
+│    动量/波动率/估值因子；Z-score等权加权                 │
+│    多因子轮动策略（动量+估值+低波）+ Walk-Forward优化    │
 ├─────────────────────────────────────────────────────────┤
 │  数据层 data/          AkShare+Tushare → SQLite → Repo  │
 │    行情数据、5000+条PE历史、ETF→指数映射                │
@@ -136,7 +153,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 | ------------------- | -------------------------- | -------------------------- |
 | presentation 表现层 | Streamlit 页面 + 交互      | 只依赖 service / strategy 层 |
 | service 服务层      | 业务逻辑编排、接口封装     | 依赖 strategy + data 层    |
-| strategy 策略层     | 因子/评分/回测引擎          | 只依赖 data 层（价格数据） |
+| strategy 策略层     | 多因子评分/回测/WF优化引擎  | 只依赖 data 层（价格数据） |
 | data 数据层         | 数据获取 + 存储            | 无上层依赖                 |
 
 ## 运行测试
