@@ -20,7 +20,7 @@ class TestComparator(unittest.TestCase):
         """基本结构验证"""
         strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
         benchmark_navs = {
-            '等权持有': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008]),
+            '沪深300': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008]),
         }
         result = compare(strategy_nav, benchmark_navs)
 
@@ -33,7 +33,7 @@ class TestComparator(unittest.TestCase):
     def test_strategy_metrics_has_all_fields(self):
         """策略指标包含所有字段"""
         strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005] * 5)}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005] * 5)}
         result = compare(strategy_nav, benchmark_navs)
 
         sm = result['strategy_metrics']
@@ -44,10 +44,10 @@ class TestComparator(unittest.TestCase):
     def test_comparison_has_all_fields(self):
         """对比指标包含所有字段"""
         strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
         result = compare(strategy_nav, benchmark_navs)
 
-        comp = result['comparison']['等权持有']
+        comp = result['comparison']['沪深300']
         for key in ['excess_return', 'information_ratio', 'beta', 'alpha',
                      'win_rate_monthly', 'win_rate_quarterly']:
             self.assertIn(key, comp)
@@ -55,14 +55,14 @@ class TestComparator(unittest.TestCase):
     def test_excess_return_calculation(self):
         """超额收益 = 策略总收益 - 基准总收益"""
         strategy_nav = self._make_nav_df([0.01, 0.01, 0.01, 0.01, 0.01])
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.005, 0.005, 0.005, 0.005])}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, 0.005, 0.005, 0.005, 0.005])}
         result = compare(strategy_nav, benchmark_navs)
 
         s_ret = result['strategy_metrics']['total_return']
-        b_ret = result['benchmark_metrics']['等权持有']['total_return']
+        b_ret = result['benchmark_metrics']['沪深300']['total_return']
         expected_excess = s_ret - b_ret
         self.assertAlmostEqual(
-            result['comparison']['等权持有']['excess_return'],
+            result['comparison']['沪深300']['excess_return'],
             expected_excess,
             places=1,
         )
@@ -71,37 +71,37 @@ class TestComparator(unittest.TestCase):
         """超额净值DataFrame包含所有基准列"""
         strategy_nav = self._make_nav_df([0.01] * 10)
         benchmark_navs = {
-            '等权持有': self._make_nav_df([0.005] * 10),
+            '沪深300': self._make_nav_df([0.005] * 10),
             '沪深300': self._make_nav_df([0.008] * 10),
         }
         result = compare(strategy_nav, benchmark_navs)
 
         excess_df = result['excess_nav_df']
         self.assertIn('date', excess_df.columns)
-        self.assertIn('等权持有', excess_df.columns)
         self.assertIn('沪深300', excess_df.columns)
-        self.assertAlmostEqual(excess_df.iloc[0]['等权持有'], 1.0, places=4)
+        self.assertIn('沪深300', excess_df.columns)
+        self.assertAlmostEqual(excess_df.iloc[0]['沪深300'], 1.0, places=4)
 
     def test_drawdown_df_columns(self):
         """回撤DataFrame包含策略和所有基准列"""
         strategy_nav = self._make_nav_df([0.01, -0.02, 0.01] * 5)
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, -0.01, 0.005] * 5)}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, -0.01, 0.005] * 5)}
         result = compare(strategy_nav, benchmark_navs)
 
         dd_df = result['drawdown_df']
         self.assertIn('date', dd_df.columns)
         self.assertIn('strategy', dd_df.columns)
-        self.assertIn('等权持有', dd_df.columns)
+        self.assertIn('沪深300', dd_df.columns)
 
     def test_win_rate_monthly(self):
         """月度跑赢胜率"""
         strategy_nav = self._make_nav_df(
             [0.01, -0.005, 0.008, 0.002, -0.003, 0.01] * 10
         )
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005] * 60)}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005] * 60)}
         result = compare(strategy_nav, benchmark_navs)
 
-        wr = result['comparison']['等权持有']['win_rate_monthly']
+        wr = result['comparison']['沪深300']['win_rate_monthly']
         self.assertIsNotNone(wr)
         self.assertGreaterEqual(wr, 0)
         self.assertLessEqual(wr, 100)
@@ -109,20 +109,20 @@ class TestComparator(unittest.TestCase):
     def test_beta_alpha(self):
         """Beta和Alpha计算"""
         strategy_nav = self._make_nav_df([0.01, -0.005, 0.008, 0.002, -0.003, 0.01] * 5)
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, -0.002, 0.004, 0.001, -0.001, 0.005] * 5)}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, -0.002, 0.004, 0.001, -0.001, 0.005] * 5)}
         result = compare(strategy_nav, benchmark_navs)
 
-        comp = result['comparison']['等权持有']
+        comp = result['comparison']['沪深300']
         self.assertIsNotNone(comp['beta'])
         self.assertIsNotNone(comp['alpha'])
 
     def test_information_ratio(self):
         """信息比率计算"""
         strategy_nav = self._make_nav_df([0.01, 0.005, 0.008, 0.002, 0.003, 0.01] * 5)
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.002, 0.004, 0.001, 0.001, 0.005] * 5)}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, 0.002, 0.004, 0.001, 0.001, 0.005] * 5)}
         result = compare(strategy_nav, benchmark_navs)
 
-        ir = result['comparison']['等权持有']['information_ratio']
+        ir = result['comparison']['沪深300']['information_ratio']
         self.assertIsNotNone(ir)
 
     def test_empty_benchmark_navs(self):
@@ -135,41 +135,41 @@ class TestComparator(unittest.TestCase):
     def test_cumulative_return_df(self):
         """累计收益率DataFrame"""
         strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
         result = compare(strategy_nav, benchmark_navs)
 
         cr_df = result['cumulative_return_df']
         self.assertIsInstance(cr_df, pd.DataFrame)
         self.assertIn('date', cr_df.columns)
         self.assertIn('strategy', cr_df.columns)
-        self.assertIn('等权持有', cr_df.columns)
+        self.assertIn('沪深300', cr_df.columns)
         self.assertAlmostEqual(cr_df.iloc[0]['strategy'], 0.0, places=2)
-        self.assertAlmostEqual(cr_df.iloc[0]['等权持有'], 0.0, places=2)
+        self.assertAlmostEqual(cr_df.iloc[0]['沪深300'], 0.0, places=2)
 
     def test_daily_return_df(self):
         """日收益率DataFrame"""
         strategy_nav = self._make_nav_df([0.01, 0.02, -0.01, 0.005, 0.015])
-        benchmark_navs = {'等权持有': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
+        benchmark_navs = {'沪深300': self._make_nav_df([0.005, 0.01, -0.005, 0.002, 0.008])}
         result = compare(strategy_nav, benchmark_navs)
 
         dr_df = result['daily_return_df']
         self.assertIsInstance(dr_df, pd.DataFrame)
         self.assertIn('date', dr_df.columns)
         self.assertIn('strategy', dr_df.columns)
-        self.assertIn('等权持有', dr_df.columns)
+        self.assertIn('沪深300', dr_df.columns)
         self.assertTrue(pd.isna(dr_df.iloc[0]['strategy']))
 
     def test_cumulative_return_values(self):
         """累计收益率计算正确"""
         strategy_nav = self._make_nav_df([0.10])  # nav: [1.0, 1.10]
-        benchmark_navs = {'等权持有': self._make_nav_df([0.05])}  # nav: [1.0, 1.05]
+        benchmark_navs = {'沪深300': self._make_nav_df([0.05])}  # nav: [1.0, 1.05]
         result = compare(strategy_nav, benchmark_navs)
 
         cr_df = result['cumulative_return_df']
         self.assertEqual(len(cr_df), 2)
         self.assertAlmostEqual(cr_df.iloc[0]['strategy'], 0.0, places=2)
         self.assertAlmostEqual(cr_df.iloc[1]['strategy'], 10.0, places=2)
-        self.assertAlmostEqual(cr_df.iloc[1]['等权持有'], 5.0, places=2)
+        self.assertAlmostEqual(cr_df.iloc[1]['沪深300'], 5.0, places=2)
 
 
 if __name__ == '__main__':
