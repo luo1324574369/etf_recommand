@@ -23,6 +23,7 @@ from strategy.scoring import (
 from service.data_service import ensure_data_ready
 from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
 from strategy.benchmark import PRIMARY_BENCHMARK
+from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
 
 TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 INITIAL_CAPITAL = 1000000
@@ -346,16 +347,18 @@ with st.sidebar:
     st.subheader("🔒 风控约束")
     enable_constraints = st.checkbox("启用约束条件", value=True)
     if enable_constraints:
-        long_only = st.checkbox("单向做多（禁止卖空）", value=True)
-        max_positions = st.slider("最大持仓数", 1, 10, 5)
-        min_positions = st.slider("最少持仓数", 0, 10, 0, help="卖出后持仓数不能低于此值，0表示不限制")
-        max_position_pct = st.slider("单仓位上限(%)", 10, 100, 40, step=5)
-        max_total_exposure_pct = st.slider("总仓位上限(%)", 20, 100, 95, step=5, help="所有持仓总市值/总资金的上限，留现金缓冲")
-        slippage_rate = st.slider("滑点率(%)", 0.0, 1.0, 0.1, step=0.05)
-        t_plus_one = st.checkbox("T+1交易约束", value=True)
-        min_trade_amount = st.slider("最低交易金额(元)", 1000, 50000, 5000, step=1000)
-        max_monthly_turnover = st.slider("月度换手率上限(%)", 20, 200, 100, step=10)
-        max_per_sector = st.slider("单一风格上限", 0, 10, 2,
+        long_only = st.checkbox("单向做多（禁止卖空）", value=DEFAULT_BACKTEST_CONSTRAINTS['long_only'])
+        max_positions = st.slider("最大持仓数", 1, 10, DEFAULT_BACKTEST_CONSTRAINTS['max_positions'])
+        min_positions = st.slider("最少持仓数", 0, 10, DEFAULT_BACKTEST_CONSTRAINTS['min_positions'],
+                                   help="卖出后持仓数不能低于此值，0表示不限制")
+        max_position_pct = st.slider("单仓位上限(%)", 10, 100, int(DEFAULT_BACKTEST_CONSTRAINTS['max_position_pct']), step=5)
+        max_total_exposure_pct = st.slider("总仓位上限(%)", 20, 100, int(DEFAULT_BACKTEST_CONSTRAINTS['max_total_exposure_pct']),
+                                            step=5, help="所有持仓总市值/总资金的上限，留现金缓冲")
+        slippage_rate = st.slider("滑点率(%)", 0.0, 1.0, DEFAULT_BACKTEST_CONSTRAINTS['slippage_rate'], step=0.05)
+        t_plus_one = st.checkbox("T+1交易约束", value=DEFAULT_BACKTEST_CONSTRAINTS['t_plus_one'])
+        min_trade_amount = st.slider("最低交易金额(元)", 1000, 50000, int(DEFAULT_BACKTEST_CONSTRAINTS['min_trade_amount']), step=1000)
+        max_monthly_turnover = st.slider("月度换手率上限(%)", 20, 200, int(DEFAULT_BACKTEST_CONSTRAINTS['max_monthly_turnover']), step=10)
+        max_per_sector = st.slider("单一风格上限", 0, 10, DEFAULT_BACKTEST_CONSTRAINTS['max_per_sector'],
                                    help="同一sector(如科技、医药)最多持仓数，0=不限制")
 
         constraints_dict = {
@@ -625,6 +628,39 @@ if result:
             rows.append(row)
 
         st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    with st.expander("📊 业界对齐指标", expanded=True):
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.metric("累计换手率", f"{result.get('turnover_total_pct', 0):.1f}%")
+        with col_t2:
+            st.metric("年化换手率", f"{result.get('turnover_annual_pct', 0):.1f}%")
+
+        turnover_series = result.get('turnover_series')
+        if turnover_series is not None and not turnover_series.empty:
+            if st.checkbox("显示逐次调仓换手率"):
+                import plotly.express as px
+                fig_t = px.line(
+                    turnover_series, x='date', y='turnover_pct',
+                    title="每次调仓换手率(%)",
+                    template='plotly_white',
+                )
+                fig_t.update_layout(yaxis_title='换手率(%)', xaxis_title='调仓日')
+                st.plotly_chart(fig_t, use_container_width=True)
+
+    with st.expander("🔍 数据合规审计", expanded=False):
+        st.markdown("""
+        **数据合规审计为独立 CLI 工具，需手动执行**：
+
+        ```bash
+        # 生存偏差审计
+        python scripts/audit_survivorship.py --start 2020-01-01
+
+        # 前视偏差审计
+        python scripts/audit_lookahead.py --static-only
+        ```
+        """)
 
     st.markdown("---")
     st.markdown("### 📈 收益曲线")
