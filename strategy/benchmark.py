@@ -1,82 +1,9 @@
 """
 基准净值计算模块
-支持等权买入持有基准和单ETF基准
+支持单ETF基准（默认：沪深300）
 """
 import pandas as pd
 from typing import Dict, List, Any
-
-
-def build_equal_weight_benchmark(
-    data_dict: Dict[str, pd.DataFrame],
-    start_date: str = None,
-    end_date: str = None,
-) -> pd.DataFrame:
-    """构建等权买入持有基准净值
-
-    每日收益率 = 所有已有数据ETF的日收益率等权平均，复利计算，首日净值=1.0
-    上市前不参与当日平均。
-
-    Args:
-        data_dict: {code: DataFrame}，每个DataFrame含 trade_date, close 列
-        start_date: 起始日期（YYYY-MM-DD）
-        end_date: 结束日期（YYYY-MM-DD）
-
-    Returns:
-        DataFrame[date, nav]，date为datetime，nav从1.0开始
-    """
-    if not data_dict:
-        return pd.DataFrame(columns=['date', 'nav'])
-
-    etf_daily_returns = {}
-    all_dates = set()
-
-    for code, df in data_dict.items():
-        df_copy = df.copy()
-        if start_date:
-            df_copy = df_copy[df_copy['trade_date'] >= start_date]
-        if end_date:
-            df_copy = df_copy[df_copy['trade_date'] <= end_date]
-        df_copy = df_copy.sort_values('trade_date').drop_duplicates('trade_date')
-        if len(df_copy) >= 2:
-            df_copy['daily_return'] = df_copy['close'].pct_change()
-            etf_daily_returns[code] = df_copy[['trade_date', 'daily_return']]
-            all_dates.update(df_copy['trade_date'].tolist())
-
-    if not etf_daily_returns or not all_dates:
-        return pd.DataFrame(columns=['date', 'nav'])
-
-    all_dates_sorted = sorted(all_dates)
-    merged = pd.DataFrame({'trade_date': all_dates_sorted})
-
-    for code, df_ret in etf_daily_returns.items():
-        merged = merged.merge(
-            df_ret.rename(columns={'daily_return': code}),
-            on='trade_date',
-            how='left',
-        )
-
-    merged = merged.sort_values('trade_date').reset_index(drop=True)
-    code_cols = [c for c in merged.columns if c != 'trade_date']
-    merged['avg_daily_return'] = merged[code_cols].mean(axis=1)
-
-    nav_list = []
-    nav = 1.0
-    for idx, row in merged.iterrows():
-        if idx == 0:
-            nav_list.append({
-                'date': pd.to_datetime(row['trade_date']),
-                'nav': 1.0,
-            })
-        else:
-            ret = row['avg_daily_return']
-            if pd.notna(ret):
-                nav *= (1 + ret)
-            nav_list.append({
-                'date': pd.to_datetime(row['trade_date']),
-                'nav': nav,
-            })
-
-    return pd.DataFrame(nav_list)
 
 
 def build_single_etf_benchmark(
@@ -120,11 +47,11 @@ def build_single_etf_benchmark(
 
 # 默认基准配置
 DEFAULT_BENCHMARKS = [
-    {'name': '等权持有', 'type': 'equal_weight'},
     {'name': '沪深300', 'type': 'single_etf', 'code': '510300'},
-    {'name': '中证500', 'type': 'single_etf', 'code': '510500'},
-    {'name': '创业板', 'type': 'single_etf', 'code': '159915'},
 ]
+
+# 主基准常量：所有 summary 字段、UI 默认引用此常量
+PRIMARY_BENCHMARK = '沪深300'
 
 
 def build_benchmarks(
@@ -152,9 +79,7 @@ def build_benchmarks(
         name = config['name']
         btype = config['type']
 
-        if btype == 'equal_weight':
-            nav_df = build_equal_weight_benchmark(data_dict, start_date, end_date)
-        elif btype == 'single_etf':
+        if btype == 'single_etf':
             nav_df = build_single_etf_benchmark(
                 data_dict, config['code'], start_date, end_date
             )
