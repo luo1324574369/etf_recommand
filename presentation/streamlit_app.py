@@ -22,6 +22,7 @@ from strategy.scoring import (
 )
 from service.data_service import ensure_data_ready
 from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
+from strategy.benchmark import PRIMARY_BENCHMARK
 
 TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 INITIAL_CAPITAL = 1000000
@@ -581,10 +582,10 @@ if result:
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         comp = result.get('comparison', {})
-        eq_comp = comp.get('comparison', {}).get('等权持有', {})
-        eq_metrics = comp.get('benchmark_metrics', {}).get('等权持有', {})
-        st.metric("等权持有基准", f"{eq_metrics.get('total_return', 0):.2f}%",
-                  delta=f"超额 {eq_comp.get('excess_return', 0):+.2f}%")
+        primary_comp = comp.get('comparison', {}).get(PRIMARY_BENCHMARK, {})
+        primary_metrics = comp.get('benchmark_metrics', {}).get(PRIMARY_BENCHMARK, {})
+        st.metric(f"{PRIMARY_BENCHMARK}基准", f"{primary_metrics.get('total_return', 0):.2f}%",
+                  delta=f"超额 {primary_comp.get('excess_return', 0):+.2f}%")
     with col6:
         st.metric("交易次数", result['num_trades'])
     with col7:
@@ -629,13 +630,10 @@ if result:
     st.markdown("### 📈 收益曲线")
 
     with st.expander("📖 基准说明", expanded=False):
-        st.markdown("""
-        **多基准对比说明**：
+        st.markdown(f"""
+        **基准对比说明**：
 
-        - **等权持有**：所有选中ETF等权配置，买入后不动
-        - **沪深300**：大盘价值风格标尺（510300）
-        - **中证500**：中盘成长风格标尺（510500）
-        - **创业板**：小盘成长风格标尺（159915）
+        - **{PRIMARY_BENCHMARK}**：大盘价值风格标尺（510300），业界标准基准
 
         收益曲线从0%开始计算，点击图例可隐藏/显示某条线。
         """)
@@ -721,13 +719,9 @@ if result:
         dd_cols = [c for c in drawdown_df.columns if c != 'date']
         dd_color_map = {
             'strategy': '#1f77b4',
-            '等权持有': '#7f7f7f',
             '沪深300': '#d62728',
-            '中证500': '#2ca02c',
-            '创业板': '#9467bd',
         }
-        dd_labels = {'strategy': '策略', '等权持有': '等权持有', '沪深300': '沪深300',
-                     '中证500': '中证500', '创业板': '创业板'}
+        dd_labels = {'strategy': '策略', '沪深300': '沪深300'}
         fig_dd = px.line(
             drawdown_df, x='date', y=dd_cols,
             title="策略与基准回撤对比",
