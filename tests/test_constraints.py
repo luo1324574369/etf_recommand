@@ -1,3 +1,4 @@
+import unittest
 import pytest
 import pandas as pd
 from datetime import date, timedelta
@@ -164,3 +165,34 @@ class TestStrategyConstraints:
         ok, reason = c.can_buy('588000', 1.0, 20000, positions, 100000,
                                 date.today(), code_to_sector=None)
         assert ok
+
+
+class TestDefaultBacktestConstraints(unittest.TestCase):
+    """默认回测约束常量"""
+
+    def test_constant_exists(self):
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+        self.assertIsInstance(DEFAULT_BACKTEST_CONSTRAINTS, dict)
+
+    def test_required_fields(self):
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+        required = ['long_only', 'max_positions', 'min_positions',
+                    'max_position_pct', 'max_total_exposure_pct',
+                    'slippage_rate', 't_plus_one', 'min_trade_amount',
+                    'max_monthly_turnover', 'max_per_sector']
+        for field in required:
+            self.assertIn(field, DEFAULT_BACKTEST_CONSTRAINTS)
+
+    def test_values_match_streamlit_defaults(self):
+        """与 Streamlit UI 默认值对齐"""
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+        self.assertTrue(DEFAULT_BACKTEST_CONSTRAINTS['long_only'])
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_positions'], 5)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['min_positions'], 0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_position_pct'], 40.0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_total_exposure_pct'], 95.0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['slippage_rate'], 0.1)
+        self.assertTrue(DEFAULT_BACKTEST_CONSTRAINTS['t_plus_one'])
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['min_trade_amount'], 5000.0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_monthly_turnover'], 100.0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_per_sector'], 2)

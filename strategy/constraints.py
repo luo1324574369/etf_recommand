@@ -210,3 +210,19 @@ class StrategyConstraints:
         self._buy_dates = {}
         self._monthly_turnover = {}
         self._current_month = None
+
+
+# 模块级默认约束常量
+# 所有回测入口（Streamlit / Brinson 归因 / 审计脚本 / Walk-Forward）的统一来源
+DEFAULT_BACKTEST_CONSTRAINTS = {
+    "long_only": True,
+    "max_positions": 5,
+    "min_positions": 0,
+    "max_position_pct": 40.0,
+    "max_total_exposure_pct": 95.0,
+    "slippage_rate": 0.1,
+    "t_plus_one": True,
+    "min_trade_amount": 5000.0,
+    "max_monthly_turnover": 100.0,
+    "max_per_sector": 2,
+}
