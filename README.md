@@ -93,7 +93,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 | 推荐列表 | Z-score 标准化 + 等权加权评分，ETF 排名 |
 | 因子说明 | 因子方向、标准化方法、加权方式说明 |
 | 回测结果 | 多因子轮动策略绩效指标（动量+估值+低波） |
-| 净值曲线 | Plotly 交互式净值走势图（策略 vs 等权基准） |
+| 净值曲线 | Plotly 交互式净值走势图（策略 vs 沪深300基准） |
 | 因子分析 | RankIC/ICIR/分层回测有效性检验（侧边栏按钮触发） |
 
 **使用流程：**

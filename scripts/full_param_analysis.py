@@ -133,7 +133,7 @@ def rank_and_print(results, strategy_name):
 
     # --- 维度4: 超额收益 ---
     by_excess = sorted(results, key=lambda x: x.get('excess_return', float('-inf')), reverse=True)
-    print(f"\n🏅 排名维度4: 超额收益（vs等权买入持有基准）")
+    print(f"\n🏅 排名维度4: 超额收益（vs沪深300基准）")
     print(f"{'排名':>4} | {'参数':<55} | {'总收益%':>8} | {'年化%':>7} | {'夏普':>6} | {'回撤%':>7} | {'超额%':>8} | {'交易':>4}")
     print("-" * 110)
     for i, r in enumerate(by_excess[:10], 1):
@@ -168,7 +168,7 @@ def rank_and_print(results, strategy_name):
     # 基准收益
     if results:
         bench = results[0].get('benchmark_return', 0)
-        print(f"  基准收益(等权买入持有): {bench:.2f}%")
+        print(f"  基准收益(沪深300): {bench:.2f}%")
         beat_bench = sum(1 for r in results if r['total_return'] > bench)
         print(f"  跑赢基准的组合数: {beat_bench}/{len(results)} ({beat_bench/len(results)*100:.1f}%)")
 
