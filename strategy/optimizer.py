@@ -91,9 +91,10 @@ def optimize_parameters(
     }
 
 
-DUAL_MOMENTUM_PARAM_RANGES = {
-    'lookback_short': [20, 40, 60, 80],
-    'lookback_long': [60, 120, 180, 250],
-    'top_n': [1, 2, 3],
+MULTI_FACTOR_PARAM_RANGES = {
+    'lookback_momentum': [20, 40, 60, 120],
+    'lookback_volatility': [20, 60, 120],
+    'top_n': [2, 3, 4, 5],
     'rebalance_freq': [10, 20, 60],
 }
+# 4 × 3 × 4 × 3 = 144 组合，与双动量规模对齐
