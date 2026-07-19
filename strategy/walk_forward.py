@@ -187,6 +187,7 @@ def generate_walk_forward_presets(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     strategy_module=None,
     extra_params: Optional[Dict[str, Any]] = None,
+    min_full_annual_return: Optional[float] = None,
 ) -> Dict[str, Any]:
     """生成Walk-Forward参数预设
 
@@ -202,6 +203,8 @@ def generate_walk_forward_presets(
         progress_callback: 进度回调函数 (current, total, message)
         strategy_module: 策略模块（需有 run_backtest 函数），默认 None 时使用 dual_momentum
         extra_params: 额外回测参数（如 valuation_repo），会合并到每次回测的参数中
+        min_full_annual_return: 全周期年化收益下限(%)，用于筛选预设（如跑赢基准）。
+            None 时不筛选。若筛选后组合数不足5个，回退到不筛选。
 
     Returns:
         {
@@ -353,6 +356,20 @@ def generate_walk_forward_presets(
         }
 
     # 4. 按不同风格选出5个差异化预设（去重）
+    # 基准收益筛选：若设置了 min_full_annual_return，先过滤掉未跑赢基准的组合
+    benchmark_filtered_results = all_results
+    benchmark_applied = False
+    if min_full_annual_return is not None:
+        benchmark_filtered_results = [
+            r for r in all_results
+            if r['metrics'].get('full_annual_return', 0) > min_full_annual_return
+        ]
+        benchmark_applied = True
+        if len(benchmark_filtered_results) < 5:
+            # 筛选后组合数不足5个，回退到不筛选
+            benchmark_filtered_results = all_results
+            benchmark_applied = False
+
     used_param_strs = set()
     presets = []
 
@@ -362,7 +379,7 @@ def generate_walk_forward_presets(
 
         # 按当前风格的指标排序
         sorted_results = sorted(
-            all_results,
+            benchmark_filtered_results,
             key=lambda x: x['metrics'].get(metric, float('-inf')),
             reverse=(sort_order == 'desc'),
         )
@@ -404,4 +421,8 @@ def generate_walk_forward_presets(
         'windows': windows,
         'total_combinations': len(all_combinations),
         'elapsed_time': elapsed_time,
+        'benchmark_applied': benchmark_applied,
+        'benchmark_threshold': min_full_annual_return,
+        'all_results_count': len(all_results),
+        'benchmark_filtered_count': len(benchmark_filtered_results),
     }

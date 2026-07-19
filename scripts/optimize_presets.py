@@ -128,6 +128,20 @@ def main():
 
     print(f"加载 {len(data_dict)} 只ETF数据", file=sys.stderr)
 
+    # 计算沪深300基准年化收益（用于筛选"跑赢沪深300"的预设）
+    from strategy.benchmark import build_single_etf_benchmark
+    import pandas as pd
+    hs300_nav = build_single_etf_benchmark(data_dict, '510300', args.start, args.end)
+    hs300_annual_return = None
+    if not hs300_nav.empty and len(hs300_nav) >= 2:
+        first_nav = hs300_nav.iloc[0]['nav']
+        last_nav = hs300_nav.iloc[-1]['nav']
+        days = (hs300_nav.iloc[-1]['date'] - hs300_nav.iloc[0]['date']).days
+        if first_nav > 0 and days > 0:
+            total_return_pct = (last_nav / first_nav - 1) * 100
+            hs300_annual_return = ((last_nav / first_nav) ** (252 / days) - 1) * 100
+            print(f"📊 沪深300基准 ({args.start}~{args.end}): 总收益 {total_return_pct:.2f}%, 年化 {hs300_annual_return:.2f}%", file=sys.stderr)
+
     # 跑 Walk-Forward 优化
     start_time = time.time()
     wf_result = generate_walk_forward_presets(
@@ -139,12 +153,15 @@ def main():
         progress_callback=print_progress,
         strategy_module=multi_factor,
         extra_params={'valuation_repo': valuation_repo},
+        min_full_annual_return=hs300_annual_return,
     )
     elapsed = time.time() - start_time
 
     if not wf_result.get('presets'):
         print("❌ 优化未生成预设，请检查数据是否充足", file=sys.stderr)
         print(f"  验证窗口数: {len(wf_result.get('windows', []))}", file=sys.stderr)
+        print(f"  总组合数: {wf_result.get('total_combinations', 0)}", file=sys.stderr)
+        print(f"  跑赢沪深300组合数: {wf_result.get('benchmark_filtered_count', 0)}/{wf_result.get('all_results_count', 0)}", file=sys.stderr)
         sys.exit(1)
 
     # 构造新预设列表
@@ -161,6 +178,12 @@ def main():
     print(f"Walk-Forward 多因子参数优化 ({args.start} ~ {args.end})")
     print(f"ETF数: {len(data_dict)} | 参数组合: {args.max_combinations} | 验证窗口: {len(wf_result.get('windows', []))}")
     print(f"耗时: {elapsed:.1f}s")
+    if hs300_annual_return is not None:
+        benchmark_applied = wf_result.get('benchmark_applied', False)
+        filtered_count = wf_result.get('benchmark_filtered_count', 0)
+        all_count = wf_result.get('all_results_count', 0)
+        status = "✅ 已应用" if benchmark_applied else "⚠️ 回退(组合不足5)"
+        print(f"沪深300基准年化: {hs300_annual_return:.2f}% | {status} | 跑赢组合: {filtered_count}/{all_count}")
     print("=" * 60 + "\n")
 
     table_rows = []
