@@ -22,7 +22,6 @@ from strategy.scoring import (
     FACTOR_LABELS,
 )
 from strategy.optimizer import optimize_parameters, DUAL_MOMENTUM_PARAM_RANGES
-from strategy.walk_forward import generate_walk_forward_presets
 from service.data_service import ensure_data_ready
 from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
 
@@ -439,11 +438,6 @@ with st.sidebar:
             "max_per_sector": 0,
         }
 
-    st.markdown("---")
-    if st.button("🔬 优化参数预设", use_container_width=True,
-                 help="运行Walk-Forward优化，生成5个差异化参数预设（约1-5分钟）"):
-        st.session_state['optimize_clicked'] = True
-    st.markdown("---")
     if st.button("🔬 因子分析", use_container_width=True,
                  help="检验各因子在ETF池中的有效性（RankIC/ICIR/分层回测）"):
         st.session_state['factor_analysis_clicked'] = True
@@ -501,104 +495,6 @@ if run_clicked:
                     st.session_state['result'] = result
                     st.session_state['selected_codes_saved'] = selected_codes
                     st.success(f"✅ {strategy_type} 回测完成（{start_date} ~ {end_date}）")
-
-
-if st.session_state.get('optimize_clicked'):
-    st.session_state['optimize_clicked'] = False
-    if not selected_codes:
-        st.error("请至少选择一只ETF")
-    else:
-        with st.status("正在运行Walk-Forward优化...", expanded=True) as status:
-            st.write("加载数据...")
-
-            data_dict = {}
-            for code in selected_codes:
-                prices = price_repo.get_daily_price(code)
-                if prices:
-                    df = pd.DataFrame(prices)
-                    data_dict[code] = df
-
-            progress_bar = st.progress(0.0)
-            status_text = st.empty()
-
-            def on_progress(current, total, msg):
-                pct = current / total if total > 0 else 0
-                progress_bar.progress(pct)
-                status_text.text(f"({current}/{total}) {msg}")
-
-            wf_result = generate_walk_forward_presets(
-                data_dict,
-                start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),
-                DUAL_MOMENTUM_PARAM_RANGES,
-                max_combinations=144,
-                progress_callback=on_progress,
-            )
-
-            progress_bar.progress(1.0)
-
-            if wf_result.get('presets'):
-                st.session_state['wf_presets'] = wf_result['presets']
-                st.session_state['wf_windows'] = wf_result.get('windows', [])
-                st.session_state['wf_elapsed'] = wf_result.get('elapsed_time', 0)
-
-                # 更新预设列表
-                dynamic_presets = []
-                for p in wf_result['presets']:
-                    m = p['metrics']
-                    dynamic_presets.append({
-                        "name": f"{p['name']}（年化{m.get('full_annual_return', 0):.1f}%/夏普{m.get('full_sharpe_ratio', 0):.2f}）",
-                        "params": p['params'],
-                    })
-                dynamic_presets.append({"name": "⚙️ 自定义参数", "params": None})
-
-                if 'dynamic_presets' not in st.session_state:
-                    st.session_state['dynamic_presets'] = {}
-                st.session_state['dynamic_presets']['双动量轮动'] = dynamic_presets
-
-                status.update(label=f"✅ Walk-Forward优化完成（{wf_result['elapsed_time']:.1f}s）",
-                            state="complete", expanded=False)
-                st.success(f"生成 {len(wf_result['presets'])} 个预设，请在上方选择后点击「运行回测」")
-                st.rerun()
-            else:
-                status.update(label="优化失败", state="error", expanded=True)
-                st.error("未能生成预设，请检查数据是否充足")
-
-
-wf_presets = st.session_state.get('wf_presets')
-if wf_presets:
-    st.markdown("### 🔬 Walk-Forward验证报告")
-    wf_windows = st.session_state.get('wf_windows', [])
-    wf_elapsed = st.session_state.get('wf_elapsed', 0)
-    st.caption(f"验证窗口数: {len(wf_windows)} | 耗时: {wf_elapsed:.1f}s")
-
-    preset_rows = []
-    for p in wf_presets:
-        m = p['metrics']
-        preset_rows.append({
-            '预设风格': p['name'],
-            '全周期年化(%)': f"{m.get('full_annual_return', 0):.2f}",
-            '全周期夏普': f"{m.get('full_sharpe_ratio', 0):.2f}",
-            '全周期回撤(%)': f"{m.get('full_max_drawdown', 0):.2f}",
-            '窗口CAGR(%)': f"{m.get('cagr', 0):.2f}",
-            '平均夏普': f"{m.get('avg_sharpe_ratio', 0):.2f}",
-            '平均回撤(%)': f"{m.get('avg_max_drawdown', 0):.2f}",
-            '鲁棒性得分': f"{m.get('robustness_score', 0):.2f}",
-            '最差夏普': f"{m.get('worst_sharpe', 0):.2f}",
-            '参数': ', '.join(f"{k}={v}" for k, v in p['params'].items()),
-        })
-    st.dataframe(pd.DataFrame(preset_rows), use_container_width=True, hide_index=True)
-
-    with st.expander("📋 验证窗口详情", expanded=False):
-        window_rows = []
-        for i, w in enumerate(wf_windows):
-            window_rows.append({
-                '窗口': f"窗口{i+1}",
-                '验证期': f"{w['val_start']} ~ {w['val_end']}",
-            })
-        st.dataframe(pd.DataFrame(window_rows), use_container_width=True, hide_index=True)
-
-    st.markdown("---")
 
 
 # 因子分析弹窗（独立于回测结果）
