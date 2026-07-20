@@ -49,7 +49,8 @@ etf_repo = ETFRepository(get_db(db_path))
 valuation_repo = ValuationRepo(db_path)
 
 
-def run_backtest_for_result(selected_codes, start_date, end_date, params, constraints_dict):
+def run_backtest_for_result(selected_codes, start_date, end_date, params, constraints_dict,
+                           enable_attribution=False):
     data_dict = {}
     for code in selected_codes:
         prices = price_repo.get_daily_price(code)
@@ -59,6 +60,7 @@ def run_backtest_for_result(selected_codes, start_date, end_date, params, constr
 
     full_params = {**params, 'constraints': constraints_dict}
     full_params['valuation_repo'] = valuation_repo
+    full_params['enable_attribution'] = enable_attribution
 
     from strategy import multi_factor
     result = multi_factor.run_backtest(
@@ -391,6 +393,13 @@ with st.sidebar:
                  help="检验各因子在ETF池中的有效性（RankIC/ICIR/分层回测）"):
         st.session_state['factor_analysis_clicked'] = True
     st.markdown("---")
+    enable_attribution = st.checkbox(
+        "🔬 启用 Brinson 归因",
+        value=False,
+        help="需要拉取沪深300历史成分股数据，回测时间会增加 5-15 秒。"
+             "归因结果基于默认约束标定，自定义约束下结果仅作参考。"
+    )
+    st.session_state['enable_attribution'] = enable_attribution
     run_clicked = st.button("🧪 运行回测", type="primary", use_container_width=True)
 
 
@@ -433,16 +442,25 @@ if run_clicked:
                         data_dict[code] = df
 
                 with st.spinner("正在运行回测..."):
-                    result = run_backtest_for_result(
-                        selected_codes,
-                        start_date,
-                        end_date,
-                        params,
-                        constraints_dict,
-                    )
+                    try:
+                        result = run_backtest_for_result(
+                            selected_codes,
+                            start_date,
+                            end_date,
+                            params,
+                            constraints_dict,
+                            enable_attribution=enable_attribution,
+                        )
+                    except RuntimeError as bt_err:
+                        result = None
+                        st.error(f"回测失败: {bt_err}")
+                        if enable_attribution and 'Brinson 归因数据不完整' in str(bt_err):
+                            st.info("💡 Brinson 归因需要 Tushare 积分充足（index_weight 需 5000 积分）。"
+                                    "可取消勾选「启用 Brinson 归因」后重试。")
                     st.session_state['result'] = result
                     st.session_state['selected_codes_saved'] = selected_codes
-                    st.success(f"✅ 多因子轮动 回测完成（{start_date} ~ {end_date}）")
+                    if result is not None:
+                        st.success(f"✅ 多因子轮动 回测完成（{start_date} ~ {end_date}）")
 
 
 # 因子分析弹窗（独立于回测结果）
@@ -661,6 +679,50 @@ if result:
         python scripts/audit_lookahead.py --static-only
         ```
         """)
+
+    st.markdown("---")
+    st.markdown("### 🔬 Brinson 归因分析")
+
+    attribution = result.get('attribution')
+    if attribution is not None:
+        # 1. 总览三效应
+        col_a, col_s, col_i, col_t = st.columns(4)
+        with col_a:
+            st.metric("配置效应(%)", f"{attribution.allocation_effect:+.2f}")
+        with col_s:
+            st.metric("选股效应(%)", f"{attribution.selection_effect:+.2f}")
+        with col_i:
+            st.metric("交互效应(%)", f"{attribution.interaction_effect:+.2f}")
+        with col_t:
+            st.metric("总超额(%)", f"{attribution.total_excess:+.2f}")
+
+        # 2. 分行业明细表
+        st.markdown("#### 分行业明细")
+        st.dataframe(attribution.sector_breakdown, use_container_width=True, hide_index=True)
+
+        # 3. 分行业三效应堆叠柱状图
+        if not attribution.sector_breakdown.empty:
+            fig_attr = px.bar(
+                attribution.sector_breakdown,
+                x='行业',
+                y=['配置效应(%)', '选股效应(%)', '交互效应(%)'],
+                title="分行业归因(%)",
+                template='plotly_white',
+            )
+            fig_attr.update_layout(yaxis_title='效应(%)', legend_title='')
+            st.plotly_chart(fig_attr, use_container_width=True)
+
+        # 4. 分调仓期间明细
+        with st.expander("分调仓期间归因"):
+            st.dataframe(attribution.period_breakdown, use_container_width=True, hide_index=True)
+
+        st.caption("注：多期累加采用算术平均（简化），与严格 Brinson-Fachler log-link 方法存在差异。"
+                   "宽基/红利/海外 ETF 跨行业，归入'未归类'列不计入三效应。")
+    else:
+        if st.session_state.get('enable_attribution'):
+            st.warning("归因计算未生成结果，可能因 Tushare 积分不足或调仓日成分股数据缺失。")
+        else:
+            st.info("未启用 Brinson 归因。在侧边栏勾选「启用 Brinson 归因」后重新回测查看。")
 
     st.markdown("---")
     st.markdown("### 📈 收益曲线")
