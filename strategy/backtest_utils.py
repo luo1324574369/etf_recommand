@@ -121,6 +121,34 @@ def run_backtest(
             turnover_series['buy_amount'] / turnover_series['total_value'] * 100
         )
 
+    # Brinson 归因（可选，默认关闭）
+    attribution_result = None
+    if kwargs.get('enable_attribution', False):
+        import logging
+        logger = logging.getLogger(__name__)
+        from strategy.attribution import run_brinson_attribution
+        from data.sources.csi300_source import CSI300Source
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+        from config.settings import ETF_UNIVERSE, ETF_SECTOR_TO_SW
+
+        actual_constraints = kwargs.get('constraints', DEFAULT_BACKTEST_CONSTRAINTS)
+        if actual_constraints != DEFAULT_BACKTEST_CONSTRAINTS:
+            logger.warning("Brinson 归因在非默认约束下运行，结果仅作参考")
+
+        csi300_source = CSI300Source()
+        etf_sector_map = _build_etf_sector_map(ETF_UNIVERSE, ETF_SECTOR_TO_SW)
+
+        attribution_result = run_brinson_attribution(
+            trade_log=trade_list,
+            strategy_nav=nav_df,
+            benchmark_nav=benchmark_navs[PRIMARY_BENCHMARK],
+            csi300_source=csi300_source,
+            etf_sector_map=etf_sector_map,
+            start_date=start_date,
+            end_date=end_date,
+            rebalance_dates=_extract_rebalance_dates(trade_list),
+        )
+
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
@@ -143,7 +171,29 @@ def run_backtest(
         'turnover_total_pct': float(turnover_total),
         'turnover_annual_pct': float(turnover_annual),
         'turnover_series': turnover_series,
+        'attribution': attribution_result,
     }
+
+
+def _build_etf_sector_map(etf_universe, etf_sector_to_sw):
+    """构造 ETF code → 申万一级行业（取首个映射，未映射归入'未归类'）"""
+    mapping = {}
+    for etf in etf_universe:
+        code = etf['code']
+        sector = etf['sector']
+        sw_list = etf_sector_to_sw.get(sector, [])
+        if sw_list:
+            mapping[code] = sw_list[0]
+        else:
+            mapping[code] = '未归类'
+    return mapping
+
+
+def _extract_rebalance_dates(trade_log):
+    """从交易日志提取调仓日（去重、升序）"""
+    if not trade_log:
+        return []
+    return sorted(set(t['date'] for t in trade_log))
 
 
 def get_nav_curve(
