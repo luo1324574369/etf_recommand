@@ -44,8 +44,9 @@ def run_backtest(
 
     # 将start_date转为date对象传给策略
     start_dt = pd.to_datetime(start_date).date() if start_date else None
-    kwargs['start_date'] = start_dt
-    cerebro.addstrategy(strategy_cls, **kwargs)
+    strategy_kwargs = {k: v for k, v in kwargs.items() if k != 'enable_attribution'}
+    strategy_kwargs['start_date'] = start_dt
+    cerebro.addstrategy(strategy_cls, **strategy_kwargs)
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
@@ -121,33 +122,38 @@ def run_backtest(
             turnover_series['buy_amount'] / turnover_series['total_value'] * 100
         )
 
-    # Brinson 归因（可选，默认关闭）
+    # Brinson 归因（可选，默认关闭；失败不影响回测主体）
     attribution_result = None
+    attribution_error = None
     if kwargs.get('enable_attribution', False):
         import logging
         logger = logging.getLogger(__name__)
-        from strategy.attribution import run_brinson_attribution
-        from data.sources.csi300_source import CSI300Source
-        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
-        from config.settings import ETF_UNIVERSE, ETF_SECTOR_TO_SW
+        try:
+            from strategy.attribution import run_brinson_attribution
+            from data.sources.csi300_source import CSI300Source
+            from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+            from config.settings import ETF_UNIVERSE, ETF_SECTOR_TO_SW
 
-        actual_constraints = kwargs.get('constraints', DEFAULT_BACKTEST_CONSTRAINTS)
-        if actual_constraints != DEFAULT_BACKTEST_CONSTRAINTS:
-            logger.warning("Brinson 归因在非默认约束下运行，结果仅作参考")
+            actual_constraints = kwargs.get('constraints', DEFAULT_BACKTEST_CONSTRAINTS)
+            if actual_constraints != DEFAULT_BACKTEST_CONSTRAINTS:
+                logger.warning("Brinson 归因在非默认约束下运行，结果仅作参考")
 
-        csi300_source = CSI300Source()
-        etf_sector_map = _build_etf_sector_map(ETF_UNIVERSE, ETF_SECTOR_TO_SW)
+            csi300_source = CSI300Source()
+            etf_sector_map = _build_etf_sector_map(ETF_UNIVERSE, ETF_SECTOR_TO_SW)
 
-        attribution_result = run_brinson_attribution(
-            trade_log=trade_list,
-            strategy_nav=nav_df,
-            benchmark_nav=benchmark_navs[PRIMARY_BENCHMARK],
-            csi300_source=csi300_source,
-            etf_sector_map=etf_sector_map,
-            start_date=start_date,
-            end_date=end_date,
-            rebalance_dates=_extract_rebalance_dates(trade_list),
-        )
+            attribution_result = run_brinson_attribution(
+                trade_log=trade_list,
+                strategy_nav=nav_df,
+                benchmark_nav=benchmark_navs[PRIMARY_BENCHMARK],
+                csi300_source=csi300_source,
+                etf_sector_map=etf_sector_map,
+                start_date=start_date,
+                end_date=end_date,
+                rebalance_dates=_extract_rebalance_dates(trade_list),
+            )
+        except Exception as e:
+            attribution_error = str(e)
+            logger.warning(f"Brinson 归因计算失败: {e}")
 
     return {
         'final_value': cerebro.broker.getvalue(),
@@ -172,6 +178,7 @@ def run_backtest(
         'turnover_annual_pct': float(turnover_annual),
         'turnover_series': turnover_series,
         'attribution': attribution_result,
+        'attribution_error': attribution_error,
     }
 
 
@@ -211,8 +218,9 @@ def get_nav_curve(
     _prepare_data(cerebro, data_dict, start_date, end_date, kwargs.get('lookback_long', 120))
 
     start_dt = pd.to_datetime(start_date).date() if start_date else None
-    kwargs['start_date'] = start_dt
-    cerebro.addstrategy(strategy_cls, **kwargs)
+    strategy_kwargs = {k: v for k, v in kwargs.items() if k != 'enable_attribution'}
+    strategy_kwargs['start_date'] = start_dt
+    cerebro.addstrategy(strategy_cls, **strategy_kwargs)
     cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='timereturn', timeframe=bt.TimeFrame.Days)
 
     results = cerebro.run(runonce=False)

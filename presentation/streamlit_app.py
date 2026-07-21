@@ -720,7 +720,14 @@ if result:
                    "宽基/红利/海外 ETF 跨行业，归入'未归类'列不计入三效应。")
     else:
         if st.session_state.get('enable_attribution'):
-            st.warning("归因计算未生成结果，可能因 Tushare 积分不足或调仓日成分股数据缺失。")
+            attr_err = result.get('attribution_error')
+            if attr_err:
+                st.error(f"归因计算失败: {attr_err}")
+                if 'Tushare' in attr_err or '积分' in attr_err:
+                    st.info("💡 Brinson 归因需要 Tushare 积分充足（index_weight 需 5000 积分）。"
+                            "可取消勾选「启用 Brinson 归因」后重试。")
+            else:
+                st.warning("归因计算未生成结果，可能因 Tushare 积分不足或调仓日成分股数据缺失。")
         else:
             st.info("未启用 Brinson 归因。在侧边栏勾选「启用 Brinson 归因」后重新回测查看。")
 
