@@ -21,11 +21,10 @@ from strategy.scoring import (
     FACTOR_LABELS,
 )
 from service.data_service import ensure_data_ready
-from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
+from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS, TUSHARE_TOKEN
 from strategy.benchmark import PRIMARY_BENCHMARK
 from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
 
-TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 INITIAL_CAPITAL = 1000000
 db_path = DB_PATH
 

@@ -19,9 +19,9 @@ from data.storage.db import init_db, get_db
 from data.storage.price_repo import PriceRepository
 from data.storage.valuation_repo import ValuationRepo
 from strategy.scoring import compute_all_factors, zscore_normalize, equal_weight_score
+from config.settings import TUSHARE_TOKEN
 
 DB_PATH = "data/etf.db"
-TUSHARE_TOKEN = "513fe191b298257675f19e1ff2acb6be83cd43cefb322a918b1e5d2d"
 TEST_CODES = ["510300", "510500", "510050"]
 TOLERANCE = 0.01
 

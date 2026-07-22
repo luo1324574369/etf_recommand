@@ -20,14 +20,13 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
-from config.settings import ETF_UNIVERSE, DB_PATH
+from config.settings import ETF_UNIVERSE, DB_PATH, TUSHARE_TOKEN
 from data.sources.hybrid_source import HybridDataSource
 from data.storage.db import init_db, get_db
 from data.storage.etf_repo import ETFRepository
 from data.storage.price_repo import PriceRepository
 from data.storage.valuation_repo import ValuationRepo
 
-TUSHARE_TOKEN = "8f5a3c76e085ad6b24e4a248664f88c8a3a0a4fb716a04977a2bc7d0"
 PE_MIN_RECORDS = 100
 PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}
 

@@ -132,13 +132,13 @@ def run_backtest(
             from strategy.attribution import run_brinson_attribution
             from data.sources.csi300_source import CSI300Source
             from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
-            from config.settings import ETF_UNIVERSE, ETF_SECTOR_TO_SW
+            from config.settings import ETF_UNIVERSE, ETF_SECTOR_TO_SW, TUSHARE_TOKEN
 
             actual_constraints = kwargs.get('constraints', DEFAULT_BACKTEST_CONSTRAINTS)
             if actual_constraints != DEFAULT_BACKTEST_CONSTRAINTS:
                 logger.warning("Brinson 归因在非默认约束下运行，结果仅作参考")
 
-            csi300_source = CSI300Source()
+            csi300_source = CSI300Source(tushare_token=TUSHARE_TOKEN)
             etf_sector_map = _build_etf_sector_map(ETF_UNIVERSE, ETF_SECTOR_TO_SW)
 
             attribution_result = run_brinson_attribution(

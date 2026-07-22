@@ -5,6 +5,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 DB_PATH = BASE_DIR / "data" / "etf.db"
 
+
+def _load_dotenv():
+    """从 .env 文件加载环境变量（不引入 python-dotenv 依赖）"""
+    env_path = BASE_DIR / '.env'
+    if not env_path.exists():
+        return
+    with open(env_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, _, value = line.partition('=')
+                key, value = key.strip(), value.strip()
+                if key and key not in os.environ:
+                    os.environ[key] = value
+
+
+_load_dotenv()
+
+# Tushare token 从 .env 或环境变量读取，不硬编码到代码中
+TUSHARE_TOKEN = os.environ.get('TUSHARE_TOKEN', '')
+
 ETF_UNIVERSE = [
     # 宽基指数
     {"code": "510300", "name": "沪深300ETF", "sector": "宽基", "type": "指数"},
