@@ -9,9 +9,9 @@ from strategy.factors.valuation import ValuationPercentileFactor
 
 
 FACTOR_DIRECTIONS = {
-    "momentum_20d": 1,
-    "momentum_60d": 1,
-    "momentum_120d": 1,
+    "momentum_20d": -1,  # A股反转效应：短期超跌后续反弹
+    "momentum_60d": -1,  # A股反转效应：短期超跌后续反弹
+    "momentum_120d": 1,  # 中长期动量效应
     "volatility_60d": -1,
     "avg_amount_20d": 1,
     "pe_percentile": -1,
