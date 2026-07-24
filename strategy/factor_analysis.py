@@ -62,6 +62,8 @@ def compute_rank_ic(
             if not np.isnan(corr):
                 rows.append({'date': date, 'factor_name': factor, 'ic': corr})
 
+    if not rows:
+        return pd.DataFrame(columns=['date', 'factor_name', 'ic'])
     return pd.DataFrame(rows)
 
 
@@ -222,6 +224,18 @@ def analyze_factor(
 
     ic_df = compute_rank_ic(factor_values, forward_returns, [factor_name])
     ic_series = ic_df[ic_df['factor_name'] == factor_name]['ic']
+    if len(ic_series) == 0:
+        # 无有效IC数据，直接判为无效
+        return {
+            'ic_series': [],
+            'icir': {'ic_mean': 0, 'ic_std': 0, 'icir': 0,
+                     'ic_positive_ratio': 0, 'ic_t_stat': 0},
+            'stratified': [],
+            'monotonicity': '非单调',
+            'verdict': '无效',
+            'ic_mean': 0,
+            'ic_positive_ratio': 0,
+        }
     icir_result = compute_icir(ic_series)
     strat_df = stratified_backtest(factor_values, forward_returns, factor_name, n_groups)
     monotonic = _check_monotonicity(strat_df, n_groups)
