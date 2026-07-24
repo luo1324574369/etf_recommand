@@ -212,6 +212,105 @@ def analyze_factor(
     }
 
 
+def sample_by_trading_day(
+    df: pd.DataFrame,
+    freq_days: int = 10,
+    date_col: str = 'date',
+    group_col: str = 'code',
+    date_to_idx: Dict = None,
+) -> pd.DataFrame:
+    """按全局交易日序号采样（每freq_days天取最后一天）
+
+    保证所有ETF在同一bucket内对应同一日期范围（横截面对齐）。
+
+    Args:
+        df: 含date列和code列的DataFrame
+        freq_days: 每多少个交易日采样一次
+        date_col: 日期列名
+        group_col: 分组列名（如code）
+        date_to_idx: 可选，外部传入的日期→序号映射。
+            若提供则使用此映射（保证多次采样对齐），否则从df内部计算。
+
+    Returns:
+        采样后的DataFrame，含sample_bucket列
+    """
+    df = df.copy()
+    if date_to_idx is None:
+        all_dates = sorted(df[date_col].unique())
+        date_to_idx = {d: i for i, d in enumerate(all_dates)}
+    df['sample_bucket'] = df[date_col].map(date_to_idx) // freq_days
+    sampled = df.groupby(['sample_bucket', group_col]).last().reset_index()
+    return sampled
+
+
+def validate_pe_data(
+    pe_by_code: Dict[str, Dict[str, float]],
+    min_records: int = 100,
+) -> None:
+    """校验PE数据完整性，不满足则抛出RuntimeError
+
+    Args:
+        pe_by_code: {code: {trade_date: pe_value}}
+        min_records: 最少有效PE记录数（pe>0）
+
+    Raises:
+        RuntimeError: 数据不完整时抛出
+    """
+    for code, pe_map in pe_by_code.items():
+        valid_count = sum(1 for v in pe_map.values() if v is not None and v > 0)
+        if valid_count == 0:
+            raise RuntimeError(
+                f"ETF {code} PE 历史数据缺失，无法进行因子有效性检验。"
+                f"请先运行数据补充脚本。"
+            )
+        if valid_count < min_records:
+            raise RuntimeError(
+                f"ETF {code} PE 历史数据仅 {valid_count} 条，"
+                f"不足以计算百分位（要求≥{min_records}条）。"
+            )
+
+
+def compute_cross_sectional_pe_percentile(
+    pe_by_code: Dict[str, Dict[str, float]],
+    all_dates: List[str],
+    min_etfs: int = 5,
+) -> Dict[str, Dict[str, float]]:
+    """计算PE横截面百分位
+
+    Args:
+        pe_by_code: {code: {trade_date: pe_value}}
+        all_dates: 所有交易日列表（按日期升序）
+        min_etfs: 最少有效ETF数，不足则跳过该日
+
+    Returns:
+        {trade_date: {code: percentile}}
+        percentile 范围 0-100
+    """
+    result = {}
+    last_pe = {code: None for code in pe_by_code}
+
+    for date in all_dates:
+        for code in pe_by_code:
+            pe_val = pe_by_code[code].get(date)
+            if pe_val is not None and pe_val > 0:
+                last_pe[code] = pe_val
+
+        valid_pes = {
+            c: last_pe[c]
+            for c in pe_by_code
+            if last_pe[c] is not None and last_pe[c] > 0
+        }
+        if len(valid_pes) < min_etfs:
+            continue
+
+        sorted_pes = sorted(valid_pes.values())
+        for code, pe_val in valid_pes.items():
+            rank = sum(1 for v in sorted_pes if v <= pe_val)
+            result.setdefault(date, {})[code] = (rank / len(sorted_pes)) * 100
+
+    return result
+
+
 def analyze_all_etfs(
     etf_codes: List[str],
     price_repo,
@@ -219,7 +318,9 @@ def analyze_all_etfs(
     start_date: str,
     end_date: str,
     factor_names: List[str] = None,
-    forward_period: int = 20,
+    forward_period: int = 60,
+    sample_freq_days: int = 10,
+    min_pe_records: int = 100,
 ) -> Dict:
     """全ETF池因子检验汇总
 
@@ -230,7 +331,9 @@ def analyze_all_etfs(
         start_date: 开始日期 (YYYY-MM-DD)
         end_date: 结束日期 (YYYY-MM-DD)
         factor_names: 因子名列表，None=默认['momentum_60d', 'pe_percentile', 'volatility_60d']
-        forward_period: 前瞻周期
+        forward_period: 前瞻周期（交易日），默认60日
+        sample_freq_days: 采样频率（每N个交易日采样一次），默认10日
+        min_pe_records: 最少PE历史记录数，默认100条
 
     Returns:
         {factor_name: {ic_mean, icir, ic_positive_ratio, monotonicity, verdict, ic_series, stratified}}
@@ -240,17 +343,20 @@ def analyze_all_etfs(
     if factor_names is None:
         factor_names = ['momentum_60d', 'pe_percentile', 'volatility_60d']
 
-    # 收集所有ETF的历史数据
+    has_pe_factor = any('pe' in f for f in factor_names)
+
+    # ── 步骤 1: 收集所有ETF的行情数据 ──
+    all_prices_by_code = {}
     all_factor_rows = []
     all_return_rows = []
-    all_prices = []
+    all_price_dfs = []
+    pe_history_by_code = {}
 
     for code in etf_codes:
         prices = price_repo.get_daily_price(code)
         if not prices or len(prices) < 120:
             continue
 
-        # 转为DataFrame
         df = pd.DataFrame(prices)
         df['trade_date'] = pd.to_datetime(df['trade_date'])
         df = df.sort_values('trade_date')
@@ -259,67 +365,98 @@ def analyze_all_etfs(
         if len(df) < 120:
             continue
 
-        # 获取PE历史
-        pe_history = valuation_repo.get_pe_history(code) if hasattr(valuation_repo, 'get_pe_history') else None
-        pe_pct_series = {}
-        if pe_history:
-            sorted_pe = sorted(pe_history, key=lambda x: x.get('trade_date', ''))
-            pe_values = []
-            for item in sorted_pe:
-                pe_val = item.get('pe')
-                trade_date = item.get('trade_date')
-                if pe_val and pe_val > 0 and trade_date:
-                    pe_values.append(pe_val)
-                    if pe_values:
-                        rank = sum(1 for v in pe_values if v <= pe_val)
-                        pe_pct_series[trade_date] = (rank / len(pe_values)) * 100
+        all_prices_by_code[code] = df
 
-        # 逐日计算因子值
+        # ── 收集PE历史（用于横截面百分位） ──
+        if has_pe_factor and hasattr(valuation_repo, 'get_pe_history'):
+            pe_history = valuation_repo.get_pe_history(code)
+            if pe_history:
+                pe_map = {
+                    item['trade_date']: item.get('pe')
+                    for item in pe_history
+                    if item.get('pe') is not None and item.get('pe') > 0
+                }
+                pe_history_by_code[code] = pe_map
+
+        # ── 逐日计算因子值（动量、波动率等非PE因子） ──
         prices_list = df.to_dict('records')
-        for i in range(60, len(prices_list)):  # 从第60天开始（确保有足够历史）
+        for i in range(60, len(prices_list)):
             sub_prices = prices_list[:i + 1]
             current_date = prices_list[i]['trade_date']
-            date_str = current_date.strftime('%Y-%m-%d')
 
-            pe_pct = pe_pct_series.get(date_str)
-            factors = compute_all_factors(code, sub_prices, pe_percentile=pe_pct)
+            factors = compute_all_factors(code, sub_prices, pe_percentile=None)
 
             row = {'date': current_date, 'code': code}
             for f in factor_names:
-                row[f] = factors.get(f)
+                if 'pe' not in f:
+                    row[f] = factors.get(f)
             all_factor_rows.append(row)
 
-        # 前瞻收益
         price_df = df[['trade_date', 'close']].copy()
         price_df['code'] = code
-        all_prices.append(price_df)
+        all_price_dfs.append(price_df)
 
-    if not all_factor_rows or not all_prices:
+    if not all_factor_rows or not all_price_dfs:
         return {}
 
     factor_df = pd.DataFrame(all_factor_rows)
-    prices_df = pd.concat(all_prices, ignore_index=True)
+    prices_df = pd.concat(all_price_dfs, ignore_index=True)
 
-    # 计算前瞻收益
+    # ── 步骤 2: 计算PE横截面百分位并合并到因子表 ──
+    if has_pe_factor and pe_history_by_code:
+        # 严格模式校验
+        validate_pe_data(pe_history_by_code, min_records=min_pe_records)
+
+        # 获取所有行情日期（字符串格式）
+        all_trade_dates = sorted(factor_df['date'].unique())
+        all_trade_dates_str = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in all_trade_dates]
+
+        # 计算横截面PE百分位
+        pe_cs = compute_cross_sectional_pe_percentile(
+            pe_history_by_code, all_trade_dates_str, min_etfs=5
+        )
+
+        # 合并PE百分位到factor_df
+        pe_rows = []
+        for date_str, code_pcts in pe_cs.items():
+            date_ts = pd.Timestamp(date_str)
+            for code, pct in code_pcts.items():
+                pe_rows.append({'date': date_ts, 'code': code, 'pe_percentile': pct})
+
+        if pe_rows:
+            pe_df = pd.DataFrame(pe_rows)
+            factor_df = pd.merge(factor_df, pe_df, on=['date', 'code'], how='left')
+
+    # ── 步骤 3: 计算前瞻收益 ──
     forward_df = compute_forward_returns(prices_df, period=forward_period)
 
-    # 按月度采样（取每月最后一个交易日）
-    factor_df['month'] = factor_df['date'].dt.to_period('M')
-    monthly_factor = factor_df.groupby(['month', 'code']).last().reset_index()
-    monthly_factor['date'] = monthly_factor['month'].dt.to_timestamp(how='end')
+    # ── 步骤 4: 按交易日序号采样（使用统一date_to_idx映射） ──
+    # 建立所有日期的全局序号映射（factor_df 和 forward_df 共用）
+    all_dates_union = sorted(
+        set(factor_df['date'].unique()) | set(forward_df['trade_date'].unique())
+    )
+    date_to_idx = {d: i for i, d in enumerate(all_dates_union)}
 
-    forward_df['month'] = forward_df['trade_date'].dt.to_period('M')
-    monthly_forward = forward_df.groupby(['month', 'code']).last().reset_index()
-    monthly_forward['date'] = monthly_forward['month'].dt.to_timestamp(how='end')
+    sampled_factor = sample_by_trading_day(
+        factor_df, freq_days=sample_freq_days, date_to_idx=date_to_idx
+    )
 
-    # 对每个因子做检验
+    # forward_df 也按同样映射采样
+    forward_df_copy = forward_df.copy()
+    forward_df_copy['date'] = forward_df_copy['trade_date']
+    sampled_forward = sample_by_trading_day(
+        forward_df_copy, freq_days=sample_freq_days,
+        date_col='date', date_to_idx=date_to_idx
+    )
+
+    # ── 步骤 5: 对每个因子做检验 ──
     result = {}
     for factor in factor_names:
-        if factor not in monthly_factor.columns:
+        if factor not in sampled_factor.columns:
             continue
         result[factor] = analyze_factor(
-            monthly_factor[['date', 'code', factor]],
-            monthly_forward[['date', 'code', 'forward_return']],
+            sampled_factor[['date', 'code', factor]],
+            sampled_forward[['date', 'code', 'forward_return']],
             factor,
         )
 

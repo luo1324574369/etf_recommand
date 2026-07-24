@@ -388,9 +388,6 @@ with st.sidebar:
             "max_per_sector": 0,
         }
 
-    if st.button("🔬 因子分析", use_container_width=True,
-                 help="检验各因子在ETF池中的有效性（RankIC/ICIR/分层回测）"):
-        st.session_state['factor_analysis_clicked'] = True
     st.markdown("---")
     enable_attribution = st.checkbox(
         "🔬 启用 Brinson 归因",
@@ -406,6 +403,7 @@ if run_clicked:
     if not selected_codes:
         st.error("请至少选择一只ETF")
     else:
+        # Step 1: 数据检查
         with st.status("正在检查数据...", expanded=True) as status:
             progress_placeholder = st.empty()
             st.write("检查数据完整性...")
@@ -429,17 +427,48 @@ if run_clicked:
                 st.error("❌ 数据不足，无法运行回测。请先在命令行补充数据：")
                 st.code(data_result['message'], language='bash')
                 st.info("💡 补充完数据后，重新点击「运行回测」即可。")
+                data_ok = False
             else:
                 st.write("✅ 数据检查通过")
                 status.update(label="数据检查完成", state="complete", expanded=False)
+                data_ok = True
 
-                data_dict = {}
-                for code in selected_codes:
-                    prices = price_repo.get_daily_price(code)
-                    if prices:
-                        df = pd.DataFrame(prices)
-                        data_dict[code] = df
+        # Step 2: 因子有效性校验（在 status 块外渲染，确保表格正常显示）
+        if data_ok:
+            with st.spinner("正在校验因子有效性（约30-60秒）..."):
+                from strategy.factor_analysis import analyze_all_etfs
+                factor_report = analyze_all_etfs(
+                    etf_codes=selected_codes,
+                    price_repo=price_repo,
+                    valuation_repo=valuation_repo,
+                    start_date=start_date.strftime("%Y-%m-%d"),
+                    end_date=end_date.strftime("%Y-%m-%d"),
+                )
 
+            invalid_factors = []
+            for factor, metrics in (factor_report or {}).items():
+                if metrics.get('verdict') == '无效':
+                    invalid_factors.append(factor)
+
+            if invalid_factors:
+                st.error("❌ 因子有效性校验未通过，以下因子判定为「无效」，回测已终止：")
+                summary_rows = []
+                for factor, metrics in (factor_report or {}).items():
+                    summary_rows.append({
+                        '因子': FACTOR_LABELS.get(factor, factor),
+                        'RankIC均值': f"{metrics.get('ic_mean', 0):.4f}",
+                        'ICIR': f"{metrics.get('icir', {}).get('icir', 0):.3f}",
+                        'IC正比例': f"{metrics.get('ic_positive_ratio', 0):.1%}",
+                        '单调性': metrics.get('monotonicity', '-'),
+                        '判定': metrics.get('verdict', '-'),
+                    })
+                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                st.info("💡 建议调整回测区间或ETF池后重试。"
+                        "判定标准：RankIC≥0.05有效/0.03-0.05弱有效；"
+                        "ICIR≥0.3有效/0.1-0.3弱有效；"
+                        "IC正比例≥60%有效；4指标中≥2个有效判为「有效」。")
+            else:
+                # Step 3: 运行回测
                 with st.spinner("正在运行回测..."):
                     try:
                         result = run_backtest_for_result(
@@ -460,97 +489,6 @@ if run_clicked:
                     st.session_state['selected_codes_saved'] = selected_codes
                     if result is not None:
                         st.success(f"✅ 多因子轮动 回测完成（{start_date} ~ {end_date}）")
-
-
-# 因子分析弹窗（独立于回测结果）
-if st.session_state.get('factor_analysis_clicked'):
-    @st.dialog("因子有效性分析", width="large")
-    def show_factor_analysis():
-        from strategy.factor_analysis import analyze_all_etfs
-        from strategy.scoring import FACTOR_LABELS
-
-        with st.spinner("正在计算因子有效性（约30-60秒）..."):
-            try:
-                report = analyze_all_etfs(
-                    etf_codes=[e['code'] for e in ETF_UNIVERSE],
-                    price_repo=price_repo,
-                    valuation_repo=valuation_repo,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"),
-                )
-            except Exception as e:
-                st.error(f"因子分析失败: {e}")
-                return
-
-        if not report:
-            st.warning("无可用因子数据，请确保ETF行情和PE数据已更新")
-            return
-
-        st.markdown(f"**分析区间**: {start_date} ~ {end_date} | **ETF数**: {len(ETF_UNIVERSE)}")
-
-        # 因子汇总表
-        summary_rows = []
-        for factor, metrics in report.items():
-            icir_info = metrics.get('icir', {})
-            summary_rows.append({
-                '因子': FACTOR_LABELS.get(factor, factor),
-                'RankIC均值': f"{metrics.get('ic_mean', 0):.4f}",
-                'ICIR': f"{icir_info.get('icir', 0):.3f}",
-                'IC正比例': f"{metrics.get('ic_positive_ratio', 0):.1%}",
-                '单调性': metrics.get('monotonicity', '-'),
-                '判定': metrics.get('verdict', '-'),
-            })
-        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-
-        # 因子切换 + 详情图表
-        factor_options = list(report.keys())
-        if factor_options:
-            selected_factor = st.selectbox("选择因子查看详情", factor_options)
-            if selected_factor:
-                m = report[selected_factor]
-
-                # IC时间序列
-                ic_series = m.get('ic_series', [])
-                if ic_series:
-                    ic_df = pd.DataFrame(ic_series)
-                    fig_ic = go.Figure()
-                    fig_ic.add_trace(go.Bar(
-                        x=ic_df['date'], y=ic_df['ic'],
-                        name='月度IC', marker_color='blue'
-                    ))
-                    fig_ic.add_trace(go.Scatter(
-                        x=ic_df['date'], y=ic_df['ic'].cumsum(),
-                        name='累计IC', yaxis='y2',
-                        line=dict(color='red', width=2)
-                    ))
-                    fig_ic.update_layout(
-                        title=f"{FACTOR_LABELS.get(selected_factor, selected_factor)} 月度IC序列",
-                        yaxis=dict(title="月度IC"),
-                        yaxis2=dict(title="累计IC", overlaying='y', side='right'),
-                        template='plotly_white',
-                    )
-                    st.plotly_chart(fig_ic, use_container_width=True)
-
-                # 分层回测
-                strat_data = m.get('stratified', [])
-                if strat_data:
-                    strat_df = pd.DataFrame(strat_data)
-                    strat_df['cum_return'] = strat_df.groupby('group')['avg_return'].transform(
-                        lambda x: (1 + x).cumprod() - 1
-                    )
-                    fig_strat = px.line(
-                        strat_df, x='date', y='cum_return', color='group',
-                        title=f"{FACTOR_LABELS.get(selected_factor, selected_factor)} 分层回测累计收益",
-                        labels={'date': '日期', 'cum_return': '累计收益', 'group': '分组'},
-                        template='plotly_white',
-                    )
-                    st.plotly_chart(fig_strat, use_container_width=True)
-
-        if st.button("关闭", use_container_width=True):
-            st.session_state['factor_analysis_clicked'] = False
-            st.rerun()
-
-    show_factor_analysis()
 
 
 result = st.session_state.get('result')

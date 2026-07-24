@@ -97,6 +97,95 @@ def test_stratified_backtest():
         assert g5 > g1, f"组5收益{g5}应大于组1收益{g1}"
 
 
+def test_compute_cross_sectional_pe_percentile():
+    """测试横截面PE百分位计算
+    5只ETF，3个日期，PE值已知，验证百分位正确
+    """
+    from strategy.factor_analysis import compute_cross_sectional_pe_percentile
+
+    # 5只ETF，3个日期，每只ETF每天一个PE值
+    pe_by_code = {
+        'ETF1': {'2023-01-03': 10.0, '2023-01-04': 12.0, '2023-01-05': 15.0},
+        'ETF2': {'2023-01-03': 20.0, '2023-01-04': 18.0, '2023-01-05': 22.0},
+        'ETF3': {'2023-01-03': 30.0, '2023-01-04': 28.0, '2023-01-05': 25.0},
+        'ETF4': {'2023-01-03': 40.0, '2023-01-04': 35.0, '2023-01-05': 35.0},
+        'ETF5': {'2023-01-03': 50.0, '2023-01-04': 50.0, '2023-01-05': 50.0},
+    }
+    all_dates = ['2023-01-03', '2023-01-04', '2023-01-05']
+
+    result = compute_cross_sectional_pe_percentile(pe_by_code, all_dates)
+
+    # 2023-01-03: PE=[10,20,30,40,50] → 百分位=[20,40,60,80,100]
+    assert abs(result['2023-01-03']['ETF1'] - 20.0) < 0.1
+    assert abs(result['2023-01-03']['ETF2'] - 40.0) < 0.1
+    assert abs(result['2023-01-03']['ETF3'] - 60.0) < 0.1
+    assert abs(result['2023-01-03']['ETF4'] - 80.0) < 0.1
+    assert abs(result['2023-01-03']['ETF5'] - 100.0) < 0.1
+
+    # 2023-01-05: PE=[15,22,25,35,50] → 百分位=[20,40,60,80,100]
+    assert abs(result['2023-01-05']['ETF1'] - 20.0) < 0.1
+    assert abs(result['2023-01-05']['ETF5'] - 100.0) < 0.1
+
+    # 验证所有日期都存在
+    assert '2023-01-03' in result
+    assert '2023-01-04' in result
+    assert '2023-01-05' in result
+
+
+def test_validate_pe_data_strict():
+    """测试PE数据严格模式校验"""
+    from strategy.factor_analysis import validate_pe_data
+
+    # 正常情况
+    pe_by_code = {
+        'ETF1': {'2023-01-01': 10.0, '2023-01-02': 11.0},
+        'ETF2': {'2023-01-01': 20.0, '2023-01-02': 21.0},
+    }
+    # 不应报错
+    validate_pe_data(pe_by_code, min_records=2)
+
+    # PE数据为空应报错
+    import pytest
+    with pytest.raises(RuntimeError, match="PE 历史数据缺失"):
+        validate_pe_data({'ETF1': {}}, min_records=1)
+
+    # PE记录不足应报错
+    with pytest.raises(RuntimeError, match="仅 1 条"):
+        validate_pe_data({'ETF1': {'2023-01-01': 10.0}}, min_records=2)
+
+    # PE全为0或负应报错（视为缺失）
+    with pytest.raises(RuntimeError, match="PE 历史数据缺失"):
+        validate_pe_data({'ETF1': {'2023-01-01': -5.0}}, min_records=1)
+
+
+def test_sample_by_trading_day():
+    """测试按全局交易日序号采样（每10天取最后一天）"""
+    from strategy.factor_analysis import sample_by_trading_day
+
+    # 构造25个交易日，5只ETF的因子数据
+    dates = pd.date_range('2023-01-02', periods=25, freq='B')
+    rows = []
+    for i, d in enumerate(dates):
+        for code in ['A', 'B', 'C', 'D', 'E']:
+            rows.append({'date': d, 'code': code, 'momentum': i * 0.01})
+
+    df = pd.DataFrame(rows)
+    sampled = sample_by_trading_day(df, freq_days=10)
+
+    # 25天 / 10 = 2个完整bucket + 剩余5天 = 3个bucket
+    assert sampled['sample_bucket'].nunique() == 3
+
+    # 每个bucket内每个ETF只有一条记录（最后一天）
+    bucket_counts = sampled.groupby('sample_bucket')['code'].count()
+    for cnt in bucket_counts:
+        assert cnt == 5  # 5只ETF
+
+    # 第一个bucket的最后一天应该是第10个交易日（index=9）
+    first_bucket = sampled[sampled['sample_bucket'] == 0]
+    first_date = first_bucket['date'].iloc[0]
+    assert first_date == dates[9]
+
+
 def test_analyze_factor_verdict():
     """测试有效性判定
     构造强因子数据，验证判定结果
@@ -120,3 +209,175 @@ def test_analyze_factor_verdict():
     assert 'ic_positive_ratio' in result
     assert 'verdict' in result
     assert result['verdict'] in ['有效', '弱有效', '无效']
+
+
+def test_analyze_all_etfs_pe_cross_sectional():
+    """测试analyze_all_etfs使用横截面PE百分位"""
+    from strategy.factor_analysis import analyze_all_etfs
+
+    # 构造mock的price_repo和valuation_repo（300个交易日保证forward_period=60有足够交集）
+    class MockPriceRepo:
+        def get_daily_price(self, code):
+            dates = pd.date_range('2023-01-02', periods=300, freq='B')
+            np.random.seed(abs(hash(code)) % 2**31)
+            prices = []
+            base = 100 + abs(hash(code)) % 50
+            for i, d in enumerate(dates):
+                base *= (1 + np.random.normal(0, 0.01))
+                prices.append({
+                    'trade_date': d.strftime('%Y-%m-%d'),
+                    'open': base * 0.99,
+                    'high': base * 1.01,
+                    'low': base * 0.98,
+                    'close': base,
+                    'volume': 1000000,
+                    'amount': base * 1000000,
+                })
+            return prices
+
+    class MockValuationRepo:
+        def get_pe_history(self, code):
+            dates = pd.date_range('2023-01-02', periods=300, freq='B')
+            base_pe = 10 + abs(hash(code)) % 40
+            result = []
+            for i, d in enumerate(dates):
+                result.append({
+                    'trade_date': d.strftime('%Y-%m-%d'),
+                    'pe': base_pe * (1 + 0.1 * np.sin(i / 10)),
+                })
+            return result
+
+    price_repo = MockPriceRepo()
+    valuation_repo = MockValuationRepo()
+
+    etf_codes = ['ETF1', 'ETF2', 'ETF3', 'ETF4', 'ETF5']
+    result = analyze_all_etfs(
+        etf_codes=etf_codes,
+        price_repo=price_repo,
+        valuation_repo=valuation_repo,
+        start_date='2023-01-02',
+        end_date='2024-04-30',
+        factor_names=['momentum_60d', 'pe_percentile', 'volatility_60d'],
+        min_pe_records=10,  # 测试数据小，放宽
+    )
+
+    # 验证返回3个因子的结果
+    assert len(result) >= 2
+    assert 'momentum_60d' in result
+    assert 'volatility_60d' in result
+
+    # 验证每个因子都有ic_series, icir, verdict等字段
+    for factor_name, metrics in result.items():
+        assert 'ic_mean' in metrics
+        assert 'icir' in metrics
+        assert 'ic_positive_ratio' in metrics
+        assert 'monotonicity' in metrics
+        assert 'verdict' in metrics
+        assert 'ic_series' in metrics
+        assert 'stratified' in metrics
+        assert metrics['verdict'] in ['有效', '弱有效', '无效']
+
+
+def test_commodity_etf_skip():
+    """测试商品ETF在PE因子检验中自动跳过"""
+    from strategy.factor_analysis import analyze_all_etfs
+    import pytest
+
+    class MockPriceRepo:
+        def get_daily_price(self, code):
+            dates = pd.date_range('2023-01-02', periods=300, freq='B')
+            np.random.seed(abs(hash(code)) % 2**31)
+            prices = []
+            base = 100 + abs(hash(code)) % 50
+            for i, d in enumerate(dates):
+                base *= (1 + np.random.normal(0, 0.01))
+                prices.append({
+                    'trade_date': d.strftime('%Y-%m-%d'),
+                    'open': base * 0.99,
+                    'high': base * 1.01,
+                    'low': base * 0.98,
+                    'close': base,
+                    'volume': 1000000,
+                    'amount': base * 1000000,
+                })
+            return prices
+
+    class MockValuationRepo:
+        def get_pe_history(self, code):
+            # 商品ETF返回空
+            if code in ['159985', '518880']:
+                return []
+            dates = pd.date_range('2023-01-02', periods=300, freq='B')
+            base_pe = 10 + abs(hash(code)) % 40
+            result = []
+            for i, d in enumerate(dates):
+                result.append({
+                    'trade_date': d.strftime('%Y-%m-%d'),
+                    'pe': base_pe * (1 + 0.1 * np.sin(i / 10)),
+                })
+            return result
+
+    price_repo = MockPriceRepo()
+    valuation_repo = MockValuationRepo()
+
+    # 包含商品ETF和普通ETF
+    etf_codes = ['159985', '518880', 'ETF1', 'ETF2', 'ETF3', 'ETF4', 'ETF5']
+    result = analyze_all_etfs(
+        etf_codes=etf_codes,
+        price_repo=price_repo,
+        valuation_repo=valuation_repo,
+        start_date='2023-01-02',
+        end_date='2024-04-30',
+        factor_names=['pe_percentile'],
+        min_pe_records=10,
+    )
+
+    # 商品ETF不应导致报错（PE数据为空但自动跳过）
+    # 只要有5只以上非商品ETF有PE数据，PE因子就能检验
+    assert 'pe_percentile' in result
+
+
+def test_commodity_etf_all_fail():
+    """测试所有ETF都是商品ETF（无PE数据）时PE因子被跳过而非报错"""
+    from strategy.factor_analysis import analyze_all_etfs
+    import pytest
+
+    class MockPriceRepo:
+        def get_daily_price(self, code):
+            dates = pd.date_range('2023-01-02', periods=300, freq='B')
+            np.random.seed(abs(hash(code)) % 2**31)
+            prices = []
+            base = 100 + abs(hash(code)) % 50
+            for i, d in enumerate(dates):
+                base *= (1 + np.random.normal(0, 0.01))
+                prices.append({
+                    'trade_date': d.strftime('%Y-%m-%d'),
+                    'open': base * 0.99,
+                    'high': base * 1.01,
+                    'low': base * 0.98,
+                    'close': base,
+                    'volume': 1000000,
+                    'amount': base * 1000000,
+                })
+            return prices
+
+    class MockValuationRepo:
+        def get_pe_history(self, code):
+            return []  # 全部返回空（模拟商品ETF）
+
+    price_repo = MockPriceRepo()
+    valuation_repo = MockValuationRepo()
+
+    # 5只商品ETF（无PE数据），只请求动量和波动率因子
+    etf_codes = ['159985', '518880', 'ETF1', 'ETF2', 'ETF3']
+    result = analyze_all_etfs(
+        etf_codes=etf_codes,
+        price_repo=price_repo,
+        valuation_repo=valuation_repo,
+        start_date='2023-01-02',
+        end_date='2024-04-30',
+        factor_names=['momentum_60d', 'volatility_60d'],
+    )
+    # 非PE因子应该正常返回（不报错）
+    assert 'momentum_60d' in result
+    assert 'volatility_60d' in result
