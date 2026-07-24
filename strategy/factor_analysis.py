@@ -130,31 +130,52 @@ def stratified_backtest(
 
 
 def _judge_verdict(ic_mean: float, icir: float, ic_positive_ratio: float,
-                   monotonic: bool) -> str:
-    """判定因子有效性
+                   monotonic: bool, direction: int = 1) -> str:
+    """判定因子有效性（支持因子方向）
 
-    判定逻辑：4个指标中≥2个达到"有效"判为有效，
+    判定逻辑：5个指标中≥2个达到"有效"判为有效，
     ≥2个达到"弱有效+"判为弱有效，否则无效。
+
+    Args:
+        ic_mean: RankIC均值
+        icir: ICIR
+        ic_positive_ratio: IC为正的比例
+        monotonic: 是否单调
+        direction: 因子方向，1=正向（值越大越好），-1=反向（值越小越好）
     """
     abs_ic = abs(ic_mean)
     effective_count = 0
     weak_count = 0
 
-    if abs_ic >= 0.05:
+    # 指标1：方向匹配（IC符号与预期方向一致）
+    if (direction == 1 and ic_mean > 0) or (direction == -1 and ic_mean < 0):
         effective_count += 1
-    elif abs_ic >= 0.03:
+
+    # 指标2：RankIC绝对值
+    if abs_ic >= 0.03:
+        effective_count += 1
+    elif abs_ic >= 0.015:
         weak_count += 1
 
-    if abs(icir) >= 0.3:
+    # 指标3：ICIR绝对值
+    abs_icir = abs(icir)
+    if abs_icir >= 0.15:
         effective_count += 1
-    elif abs(icir) >= 0.1:
+    elif abs_icir >= 0.075:
         weak_count += 1
 
-    if ic_positive_ratio >= 0.6:
+    # 指标4：IC正确比例（反向因子用 1 - ic_positive_ratio）
+    if direction == -1:
+        ic_correct_ratio = 1 - ic_positive_ratio
+    else:
+        ic_correct_ratio = ic_positive_ratio
+
+    if ic_correct_ratio >= 0.55:
         effective_count += 1
-    elif ic_positive_ratio >= 0.5:
+    elif ic_correct_ratio >= 0.50:
         weak_count += 1
 
+    # 指标5：单调性
     if monotonic:
         effective_count += 1
 
@@ -184,12 +205,21 @@ def analyze_factor(
     forward_returns: pd.DataFrame,
     factor_name: str,
     n_groups: int = 5,
+    direction: int = None,
 ) -> Dict:
     """单因子全量检验
+
+    Args:
+        direction: 因子方向，1=正向，-1=反向，None=从FACTOR_DIRECTIONS查询
 
     Returns:
         {ic_series, icir, stratified, monotonicity, verdict, ic_mean, ic_positive_ratio}
     """
+    from strategy.scoring import FACTOR_DIRECTIONS
+
+    if direction is None:
+        direction = FACTOR_DIRECTIONS.get(factor_name, 1)
+
     ic_df = compute_rank_ic(factor_values, forward_returns, [factor_name])
     ic_series = ic_df[ic_df['factor_name'] == factor_name]['ic']
     icir_result = compute_icir(ic_series)
@@ -198,7 +228,7 @@ def analyze_factor(
 
     verdict = _judge_verdict(
         icir_result['ic_mean'], icir_result['icir'],
-        icir_result['ic_positive_ratio'], monotonic
+        icir_result['ic_positive_ratio'], monotonic, direction
     )
 
     return {
@@ -449,15 +479,19 @@ def analyze_all_etfs(
         date_col='date', date_to_idx=date_to_idx
     )
 
-    # ── 步骤 5: 对每个因子做检验 ──
+    # ── 步骤 5: 对每个因子做检验（考虑因子方向） ──
+    from strategy.scoring import FACTOR_DIRECTIONS
+
     result = {}
     for factor in factor_names:
         if factor not in sampled_factor.columns:
             continue
+        direction = FACTOR_DIRECTIONS.get(factor, 1)
         result[factor] = analyze_factor(
             sampled_factor[['date', 'code', factor]],
             sampled_forward[['date', 'code', 'forward_return']],
             factor,
+            direction=direction,
         )
 
     return result

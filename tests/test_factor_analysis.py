@@ -211,6 +211,51 @@ def test_analyze_factor_verdict():
     assert result['verdict'] in ['有效', '弱有效', '无效']
 
 
+def test_judge_verdict_direction_aware():
+    """测试因子方向感知的判定逻辑"""
+    from strategy.factor_analysis import _judge_verdict
+
+    # 正向因子：IC为正，方向匹配 → 有效
+    # ic_mean=0.04(≥0.03有效), icir=0.2(≥0.15有效),
+    # ic_positive_ratio=0.6(≥0.55有效), monotonic=True, direction=1, 方向匹配
+    verdict = _judge_verdict(0.04, 0.2, 0.6, True, direction=1)
+    assert verdict == '有效'
+
+    # 反向因子：IC为负，方向匹配 → 有效
+    # ic_mean=-0.04(方向匹配+abs≥0.03有效), icir=-0.2(abs≥0.15有效),
+    # ic_positive_ratio=0.3(反向因子IC正确比例=0.7≥0.55有效), monotonic=True
+    verdict = _judge_verdict(-0.04, -0.2, 0.3, True, direction=-1)
+    assert verdict == '有效'
+
+    # 反向因子但IC为正：方向不匹配 → 判定降低
+    # ic_mean=0.04(方向不匹配), icir=0.2(abs≥0.15有效),
+    # ic_positive_ratio=0.6(反向因子IC正确比例=0.4<0.5), monotonic=False
+    verdict = _judge_verdict(0.04, 0.2, 0.6, False, direction=-1)
+    # 方向不匹配(0) + IC有效(1) + ICIR有效(1) + IC正确比例无效(0) + 非单调(0) = 2有效
+    assert verdict == '有效'
+
+    # 正向因子但IC为负：方向不匹配
+    # ic_mean=-0.04(方向不匹配), icir=-0.2(abs≥0.15有效),
+    # ic_positive_ratio=0.3(正向因子IC正确比例=0.3<0.5), monotonic=False
+    verdict = _judge_verdict(-0.04, -0.2, 0.3, False, direction=1)
+    # 方向不匹配(0) + IC有效(1) + ICIR有效(1) + IC正确比例无效(0) + 非单调(0) = 2有效
+    assert verdict == '有效'
+
+    # 弱有效场景：IC小，ICIR小，但方向匹配+单调
+    # ic_mean=0.02(方向匹配+0.015≤abs<0.03弱有效), icir=0.1(0.075≤abs<0.15弱有效),
+    # ic_positive_ratio=0.52(0.5≤r<0.55弱有效), monotonic=True, direction=1
+    verdict = _judge_verdict(0.02, 0.1, 0.52, True, direction=1)
+    # 方向匹配(1有效) + IC弱(1弱) + ICIR弱(1弱) + IC比例弱(1弱) + 单调(1有效) = 2有效
+    assert verdict == '有效'
+
+    # 无效场景：所有指标都差
+    # ic_mean=0.001(方向匹配但abs<0.015), icir=0.01(abs<0.075),
+    # ic_positive_ratio=0.45(<0.5), monotonic=False, direction=1
+    verdict = _judge_verdict(0.001, 0.01, 0.45, False, direction=1)
+    # 方向匹配(1有效) + 其他全无效 = 1有效 → 弱有效也不够 → 无效
+    assert verdict == '无效'
+
+
 def test_analyze_all_etfs_pe_cross_sectional():
     """测试analyze_all_etfs使用横截面PE百分位"""
     from strategy.factor_analysis import analyze_all_etfs

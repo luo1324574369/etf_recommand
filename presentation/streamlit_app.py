@@ -464,9 +464,10 @@ if run_clicked:
                     })
                 st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
                 st.info("💡 建议调整回测区间或ETF池后重试。"
-                        "判定标准：RankIC≥0.05有效/0.03-0.05弱有效；"
-                        "ICIR≥0.3有效/0.1-0.3弱有效；"
-                        "IC正比例≥60%有效；4指标中≥2个有效判为「有效」。")
+                        "判定标准（考虑因子方向）：方向匹配、RankIC绝对值≥0.03有效/0.015-0.03弱有效、"
+                        "ICIR绝对值≥0.15有效/0.075-0.15弱有效、"
+                        "IC正确比例≥55%有效/50%-55%弱有效（反向因子用1-正比例）、单调性；"
+                        "5指标中≥2个有效判为「有效」。")
             else:
                 # Step 3: 运行回测
                 with st.spinner("正在运行回测..."):
