@@ -122,38 +122,34 @@ def run_backtest(
             turnover_series['buy_amount'] / turnover_series['total_value'] * 100
         )
 
-    # Brinson 归因（可选，默认关闭；失败不影响回测主体）
+    # 归因（可选，默认关闭；失败不影响回测主体）
     attribution_result = None
     attribution_error = None
     if kwargs.get('enable_attribution', False):
         import logging
         logger = logging.getLogger(__name__)
         try:
-            from strategy.attribution import run_brinson_attribution
-            from data.sources.csi300_source import CSI300Source
-            from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
-            from config.settings import ETF_UNIVERSE, ETF_SECTOR_TO_SW, TUSHARE_TOKEN
+            from strategy.attribution import run_attribution
+            from config.settings import ETF_UNIVERSE
 
-            actual_constraints = kwargs.get('constraints', DEFAULT_BACKTEST_CONSTRAINTS)
-            if actual_constraints != DEFAULT_BACKTEST_CONSTRAINTS:
-                logger.warning("Brinson 归因在非默认约束下运行，结果仅作参考")
+            etf_codes = list(data_dict.keys())
+            etf_to_sector = _build_etf_to_sector_map(ETF_UNIVERSE)
+            valuation_repo = _DataDictValuationRepo(data_dict)
 
-            csi300_source = CSI300Source(tushare_token=TUSHARE_TOKEN)
-            etf_sector_map = _build_etf_sector_map(ETF_UNIVERSE, ETF_SECTOR_TO_SW)
-
-            attribution_result = run_brinson_attribution(
+            attribution_result = run_attribution(
                 trade_log=trade_list,
                 strategy_nav=nav_df,
-                benchmark_nav=benchmark_navs[PRIMARY_BENCHMARK],
-                csi300_source=csi300_source,
-                etf_sector_map=etf_sector_map,
+                etf_codes=etf_codes,
+                valuation_repo=valuation_repo,
+                etf_to_sector=etf_to_sector,
                 start_date=start_date,
                 end_date=end_date,
                 rebalance_dates=_extract_rebalance_dates(trade_list),
+                benchmark_type='equal_weight',
             )
         except Exception as e:
             attribution_error = str(e)
-            logger.warning(f"Brinson 归因计算失败: {e}")
+            logger.warning(f"归因计算失败: {e}")
 
     return {
         'final_value': cerebro.broker.getvalue(),
@@ -182,18 +178,31 @@ def run_backtest(
     }
 
 
-def _build_etf_sector_map(etf_universe, etf_sector_to_sw):
-    """构造 ETF code → 申万一级行业（取首个映射，未映射归入'未归类'）"""
+def _build_etf_to_sector_map(etf_universe):
+    """构造 ETF code → 赛道名（直接用 sector 字段）"""
     mapping = {}
     for etf in etf_universe:
-        code = etf['code']
-        sector = etf['sector']
-        sw_list = etf_sector_to_sw.get(sector, [])
-        if sw_list:
-            mapping[code] = sw_list[0]
-        else:
-            mapping[code] = '未归类'
+        mapping[etf['code']] = etf.get('sector', '未归类')
     return mapping
+
+
+class _DataDictValuationRepo:
+    """将 data_dict 包装为估值数据源接口"""
+
+    def __init__(self, data_dict):
+        self._data = {}
+        for code, df in data_dict.items():
+            price_df = df.copy()
+            if 'trade_date' not in price_df.columns:
+                price_df = price_df.reset_index()
+                price_df = price_df.rename(columns={price_df.columns[0]: 'trade_date'})
+            price_df['trade_date'] = pd.to_datetime(price_df['trade_date']).dt.strftime('%Y-%m-%d')
+            self._data[code] = price_df
+
+    def get_daily_price(self, code):
+        if code not in self._data:
+            return []
+        return self._data[code].to_dict('records')
 
 
 def _extract_rebalance_dates(trade_log):
