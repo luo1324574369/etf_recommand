@@ -390,10 +390,9 @@ with st.sidebar:
 
     st.markdown("---")
     enable_attribution = st.checkbox(
-        "🔬 启用 Brinson 归因",
+        "🔬 启用归因",
         value=False,
-        help="需要拉取沪深300历史成分股数据，回测时间会增加 5-15 秒。"
-             "归因结果基于默认约束标定，自定义约束下结果仅作参考。"
+        help="归因结果基于默认约束标定，自定义约束下结果仅作参考。"
     )
     st.session_state['enable_attribution'] = enable_attribution
     run_clicked = st.button("🧪 运行回测", type="primary", use_container_width=True)
@@ -483,9 +482,6 @@ if run_clicked:
                     except RuntimeError as bt_err:
                         result = None
                         st.error(f"回测失败: {bt_err}")
-                        if enable_attribution and 'Brinson 归因数据不完整' in str(bt_err):
-                            st.info("💡 Brinson 归因需要 Tushare 积分充足（index_weight 需 5000 积分）。"
-                                    "可取消勾选「启用 Brinson 归因」后重试。")
                     st.session_state['result'] = result
                     st.session_state['selected_codes_saved'] = selected_codes
                     if result is not None:
@@ -619,55 +615,94 @@ if result:
         """)
 
     st.markdown("---")
-    st.markdown("### 🔬 Brinson 归因分析")
+    st.markdown("### 📊 归因分析")
 
     attribution = result.get('attribution')
     if attribution is not None:
-        # 1. 总览三效应
-        col_a, col_s, col_i, col_t = st.columns(4)
-        with col_a:
-            st.metric("配置效应(%)", f"{attribution.allocation_effect:+.2f}")
-        with col_s:
-            st.metric("选股效应(%)", f"{attribution.selection_effect:+.2f}")
-        with col_i:
-            st.metric("交互效应(%)", f"{attribution.interaction_effect:+.2f}")
-        with col_t:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("配置收益(%)", f"{attribution.allocation_effect:+.2f}")
+        with col2:
+            st.metric("选品收益(%)", f"{attribution.selection_effect:+.2f}")
+        with col3:
             st.metric("总超额(%)", f"{attribution.total_excess:+.2f}")
+        with col4:
+            st.metric("调仓期数", f"{attribution.total_periods}")
 
-        # 2. 分行业明细表
-        st.markdown("#### 分行业明细")
-        st.dataframe(attribution.sector_breakdown, use_container_width=True, hide_index=True)
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            st.metric("持有收益(%)", f"{attribution.hold_return:+.2f}")
+        with col6:
+            st.metric("换仓收益(%)", f"{attribution.switch_return:+.2f}")
+        with col7:
+            st.metric("换仓胜率", f"{attribution.switch_win_rate:.1%}")
+        with col8:
+            st.metric("滚动IR", f"{attribution.rolling_ir:.2f}")
 
-        # 3. 分行业三效应堆叠柱状图
         if not attribution.sector_breakdown.empty:
-            fig_attr = px.bar(
+            st.markdown("#### 分赛道配置收益")
+            fig_sector = px.bar(
                 attribution.sector_breakdown,
-                x='行业',
-                y=['配置效应(%)', '选股效应(%)', '交互效应(%)'],
-                title="分行业归因(%)",
+                x='赛道',
+                y='配置收益(%)',
+                title="分赛道配置收益(%)",
+                template='plotly_white',
+                color='配置收益(%)',
+                color_continuous_scale='RdYlGn',
+            )
+            fig_sector.update_layout(yaxis_title='配置收益(%)', showlegend=False)
+            st.plotly_chart(fig_sector, use_container_width=True)
+
+        if not attribution.period_breakdown.empty:
+            st.markdown("#### BF归因期间走势")
+            period_df = attribution.period_breakdown.copy()
+            period_df['累计配置收益(%)'] = period_df['配置收益(%)'].cumsum()
+            period_df['累计选品收益(%)'] = period_df['选品收益(%)'].cumsum()
+            period_df['累计总超额(%)'] = period_df['总超额(%)'].cumsum()
+            fig_period = px.line(
+                period_df,
+                x='期间结束',
+                y=['累计配置收益(%)', '累计选品收益(%)', '累计总超额(%)'],
+                title="BF归因累计效应(%)",
                 template='plotly_white',
             )
-            fig_attr.update_layout(yaxis_title='效应(%)', legend_title='')
-            st.plotly_chart(fig_attr, use_container_width=True)
+            fig_period.update_layout(yaxis_title='累计效应(%)', legend_title='')
+            st.plotly_chart(fig_period, use_container_width=True)
 
-        # 4. 分调仓期间明细
-        with st.expander("分调仓期间归因"):
+        if not attribution.switch_period_breakdown.empty:
+            st.markdown("#### 换仓/持有收益累计走势")
+            switch_df = attribution.switch_period_breakdown.copy()
+            switch_df['累计持有收益(%)'] = switch_df['持有收益(%)'].cumsum()
+            switch_df['累计换仓收益(%)'] = switch_df['换仓收益(%)'].cumsum()
+            switch_df['累计总收益(%)'] = switch_df['总收益(%)'].cumsum()
+            fig_switch = px.line(
+                switch_df,
+                x='期间结束',
+                y=['累计持有收益(%)', '累计换仓收益(%)', '累计总收益(%)'],
+                title="换仓/持有收益累计(%)",
+                template='plotly_white',
+            )
+            fig_switch.update_layout(yaxis_title='累计收益(%)', legend_title='')
+            st.plotly_chart(fig_switch, use_container_width=True)
+
+        tab1, tab2, tab3 = st.tabs(["分赛道明细", "分期间BF归因", "换仓/持有明细"])
+        with tab1:
+            st.dataframe(attribution.sector_breakdown, use_container_width=True, hide_index=True)
+        with tab2:
             st.dataframe(attribution.period_breakdown, use_container_width=True, hide_index=True)
+        with tab3:
+            st.dataframe(attribution.switch_period_breakdown, use_container_width=True, hide_index=True)
+            if not attribution.etf_switch_breakdown.empty:
+                st.markdown("##### 分ETF换仓明细")
+                st.dataframe(attribution.etf_switch_breakdown, use_container_width=True, hide_index=True)
 
-        st.caption("注：多期累加采用算术平均（简化），与严格 Brinson-Fachler log-link 方法存在差异。"
-                   "宽基/红利/海外 ETF 跨行业，归入'未归类'列不计入三效应。")
+        st.caption(f"基准类型：{attribution.benchmark_type}（ETF池等权组合）")
     else:
-        if st.session_state.get('enable_attribution'):
-            attr_err = result.get('attribution_error')
-            if attr_err:
-                st.error(f"归因计算失败: {attr_err}")
-                if 'Tushare' in attr_err or '积分' in attr_err:
-                    st.info("💡 Brinson 归因需要 Tushare 积分充足（index_weight 需 5000 积分）。"
-                            "可取消勾选「启用 Brinson 归因」后重试。")
-            else:
-                st.warning("归因计算未生成结果，可能因 Tushare 积分不足或调仓日成分股数据缺失。")
+        attr_err = result.get('attribution_error')
+        if attr_err:
+            st.warning(f"归因计算失败: {attr_err}")
         else:
-            st.info("未启用 Brinson 归因。在侧边栏勾选「启用 Brinson 归因」后重新回测查看。")
+            st.info("归因结果未生成。请确保回测时已启用归因计算。")
 
     st.markdown("---")
     st.markdown("### 📈 收益曲线")
