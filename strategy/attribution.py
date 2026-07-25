@@ -16,193 +16,539 @@ import pandas as pd
 
 
 @dataclass
-class BrinsonResult:
-    """Brinson 归因结果"""
-    allocation_effect: float           # 配置效应(%)
-    selection_effect: float            # 选股效应(%)
-    interaction_effect: float         # 交互效应(%)
+class AttributionResult:
+    """归因结果（双体系：BF归因 + 换仓/持有拆解）"""
+    # BF 归因（双分项）
+    allocation_effect: float           # 配置收益(%)
+    selection_effect: float            # 选品收益(%)
     total_excess: float                # 总超额(%)
-    sector_breakdown: pd.DataFrame     # 分行业明细
+    sector_breakdown: pd.DataFrame     # 分赛道明细
     period_breakdown: pd.DataFrame     # 分调仓期间明细
+    
+    # 换仓/持有拆解
+    hold_return: float                 # 持有收益(%)
+    switch_return: float               # 换仓收益(%)
+    switch_win_rate: float             # 换仓胜率
+    rolling_ir: float                  # 滚动IR
+    etf_switch_breakdown: pd.DataFrame # 分ETF换仓明细
+    switch_period_breakdown: pd.DataFrame # 分期间换仓明细
+    
+    # 元信息
+    benchmark_type: str                # 基准类型: 'equal_weight' / 'csi300'
+    total_periods: int                 # 总期数
 
 
-def _calc_single_period(
-    strategy_weights: Dict[str, float],
-    benchmark_weights: Dict[str, float],
-    strategy_returns: Dict[str, float],
-    benchmark_returns: Dict[str, float],
-    benchmark_total_return: float,
-) -> Dict:
-    """计算单期 Brinson 归因
+def compute_equal_weight_benchmark(
+    etf_codes: List[str],
+    valuation_repo,
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    """计算ETF池等权基准净值
+
+    每日等权再平衡（简化：用价格等权近似）。
 
     Args:
-        strategy_weights: {行业: 权重(0~1)}
-        benchmark_weights: {行业: 权重(0~1)}
-        strategy_returns: {行业: 收益率(0~1)}
-        benchmark_returns: {行业: 收益率(0~1)}
+        etf_codes: ETF代码列表
+        valuation_repo: 估值数据源（需实现 get_daily_price(code) -> List[Dict]）
+        start_date: 起始日 YYYY-MM-DD
+        end_date: 结束日 YYYY-MM-DD
+
+    Returns:
+        DataFrame[date, nav]，date为字符串 YYYY-MM-DD
+    """
+    if not etf_codes:
+        return pd.DataFrame(columns=['date', 'nav'])
+
+    all_prices = {}
+    for code in etf_codes:
+        records = valuation_repo.get_daily_price(code)
+        if not records:
+            continue
+        df = pd.DataFrame(records)
+        df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%d')
+        df = df.set_index('trade_date')['close'].sort_index()
+        df = df.loc[start_date:end_date]
+        if not df.empty:
+            all_prices[code] = df
+
+    if not all_prices:
+        return pd.DataFrame(columns=['date', 'nav'])
+
+    price_df = pd.DataFrame(all_prices).ffill()
+    returns = price_df.pct_change().fillna(0)
+    equal_weight_return = returns.mean(axis=1)
+    nav = (1 + equal_weight_return).cumprod()
+
+    result = pd.DataFrame({
+        'date': nav.index,
+        'nav': nav.values,
+    })
+    return result
+
+
+def _calc_single_period_bf(
+    strategy_weights: Dict[str, float],
+    benchmark_weights: Dict[str, float],
+    etf_returns: Dict[str, float],
+    sector_returns: Dict[str, float],
+    etf_to_sector: Dict[str, str],
+    benchmark_total_return: float,
+) -> Dict:
+    """计算单期 BF 双分项归因（配置收益 + 选品收益）
+
+    Args:
+        strategy_weights: {ETF code: 权重(0~1)}
+        benchmark_weights: {赛道名: 权重(0~1)}
+        etf_returns: {ETF code: 收益率(0~1)}
+        sector_returns: {赛道名: 收益率(0~1)}
+        etf_to_sector: {ETF code: 赛道名}
         benchmark_total_return: 基准整体收益率(0~1)
 
     Returns:
         {
-            'allocation_effect': float,
-            'selection_effect': float,
-            'interaction_effect': float,
-            'total_excess': float,
-            'sector_detail': pd.DataFrame,
+            'allocation_effect': float,       # 配置收益
+            'selection_effect': float,        # 选品收益
+            'total_excess': float,            # 总超额
+            'sector_detail': pd.DataFrame,    # 分赛道明细
+            'etf_detail': pd.DataFrame,       # 分ETF明细
         }
     """
-    all_sectors = set(strategy_weights.keys()) | set(benchmark_weights.keys())
+    strategy_sector_weights = {}
+    for etf_code, w in strategy_weights.items():
+        sector = etf_to_sector.get(etf_code, '未归类')
+        strategy_sector_weights[sector] = strategy_sector_weights.get(sector, 0.0) + w
 
-    rows = []
-    total_ba = total_bs = total_bi = 0.0
+    all_sectors = set(strategy_sector_weights.keys()) | set(benchmark_weights.keys())
+
+    sector_rows = []
+    total_allocation = 0.0
+    total_selection = 0.0
 
     for sector in all_sectors:
-        w_p = strategy_weights.get(sector, 0.0)
+        w_p = strategy_sector_weights.get(sector, 0.0)
         w_b = benchmark_weights.get(sector, 0.0)
-        r_p = strategy_returns.get(sector, 0.0)
-        r_b = benchmark_returns.get(sector, 0.0)
+        r_b = sector_returns.get(sector, 0.0)
 
-        ba = (w_p - w_b) * (r_b - benchmark_total_return)
-        bs = w_b * (r_p - r_b)
-        bi = (w_p - w_b) * (r_p - r_b)
+        allocation_eff = (w_p - w_b) * (r_b - benchmark_total_return)
+        total_allocation += allocation_eff
 
-        total_ba += ba
-        total_bs += bs
-        total_bi += bi
-
-        rows.append({
-            '行业': sector,
+        sector_rows.append({
+            '赛道': sector,
             '策略权重': w_p,
             '基准权重': w_b,
-            '策略收益率': r_p,
-            '基准收益率': r_b,
-            '配置效应': ba,
-            '选股效应': bs,
-            '交互效应': bi,
+            '赛道收益率': r_b,
+            '配置收益': allocation_eff,
+        })
+
+    etf_rows = []
+    for etf_code, w_p in strategy_weights.items():
+        r_p = etf_returns.get(etf_code, 0.0)
+        sector = etf_to_sector.get(etf_code, '未归类')
+        r_b = sector_returns.get(sector, 0.0)
+
+        selection_eff = w_p * (r_p - r_b)
+        total_selection += selection_eff
+
+        etf_rows.append({
+            'ETF': etf_code,
+            '赛道': sector,
+            '策略权重': w_p,
+            'ETF收益率': r_p,
+            '赛道收益率': r_b,
+            '选品收益': selection_eff,
         })
 
     return {
-        'allocation_effect': total_ba,
-        'selection_effect': total_bs,
-        'interaction_effect': total_bi,
-        'total_excess': total_ba + total_bs + total_bi,
-        'sector_detail': pd.DataFrame(rows),
+        'allocation_effect': total_allocation,
+        'selection_effect': total_selection,
+        'total_excess': total_allocation + total_selection,
+        'sector_detail': pd.DataFrame(sector_rows),
+        'etf_detail': pd.DataFrame(etf_rows),
     }
 
 
-def run_brinson_attribution(
+def _calc_switch_hold(
+    prev_weights: Dict[str, float],
+    curr_weights: Dict[str, float],
+    etf_returns: Dict[str, float],
+) -> Dict:
+    """计算单期换仓/持有收益拆解
+
+    Args:
+        prev_weights: 上期ETF权重 {ETF code: 权重(0~1)}
+        curr_weights: 本期ETF权重 {ETF code: 权重(0~1)}
+        etf_returns: 本期ETF收益率 {ETF code: 收益率(0~1)}
+
+    Returns:
+        {
+            'hold_return': float,         # 持有收益
+            'switch_return': float,       # 换仓收益
+            'total_return': float,        # 总收益
+            'etf_detail': pd.DataFrame,   # 分ETF明细
+        }
+    """
+    all_etfs = set(prev_weights.keys()) | set(curr_weights.keys())
+
+    etf_rows = []
+    total_hold = 0.0
+    total_switch = 0.0
+
+    for etf_code in all_etfs:
+        w_prev = prev_weights.get(etf_code, 0.0)
+        w_curr = curr_weights.get(etf_code, 0.0)
+        r = etf_returns.get(etf_code, 0.0)
+
+        hold = w_prev * r
+        switch = (w_curr - w_prev) * r
+        total = w_curr * r
+
+        total_hold += hold
+        total_switch += switch
+
+        etf_rows.append({
+            'ETF': etf_code,
+            '上期权重': w_prev,
+            '本期权重': w_curr,
+            '权重变化': w_curr - w_prev,
+            '本期收益率': r,
+            '持有收益': hold,
+            '换仓收益': switch,
+            '总收益': total,
+        })
+
+    return {
+        'hold_return': total_hold,
+        'switch_return': total_switch,
+        'total_return': total_hold + total_switch,
+        'etf_detail': pd.DataFrame(etf_rows),
+    }
+
+
+def _get_etf_weights_at(
     trade_log: List[Dict],
+    date: str,
+) -> Dict[str, float]:
+    """获取指定日期的策略ETF权重
+
+    累计该日（含）之前的所有买入-卖出，按ETF聚合市值。
+    """
+    etf_value = {}
+    total_value = 0.0
+    for trade in trade_log:
+        if trade['date'] > date:
+            continue
+        code = trade['code']
+        amount = trade['amount']
+        if trade['direction'] == '买入':
+            etf_value[code] = etf_value.get(code, 0) + amount
+            total_value += amount
+        else:
+            etf_value[code] = etf_value.get(code, 0) - amount
+            total_value -= amount
+
+    if total_value <= 0:
+        return {}
+    return {code: max(v, 0) / total_value for code, v in etf_value.items() if v > 0}
+
+
+def _compute_sector_returns(
+    etf_codes: List[str],
+    etf_to_sector: Dict[str, str],
+    valuation_repo,
+    start_date: str,
+    end_date: str,
+) -> Dict[str, float]:
+    """计算期间各赛道收益率（赛道内ETF等权）"""
+    sector_etf_returns = {}
+    for code in etf_codes:
+        records = valuation_repo.get_daily_price(code)
+        if not records:
+            continue
+        df = pd.DataFrame(records)
+        df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%d')
+        df = df.set_index('trade_date')['close'].sort_index()
+        df = df.loc[start_date:end_date]
+        if len(df) < 2:
+            continue
+        period_return = df.iloc[-1] / df.iloc[0] - 1
+        sector = etf_to_sector.get(code, '未归类')
+        if sector not in sector_etf_returns:
+            sector_etf_returns[sector] = []
+        sector_etf_returns[sector].append(period_return)
+
+    sector_returns = {}
+    for sector, rets in sector_etf_returns.items():
+        if rets:
+            sector_returns[sector] = sum(rets) / len(rets)
+    return sector_returns
+
+
+def _compute_equal_weight_benchmark_sector_weights(
+    etf_codes: List[str],
+    etf_to_sector: Dict[str, str],
+) -> Dict[str, float]:
+    """计算等权基准的赛道权重"""
+    sector_count = {}
+    for code in etf_codes:
+        sector = etf_to_sector.get(code, '未归类')
+        sector_count[sector] = sector_count.get(sector, 0) + 1
+    total = len(etf_codes)
+    return {sec: cnt / total for sec, cnt in sector_count.items()} if total > 0 else {}
+
+
+def _compute_rolling_ir(
     strategy_nav: pd.DataFrame,
     benchmark_nav: pd.DataFrame,
-    csi300_source,
-    etf_sector_map: Dict[str, str],
+    window: int = 20,
+) -> float:
+    """计算滚动IR（信息比率）"""
+    if strategy_nav is None or benchmark_nav is None or len(strategy_nav) < window:
+        return 0.0
+
+    s_nav = strategy_nav.copy()
+    s_nav['date'] = pd.to_datetime(s_nav['date'])
+    s_nav = s_nav.set_index('date').sort_index()
+
+    b_nav = benchmark_nav.copy()
+    b_nav['date'] = pd.to_datetime(b_nav['date'])
+    b_nav = b_nav.set_index('date').sort_index()
+
+    combined = pd.merge(s_nav, b_nav, left_index=True, right_index=True, how='inner',
+                        suffixes=('_s', '_b'))
+    if len(combined) < window:
+        return 0.0
+
+    excess = combined['nav_s'].pct_change() - combined['nav_b'].pct_change()
+    excess = excess.dropna()
+    if len(excess) < window:
+        return 0.0
+
+    rolling_mean = excess.rolling(window=window).mean()
+    rolling_std = excess.rolling(window=window).std()
+    rolling_ir = rolling_mean / rolling_std.replace(0, float('nan'))
+    rolling_ir = rolling_ir.dropna()
+
+    if rolling_ir.empty:
+        return 0.0
+    return float(rolling_ir.mean())
+
+
+def run_attribution(
+    trade_log: List[Dict],
+    strategy_nav: pd.DataFrame,
+    etf_codes: List[str],
+    valuation_repo,
+    etf_to_sector: Dict[str, str],
     start_date: str,
     end_date: str,
     rebalance_dates: List[str] = None,
-) -> BrinsonResult:
-    """运行 Brinson 归因分析
+    benchmark_type: str = 'equal_weight',
+    csi300_source=None,
+) -> AttributionResult:
+    """运行归因分析（BF双分项 + 换仓/持有拆解）
 
     Args:
-        trade_log: 策略交易记录，每条至少包含
-                   {date(YYYY-MM-DD), code, direction('买入'/'卖出'), amount}
+        trade_log: 策略交易记录
         strategy_nav: 策略净值 DataFrame[date, nav]
-        benchmark_nav: 基准净值 DataFrame[date, nav]
-        csi300_source: CSI300Source 实例（需实现 get_industry_weights(date)）
-        etf_sector_map: {ETF code: 申万一级行业}，未映射的 ETF 应映射为 '未归类'
+        etf_codes: ETF池代码列表
+        valuation_repo: 估值数据源（需实现 get_daily_price(code)）
+        etf_to_sector: {ETF code: 赛道名}
         start_date: 起始日 YYYY-MM-DD
         end_date: 结束日 YYYY-MM-DD
-        rebalance_dates: 调仓日列表（YYYY-MM-DD），若 None 则从 trade_log 推断
+        rebalance_dates: 调仓日列表，若 None 则从 trade_log 推断
+        benchmark_type: 基准类型: 'equal_weight' / 'csi300'
+        csi300_source: CSI300Source 实例（csi300基准时需要）
 
     Returns:
-        BrinsonResult（效应字段已转为百分比，例如 1.0 = 1%）
-
-    Raises:
-        RuntimeError: 任一调仓日沪深300成分股数据获取失败
+        AttributionResult（百分比单位，例如 1.0 = 1%）
     """
     if rebalance_dates is None:
         rebalance_dates = _extract_rebalance_dates(trade_log)
 
     if not rebalance_dates:
-        return BrinsonResult(
+        return AttributionResult(
             allocation_effect=0.0,
             selection_effect=0.0,
-            interaction_effect=0.0,
             total_excess=0.0,
             sector_breakdown=pd.DataFrame(),
             period_breakdown=pd.DataFrame(),
+            hold_return=0.0,
+            switch_return=0.0,
+            switch_win_rate=0.0,
+            rolling_ir=0.0,
+            etf_switch_breakdown=pd.DataFrame(),
+            switch_period_breakdown=pd.DataFrame(),
+            benchmark_type=benchmark_type,
+            total_periods=0,
         )
 
-    # 按调仓期间切分：[start, rebalance_1, rebalance_2, ..., end]
+    if benchmark_type == 'equal_weight':
+        benchmark_nav = compute_equal_weight_benchmark(
+            etf_codes, valuation_repo, start_date, end_date
+        )
+    elif benchmark_type == 'csi300':
+        if csi300_source is None:
+            raise ValueError("csi300 基准需要 csi300_source 参数")
+        benchmark_nav = pd.DataFrame()
+    else:
+        raise ValueError(f"不支持的基准类型: {benchmark_type}")
+
     all_dates = [start_date] + rebalance_dates + [end_date]
-    period_results = []
+    bf_period_results = []
+    switch_period_results = []
+    prev_weights = {}
 
     for i in range(len(all_dates) - 1):
         period_start = all_dates[i]
         period_end = all_dates[i + 1]
 
-        # 期初策略持仓权重（按行业聚合）
-        strategy_weights = _get_strategy_weights_at(
-            trade_log, etf_sector_map, period_start
-        )
+        curr_weights = _get_etf_weights_at(trade_log, period_start)
+        if not curr_weights:
+            prev_weights = curr_weights
+            continue
 
-        # 期初沪深300行业权重（严格模式：失败抛 RuntimeError）
-        try:
-            date_yyyymmdd = (
-                period_start.replace('-', '') if '-' in period_start else period_start
+        if benchmark_type == 'equal_weight':
+            benchmark_sector_weights = _compute_equal_weight_benchmark_sector_weights(
+                etf_codes, etf_to_sector
             )
-            benchmark_industry_weights = csi300_source.get_industry_weights(date_yyyymmdd)
-        except RuntimeError as e:
-            raise RuntimeError(
-                f"Brinson 归因数据不完整: 调仓日 {period_start} 成分股获取失败. "
-                f"原始错误: {e}"
-            ) from e
+        else:
+            benchmark_sector_weights = {}
 
-        # 期间策略各行业收益率
-        strategy_returns = _get_strategy_returns(
-            trade_log, etf_sector_map, strategy_nav, period_start, period_end
+        sector_returns = _compute_sector_returns(
+            etf_codes, etf_to_sector, valuation_repo, period_start, period_end
         )
 
-        # 期间基准收益率
-        # 简化处理：用基准整体收益率替代单行业收益率（数据源限制）
-        benchmark_total_return = _get_period_return(benchmark_nav, period_start, period_end)
-        benchmark_returns = {
-            sec: benchmark_total_return for sec in benchmark_industry_weights
-        }
+        etf_returns = {}
+        for code in curr_weights.keys():
+            records = valuation_repo.get_daily_price(code)
+            if not records:
+                etf_returns[code] = 0.0
+                continue
+            df = pd.DataFrame(records)
+            df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%d')
+            df = df.set_index('trade_date')['close'].sort_index()
+            df = df.loc[period_start:period_end]
+            if len(df) < 2:
+                etf_returns[code] = 0.0
+            else:
+                etf_returns[code] = df.iloc[-1] / df.iloc[0] - 1
 
-        period_result = _calc_single_period(
-            strategy_weights=strategy_weights,
-            benchmark_weights=benchmark_industry_weights,
-            strategy_returns=strategy_returns,
-            benchmark_returns=benchmark_returns,
+        benchmark_total_return = _get_period_return(benchmark_nav, period_start, period_end)
+
+        bf_result = _calc_single_period_bf(
+            strategy_weights=curr_weights,
+            benchmark_weights=benchmark_sector_weights,
+            etf_returns=etf_returns,
+            sector_returns=sector_returns,
+            etf_to_sector=etf_to_sector,
             benchmark_total_return=benchmark_total_return,
         )
-        period_result['period_start'] = period_start
-        period_result['period_end'] = period_end
-        period_results.append(period_result)
+        bf_result['period_start'] = period_start
+        bf_result['period_end'] = period_end
+        bf_period_results.append(bf_result)
 
-    # 多期累加（算术平均，不按期间长度加权）
-    total_ba = sum(p['allocation_effect'] for p in period_results)
-    total_bs = sum(p['selection_effect'] for p in period_results)
-    total_bi = sum(p['interaction_effect'] for p in period_results)
+        if prev_weights:
+            switch_result = _calc_switch_hold(
+                prev_weights=prev_weights,
+                curr_weights=curr_weights,
+                etf_returns=etf_returns,
+            )
+            switch_result['period_start'] = period_start
+            switch_result['period_end'] = period_end
+            switch_period_results.append(switch_result)
 
-    return BrinsonResult(
-        allocation_effect=total_ba * 100,
-        selection_effect=total_bs * 100,
-        interaction_effect=total_bi * 100,
-        total_excess=(total_ba + total_bs + total_bi) * 100,
-        sector_breakdown=_aggregate_sector_breakdown(period_results),
-        period_breakdown=pd.DataFrame([
-            {
-                '期间起始': p['period_start'],
-                '期间结束': p['period_end'],
-                '配置效应(%)': p['allocation_effect'] * 100,
-                '选股效应(%)': p['selection_effect'] * 100,
-                '交互效应(%)': p['interaction_effect'] * 100,
-                '总效应(%)': p['total_excess'] * 100,
-            }
-            for p in period_results
-        ]),
+        prev_weights = curr_weights
+
+    total_allocation = sum(p['allocation_effect'] for p in bf_period_results)
+    total_selection = sum(p['selection_effect'] for p in bf_period_results)
+    total_excess = total_allocation + total_selection
+
+    total_hold = sum(p['hold_return'] for p in switch_period_results)
+    total_switch = sum(p['switch_return'] for p in switch_period_results)
+
+    switch_win_count = sum(1 for p in switch_period_results if p['switch_return'] > 0)
+    switch_win_rate = switch_win_count / len(switch_period_results) if switch_period_results else 0.0
+
+    rolling_ir = _compute_rolling_ir(strategy_nav, benchmark_nav)
+
+    sector_breakdown = _aggregate_bf_sector_breakdown(bf_period_results)
+
+    period_breakdown = pd.DataFrame([
+        {
+            '期间起始': p['period_start'],
+            '期间结束': p['period_end'],
+            '配置收益(%)': p['allocation_effect'] * 100,
+            '选品收益(%)': p['selection_effect'] * 100,
+            '总超额(%)': p['total_excess'] * 100,
+        }
+        for p in bf_period_results
+    ])
+
+    switch_period_breakdown = pd.DataFrame([
+        {
+            '期间起始': p['period_start'],
+            '期间结束': p['period_end'],
+            '持有收益(%)': p['hold_return'] * 100,
+            '换仓收益(%)': p['switch_return'] * 100,
+            '总收益(%)': p['total_return'] * 100,
+        }
+        for p in switch_period_results
+    ])
+
+    etf_switch_breakdown = _aggregate_switch_etf_breakdown(switch_period_results)
+
+    return AttributionResult(
+        allocation_effect=total_allocation * 100,
+        selection_effect=total_selection * 100,
+        total_excess=total_excess * 100,
+        sector_breakdown=sector_breakdown,
+        period_breakdown=period_breakdown,
+        hold_return=total_hold * 100,
+        switch_return=total_switch * 100,
+        switch_win_rate=switch_win_rate,
+        rolling_ir=rolling_ir,
+        etf_switch_breakdown=etf_switch_breakdown,
+        switch_period_breakdown=switch_period_breakdown,
+        benchmark_type=benchmark_type,
+        total_periods=len(bf_period_results),
     )
+
+
+def _aggregate_bf_sector_breakdown(period_results: List[Dict]) -> pd.DataFrame:
+    """聚合多期BF归因分赛道明细"""
+    if not period_results:
+        return pd.DataFrame()
+    dfs = [p['sector_detail'] for p in period_results if not p['sector_detail'].empty]
+    if not dfs:
+        return pd.DataFrame()
+    combined = pd.concat(dfs, ignore_index=True)
+    agg = combined.groupby('赛道').agg({
+        '配置收益': 'sum',
+        '策略权重': 'mean',
+        '基准权重': 'mean',
+    }).reset_index()
+    agg['配置收益(%)'] = agg['配置收益'] * 100
+    return agg[['赛道', '策略权重', '基准权重', '配置收益(%)']]
+
+
+def _aggregate_switch_etf_breakdown(period_results: List[Dict]) -> pd.DataFrame:
+    """聚合多期换仓拆解分ETF明细"""
+    if not period_results:
+        return pd.DataFrame()
+    dfs = [p['etf_detail'] for p in period_results if not p['etf_detail'].empty]
+    if not dfs:
+        return pd.DataFrame()
+    combined = pd.concat(dfs, ignore_index=True)
+    agg = combined.groupby('ETF').agg({
+        '持有收益': 'sum',
+        '换仓收益': 'sum',
+        '总收益': 'sum',
+    }).reset_index()
+    agg['持有收益(%)'] = agg['持有收益'] * 100
+    agg['换仓收益(%)'] = agg['换仓收益'] * 100
+    agg['总收益(%)'] = agg['总收益'] * 100
+    return agg[['ETF', '持有收益(%)', '换仓收益(%)', '总收益(%)']]
 
 
 def _extract_rebalance_dates(trade_log: List[Dict]) -> List[str]:
@@ -210,52 +556,6 @@ def _extract_rebalance_dates(trade_log: List[Dict]) -> List[str]:
     if not trade_log:
         return []
     return sorted(set(t['date'] for t in trade_log))
-
-
-def _get_strategy_weights_at(
-    trade_log: List[Dict],
-    etf_sector_map: Dict[str, str],
-    date: str,
-) -> Dict[str, float]:
-    """获取指定日期的策略行业权重
-
-    简化实现：累计该日（含）之前的所有买入-卖出，按行业聚合市值。
-    未归类行业（宽基/红利/海外）的权重不计入（无对应基准行业）。
-    """
-    sector_value = {}
-    total_value = 0.0
-    for trade in trade_log:
-        if trade['date'] > date:
-            continue
-        code = trade['code']
-        sector = etf_sector_map.get(code, '未归类')
-        if sector == '未归类':
-            # 宽基/红利/海外 ETF 跨行业，无法与基准单行业对齐
-            continue
-        amount = trade['amount']
-        if trade['direction'] == '买入':
-            sector_value[sector] = sector_value.get(sector, 0) + amount
-            total_value += amount
-        else:  # 卖出
-            sector_value[sector] = sector_value.get(sector, 0) - amount
-            total_value -= amount
-
-    if total_value <= 0:
-        return {}
-    return {sec: max(v, 0) / total_value for sec, v in sector_value.items() if v > 0}
-
-
-def _get_strategy_returns(
-    trade_log: List[Dict],
-    etf_sector_map: Dict[str, str],
-    strategy_nav: pd.DataFrame,
-    start: str,
-    end: str,
-) -> Dict[str, float]:
-    """获取期间策略各行业收益率（简化：用策略整体收益率）"""
-    period_return = _get_period_return(strategy_nav, start, end)
-    sector_weights = _get_strategy_weights_at(trade_log, etf_sector_map, start)
-    return {sec: period_return for sec in sector_weights}
 
 
 def _get_period_return(nav_df: pd.DataFrame, start: str, end: str) -> float:
@@ -277,21 +577,4 @@ def _get_period_return(nav_df: pd.DataFrame, start: str, end: str) -> float:
     return (last_nav / first_nav - 1)
 
 
-def _aggregate_sector_breakdown(period_results: List[Dict]) -> pd.DataFrame:
-    """聚合多期分行业明细"""
-    if not period_results:
-        return pd.DataFrame()
-    dfs = [p['sector_detail'] for p in period_results if not p['sector_detail'].empty]
-    if not dfs:
-        return pd.DataFrame()
-    combined = pd.concat(dfs, ignore_index=True)
-    agg = combined.groupby('行业').agg({
-        '配置效应': 'sum',
-        '选股效应': 'sum',
-        '交互效应': 'sum',
-    }).reset_index()
-    agg['配置效应(%)'] = agg['配置效应'] * 100
-    agg['选股效应(%)'] = agg['选股效应'] * 100
-    agg['交互效应(%)'] = agg['交互效应'] * 100
-    agg['总效应(%)'] = (agg['配置效应'] + agg['选股效应'] + agg['交互效应']) * 100
-    return agg[['行业', '配置效应(%)', '选股效应(%)', '交互效应(%)', '总效应(%)']]
+
