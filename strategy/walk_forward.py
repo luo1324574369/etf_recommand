@@ -131,7 +131,8 @@ def calculate_robustness_score(sharpes: List[float]) -> float:
 
 def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
                          params: Dict[str, Any], start_date: str, end_date: str,
-                         extra_params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, float]]:
+                         extra_params: Optional[Dict[str, Any]] = None,
+                         enable_attribution: bool = False) -> Optional[Dict[str, float]]:
     """运行单次回测，返回关键指标
 
     Args:
@@ -141,9 +142,11 @@ def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
         start_date: 回测起始日期
         end_date: 回测结束日期
         extra_params: 额外回测参数（如 valuation_repo），会合并到 params 中
+        enable_attribution: 是否启用归因计算（仅全周期回测启用，窗口回测不启用以保持性能）
 
     Returns:
         包含 annual_return, sharpe_ratio, max_drawdown, num_trades, total_return 的字典，
+        启用归因时追加 allocation_effect, switch_win_rate, rolling_ir 字段，
         回测失败时返回None
     """
     try:
@@ -155,6 +158,7 @@ def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
             initial_capital=1000000,
             start_date=start_date,
             end_date=end_date,
+            enable_attribution=enable_attribution,
             **full_params,
         )
         total_return = result.get('total_return', None)
@@ -166,13 +170,19 @@ def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
                 total_return = total_return * 100
             else:
                 total_return = 0
-        return {
+        ret = {
             'annual_return': result.get('annual_return', 0) or 0,
             'sharpe_ratio': result.get('sharpe_ratio', 0) or 0,
             'max_drawdown': result.get('max_drawdown', 0) or 0,
             'num_trades': result.get('num_trades', 0) or 0,
             'total_return': total_return,
         }
+        if enable_attribution:
+            attr = result.get('attribution')
+            ret['allocation_effect'] = attr.allocation_effect if attr else None
+            ret['switch_win_rate'] = attr.switch_win_rate if attr else None
+            ret['rolling_ir'] = attr.rolling_ir if attr else None
+        return ret
     except Exception:
         return None
 
@@ -221,11 +231,12 @@ def _worker_process_combo(combo_info):
         if metrics is not None:
             window_results.append(metrics)
 
-    # 跑全周期回测
+    # 跑全周期回测（启用归因）
     full_metrics = _run_single_backtest(
         _WORKER_STRATEGY_MODULE, _WORKER_DATA_DICT, params,
         _WORKER_START_DATE, _WORKER_END_DATE,
         extra_params=_WORKER_EXTRA_PARAMS,
+        enable_attribution=True,
     )
 
     if not window_results and full_metrics is None:
@@ -255,11 +266,17 @@ def _worker_process_combo(combo_info):
         full_sharpe = full_metrics['sharpe_ratio']
         full_drawdown = full_metrics['max_drawdown']
         full_trades = full_metrics['num_trades']
+        full_alloc = full_metrics.get('allocation_effect')
+        full_switch_win = full_metrics.get('switch_win_rate')
+        full_rolling_ir = full_metrics.get('rolling_ir')
     else:
         full_annual = 0
         full_sharpe = 0
         full_drawdown = 0
         full_trades = 0
+        full_alloc = None
+        full_switch_win = None
+        full_rolling_ir = None
 
     return {
         'params': params.copy(),
@@ -276,6 +293,9 @@ def _worker_process_combo(combo_info):
             'full_sharpe_ratio': full_sharpe,
             'full_max_drawdown': full_drawdown,
             'full_num_trades': full_trades,
+            'allocation_effect': full_alloc,
+            'switch_win_rate': full_switch_win,
+            'rolling_ir': full_rolling_ir,
         },
     }
 
@@ -435,6 +455,32 @@ def generate_walk_forward_presets(
             benchmark_filtered_results = all_results
             benchmark_applied = False
 
+    # 归因筛选：配置收益>0 且 换仓胜率>=0.5
+    attribution_filtered_results = [
+        r for r in benchmark_filtered_results
+        if r['metrics'].get('allocation_effect') is not None
+        and r['metrics']['allocation_effect'] > 0
+        and r['metrics'].get('switch_win_rate') is not None
+        and r['metrics']['switch_win_rate'] >= 0.5
+    ]
+    if len(attribution_filtered_results) < 3:
+        # 归因筛选不足3个，报错（不静默回退）
+        detail_lines = []
+        for r in benchmark_filtered_results:
+            m = r['metrics']
+            detail_lines.append(
+                f"  params={r['param_str']}: "
+                f"allocation_effect={m.get('allocation_effect')}, "
+                f"switch_win_rate={m.get('switch_win_rate')}"
+            )
+        raise ValueError(
+            f"归因筛选门槛过高：筛选前 {len(benchmark_filtered_results)} 个组合，"
+            f"筛选后仅 {len(attribution_filtered_results)} 个（需≥3）。"
+            f"门槛：allocation_effect>0 且 switch_win_rate>=0.5。\n"
+            f"各组合归因指标：\n" + "\n".join(detail_lines)
+        )
+    benchmark_filtered_results = attribution_filtered_results
+
     used_param_strs = set()
     presets = []
 
@@ -490,4 +536,5 @@ def generate_walk_forward_presets(
         'benchmark_threshold': min_full_annual_return,
         'all_results_count': len(all_results),
         'benchmark_filtered_count': len(benchmark_filtered_results),
+        'attribution_filtered_count': len(attribution_filtered_results),
     }

@@ -185,6 +185,8 @@ def main():
         status = "✅ 已应用" if benchmark_applied else "⚠️ 回退(组合不足3)"
         print(f"沪深300基准年化: {hs300_annual_return:.2f}% | {status} | 跑赢组合: {filtered_count}/{all_count}")
     print(f"预设数量: {len(wf_result['presets'])} 个 (动态3-7)")
+    attr_count = wf_result.get('attribution_filtered_count', 0)
+    print(f"归因筛选: {attr_count} 个组合通过 (门槛: allocation_effect>0 且 switch_win_rate>=0.5)")
     print("=" * 60 + "\n")
 
     table_rows = []
@@ -197,9 +199,12 @@ def main():
             f"{m.get('full_max_drawdown', 0):.2f}",
             f"{m.get('cagr', 0):.2f}",
             m.get('full_num_trades', 0),
+            f"{m.get('allocation_effect', 0):.2f}" if m.get('allocation_effect') is not None else "N/A",
+            f"{m.get('switch_win_rate', 0):.1%}" if m.get('switch_win_rate') is not None else "N/A",
+            f"{m.get('rolling_ir', 0):.2f}" if m.get('rolling_ir') is not None else "N/A",
         ])
     print(tabulate(table_rows,
-                   headers=['预设名称', '全周期年化(%)', '全周期夏普', '全周期回撤(%)', '窗口CAGR(%)', '交易次数'],
+                   headers=['预设名称', '全周期年化(%)', '全周期夏普', '全周期回撤(%)', '窗口CAGR(%)', '交易次数', '配置收益(%)', '换仓胜率', '滚动IR'],
                    tablefmt='pipe'))
 
     # 写回 settings.py
