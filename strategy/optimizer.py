@@ -96,5 +96,7 @@ MULTI_FACTOR_PARAM_RANGES = {
     'lookback_volatility': [20, 60, 120],
     'top_n': [2, 3, 4, 5],
     'rebalance_freq': [10, 20, 60],
+    'sector_penalty_factor': [0.5, 0.7, 1.0],
+    'sector_exclude_threshold': [-0.10, -0.15, -0.20],
 }
-# 4 × 3 × 4 × 3 = 144 组合，与双动量规模对齐
+# 4 × 3 × 4 × 3 × 3 × 3 = 1296 组合（需配合Walk-Forward分阶段优化）

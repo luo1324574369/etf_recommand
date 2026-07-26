@@ -11,6 +11,64 @@ from typing import Dict, Optional
 from strategy.constraints import StrategyConstraints
 
 
+def _compute_sector_momentum(data_dict, etf_to_sector, lookback):
+    """计算赛道动量（赛道内ETF等权平均N日收益率）
+
+    Args:
+        data_dict: {code: DataFrame} 行情数据，需包含close列
+        etf_to_sector: {code: sector} ETF到赛道的映射
+        lookback: 回看天数
+
+    Returns:
+        {sector: momentum_pct} 各赛道动量（小数，如0.05表示5%）
+
+    Raises:
+        ValueError: 严格模式下，任一ETF数据不足lookback天时抛出
+    """
+    sector_returns = {}
+    for code, sector in etf_to_sector.items():
+        if code not in data_dict:
+            continue
+        df = data_dict[code]
+        close = df['close'].values
+        if len(close) <= lookback:
+            raise ValueError(
+                f"ETF {code} 数据不足{lookback}日，"
+                f"无法计算赛道动量（严格模式）")
+        roc = (close[-1] - close[-lookback - 1]) / close[-lookback - 1]
+        sector_returns.setdefault(sector, []).append(roc)
+    return {s: float(np.mean(rs)) for s, rs in sector_returns.items()}
+
+
+def _apply_sector_penalty(scores, sector_momentum, etf_to_sector,
+                         penalty_factor, exclude_threshold):
+    """双轨制赛道惩罚：极端下跌硬排除，正常下跌软降权
+
+    Args:
+        scores: {code: score} ETF综合得分
+        sector_momentum: {sector: momentum} 赛道动量
+        etf_to_sector: {code: sector} ETF到赛道的映射
+        penalty_factor: 软降权系数（0-1之间，越小惩罚越重）
+        exclude_threshold: 硬排除阈值（如-0.10表示动量<-10%则排除）
+
+    Returns:
+        {code: penalized_score} 惩罚后的得分
+    """
+    penalized = {}
+    for code, score in scores.items():
+        sector = etf_to_sector.get(code)
+        mom = sector_momentum.get(sector) if sector else None
+        if mom is None:
+            penalized[code] = score
+        elif mom < exclude_threshold:
+            penalized[code] = -np.inf
+        elif mom < 0:
+            penalized[code] = score * penalty_factor
+        else:
+            penalized[code] = score
+    return penalized
+
+
 class MultiFactorStrategy(bt.Strategy):
     params = (
         ('lookback_momentum', 60),
@@ -22,6 +80,9 @@ class MultiFactorStrategy(bt.Strategy):
         ('constraints', None),
         ('valuation_repo', None),
         ('factor_weights', None),  # None=等权
+        ('sector_penalty_factor', 0.7),       # 赛道软降权系数，1.0=关闭软降权
+        ('sector_exclude_threshold', -0.10),   # 赛道硬排除阈值，-inf=关闭硬排除
+        ('code_to_sector', None),  # ETF到赛道的映射 {code: sector}
     )
 
     def __init__(self):
@@ -42,7 +103,7 @@ class MultiFactorStrategy(bt.Strategy):
             self.constraints = self.p.constraints
 
         # code_to_sector默认为空，由外部设置
-        self.code_to_sector = {}
+        self.code_to_sector = self.p.code_to_sector or {}
 
         # 换手率追踪：每个调仓周期累加买入金额
         self._turnover_records = []  # [{'date': str, 'buy_amount': float, 'total_value': float}]
@@ -153,6 +214,30 @@ class MultiFactorStrategy(bt.Strategy):
         zscores = zscore_normalize(etf_factors, factor_names=available_factors)
         scores = equal_weight_score(zscores, factor_names=available_factors)
 
+        # 赛道动量惩罚（双轨制）
+        if self.code_to_sector and self.p.sector_penalty_factor is not None:
+            # 收集当前可用的行情数据用于计算赛道动量
+            current_data = {}
+            for d in self.datas:
+                code = d._name
+                if code in scores:
+                    # 获取最近 lookback_momentum + 1 天的收盘价
+                    n = min(len(d), self.p.lookback_momentum + 1)
+                    closes = [d.close[-i] for i in range(n)][::-1]
+                    current_data[code] = pd.DataFrame({'close': closes})
+            try:
+                sector_mom = _compute_sector_momentum(
+                    current_data, self.code_to_sector,
+                    self.p.lookback_momentum
+                )
+                scores = _apply_sector_penalty(
+                    scores, sector_mom, self.code_to_sector,
+                    self.p.sector_penalty_factor,
+                    self.p.sector_exclude_threshold
+                )
+            except ValueError:
+                pass
+
         sorted_codes = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         selected = [code for code, score in sorted_codes[:self.p.top_n]]
 
@@ -184,8 +269,6 @@ class MultiFactorStrategy(bt.Strategy):
             return
 
         selected_codes, scores, raw_factors = self._compute_scores()
-        if not selected_codes:
-            return
 
         selected_set = set(selected_codes)
         total_n = len(scores)

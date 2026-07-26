@@ -348,7 +348,6 @@ with st.sidebar:
     st.subheader("🔒 风控约束")
     enable_constraints = st.checkbox("启用约束条件", value=True)
     if enable_constraints:
-        long_only = st.checkbox("单向做多（禁止卖空）", value=DEFAULT_BACKTEST_CONSTRAINTS['long_only'])
         max_positions = st.slider("最大持仓数", 1, 10, DEFAULT_BACKTEST_CONSTRAINTS['max_positions'])
         min_positions = st.slider("最少持仓数", 0, 10, DEFAULT_BACKTEST_CONSTRAINTS['min_positions'],
                                    help="卖出后持仓数不能低于此值，0表示不限制")
@@ -363,7 +362,7 @@ with st.sidebar:
                                    help="同一sector(如科技、医药)最多持仓数，0=不限制")
 
         constraints_dict = {
-            "long_only": long_only,
+            "long_only": True,
             "max_positions": max_positions,
             "min_positions": min_positions,
             "max_position_pct": max_position_pct,

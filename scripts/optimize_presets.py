@@ -91,7 +91,7 @@ def main():
     parser = argparse.ArgumentParser(description='Walk-Forward 多因子参数优化')
     parser.add_argument('--start', type=str, default='2019-01-01', help='回测起始日期')
     parser.add_argument('--end', type=str, default='2024-12-31', help='回测结束日期')
-    parser.add_argument('--max-combinations', type=int, default=144, help='最大参数组合数')
+    parser.add_argument('--max-combinations', type=int, default=648, help='最大参数组合数')
     parser.add_argument('--dry-run', action='store_true', help='仅打印结果不写回 settings.py')
     parser.add_argument('--no-backup', action='store_true', help='跳过 .bak 备份')
     parser.add_argument('--output', type=str, default=None, help='输出 JSON 报告到文件')
@@ -128,6 +128,11 @@ def main():
 
     print(f"加载 {len(data_dict)} 只ETF数据", file=sys.stderr)
 
+    # 构造 code_to_sector 映射（用于赛道动量惩罚）
+    from strategy.backtest_utils import _build_etf_to_sector_map
+    code_to_sector = _build_etf_to_sector_map(ETF_UNIVERSE)
+    print(f"赛道映射: {len(code_to_sector)} 只ETF → {len(set(code_to_sector.values()))} 个赛道", file=sys.stderr)
+
     # 计算沪深300基准年化收益（用于筛选"跑赢沪深300"的预设）
     from strategy.benchmark import build_single_etf_benchmark
     import pandas as pd
@@ -152,7 +157,7 @@ def main():
         max_combinations=args.max_combinations,
         progress_callback=print_progress,
         strategy_module=multi_factor,
-        extra_params={'valuation_repo': valuation_repo},
+        extra_params={'valuation_repo': valuation_repo, 'code_to_sector': code_to_sector},
         min_full_annual_return=hs300_annual_return,
     )
     elapsed = time.time() - start_time

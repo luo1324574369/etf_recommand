@@ -202,3 +202,246 @@ class TestTurnoverTracking(unittest.TestCase):
             top_n=2,
             rebalance_freq=20,
         )
+
+
+class TestComputeSectorMomentum(unittest.TestCase):
+    """赛道动量计算测试"""
+
+    def test_single_sector_single_etf(self):
+        """单赛道单ETF：动量等于ETF自身收益率"""
+        from strategy.multi_factor import _compute_sector_momentum
+
+        dates = pd.date_range('2024-01-01', periods=61, freq='B')
+        data = {
+            '510300': pd.DataFrame({
+                'close': [1.0 + i * 0.01 for i in range(61)],
+            }, index=dates)
+        }
+        etf_to_sector = {'510300': '宽基'}
+
+        result = _compute_sector_momentum(data, etf_to_sector, 60)
+
+        self.assertIn('宽基', result)
+        expected = (1.6 - 1.0) / 1.0
+        self.assertAlmostEqual(result['宽基'], expected, places=4)
+
+    def test_multi_etf_same_sector_equal_weight(self):
+        """同赛道多ETF：等权平均"""
+        from strategy.multi_factor import _compute_sector_momentum
+
+        dates = pd.date_range('2024-01-01', periods=61, freq='B')
+        data = {
+            '510300': pd.DataFrame({
+                'close': [1.0 + i * 0.01 for i in range(61)],
+            }, index=dates),
+            '510500': pd.DataFrame({
+                'close': [1.0 + i * 0.02 for i in range(61)],
+            }, index=dates),
+        }
+        etf_to_sector = {'510300': '宽基', '510500': '宽基'}
+
+        result = _compute_sector_momentum(data, etf_to_sector, 60)
+
+        expected = (0.6 + 1.2) / 2
+        self.assertAlmostEqual(result['宽基'], expected, places=4)
+
+    def test_insufficient_data_raises_error(self):
+        """数据不足时严格模式报错"""
+        from strategy.multi_factor import _compute_sector_momentum
+
+        dates = pd.date_range('2024-01-01', periods=30, freq='B')
+        data = {
+            '510300': pd.DataFrame({
+                'close': [1.0 + i * 0.01 for i in range(30)],
+            }, index=dates)
+        }
+        etf_to_sector = {'510300': '宽基'}
+
+        with self.assertRaises(ValueError) as ctx:
+            _compute_sector_momentum(data, etf_to_sector, 60)
+        self.assertIn('数据不足', str(ctx.exception))
+
+    def test_etf_not_in_data_skipped(self):
+        """ETF不在数据中则跳过"""
+        from strategy.multi_factor import _compute_sector_momentum
+
+        dates = pd.date_range('2024-01-01', periods=61, freq='B')
+        data = {
+            '510300': pd.DataFrame({
+                'close': [1.0 + i * 0.01 for i in range(61)],
+            }, index=dates)
+        }
+        etf_to_sector = {'510300': '宽基', '510500': '宽基'}
+
+        result = _compute_sector_momentum(data, etf_to_sector, 60)
+        self.assertIn('宽基', result)
+
+
+class TestApplySectorPenalty(unittest.TestCase):
+    """双轨制赛道惩罚测试"""
+
+    def test_positive_momentum_no_penalty(self):
+        """赛道动量>0：不惩罚"""
+        from strategy.multi_factor import _apply_sector_penalty
+
+        scores = {'510300': 1.0, '510500': 0.8}
+        sector_mom = {'宽基': 0.05}
+        etf_to_sector = {'510300': '宽基', '510500': '宽基'}
+
+        result = _apply_sector_penalty(scores, sector_mom, etf_to_sector, 0.7, -0.10)
+
+        self.assertEqual(result['510300'], 1.0)
+        self.assertEqual(result['510500'], 0.8)
+
+    def test_mild_negative_soft_penalty(self):
+        """赛道动量在[-10%, 0)：软降权"""
+        from strategy.multi_factor import _apply_sector_penalty
+
+        scores = {'510300': 1.0, '510500': 0.8}
+        sector_mom = {'宽基': -0.05}
+        etf_to_sector = {'510300': '宽基', '510500': '宽基'}
+
+        result = _apply_sector_penalty(scores, sector_mom, etf_to_sector, 0.7, -0.10)
+
+        self.assertAlmostEqual(result['510300'], 0.7)
+        self.assertAlmostEqual(result['510500'], 0.56)
+
+    def test_severe_negative_hard_exclude(self):
+        """赛道动量<-10%：硬排除"""
+        from strategy.multi_factor import _apply_sector_penalty
+        import numpy as np
+
+        scores = {'510300': 1.0, '512480': 0.8}
+        sector_mom = {'宽基': -0.15, '科技': 0.02}
+        etf_to_sector = {'510300': '宽基', '512480': '科技'}
+
+        result = _apply_sector_penalty(scores, sector_mom, etf_to_sector, 0.7, -0.10)
+
+        self.assertTrue(np.isinf(result['510300']))
+        self.assertTrue(result['510300'] < 0)
+        self.assertEqual(result['512480'], 0.8)
+
+    def test_no_sector_mapping_no_penalty(self):
+        """无赛道映射：不惩罚"""
+        from strategy.multi_factor import _apply_sector_penalty
+
+        scores = {'510300': 1.0}
+        sector_mom = {'宽基': -0.05}
+        etf_to_sector = {}
+
+        result = _apply_sector_penalty(scores, sector_mom, etf_to_sector, 0.7, -0.10)
+
+        self.assertEqual(result['510300'], 1.0)
+
+    def test_penalty_factor_1_0_disables_soft(self):
+        """penalty_factor=1.0：关闭软降权"""
+        from strategy.multi_factor import _apply_sector_penalty
+
+        scores = {'510300': 1.0}
+        sector_mom = {'宽基': -0.05}
+        etf_to_sector = {'510300': '宽基'}
+
+        result = _apply_sector_penalty(scores, sector_mom, etf_to_sector, 1.0, -0.10)
+
+        self.assertEqual(result['510300'], 1.0)
+
+    def test_exclude_threshold_minus_inf_disables_hard(self):
+        """exclude_threshold=-inf：关闭硬排除"""
+        from strategy.multi_factor import _apply_sector_penalty
+        import numpy as np
+
+        scores = {'510300': 1.0}
+        sector_mom = {'宽基': -0.50}
+        etf_to_sector = {'510300': '宽基'}
+
+        result = _apply_sector_penalty(
+            scores, sector_mom, etf_to_sector, 0.7, -np.inf)
+
+        self.assertAlmostEqual(result['510300'], 0.7)
+
+
+class TestSectorPenaltyIntegration(unittest.TestCase):
+    """赛道惩罚集成测试"""
+
+    def _make_test_data(self):
+        """构造测试数据：上涨赛道vs下跌赛道"""
+        dates = pd.date_range('2024-01-01', periods=260, freq='B')
+        data = {}
+        # 宽基：持续上涨
+        data['510300'] = pd.DataFrame({
+            'trade_date': dates.strftime('%Y-%m-%d'),
+            'open': 1.0, 'high': 1.1, 'low': 0.9,
+            'close': [1.0 + i * 0.002 for i in range(260)],
+            'volume': 1000000,
+        })
+        # 科技：持续下跌
+        data['512480'] = pd.DataFrame({
+            'trade_date': dates.strftime('%Y-%m-%d'),
+            'open': 1.0, 'high': 1.1, 'low': 0.9,
+            'close': [1.0 - i * 0.002 for i in range(260)],
+            'volume': 1000000,
+        })
+        # 消费：温和上涨
+        data['159928'] = pd.DataFrame({
+            'trade_date': dates.strftime('%Y-%m-%d'),
+            'open': 1.0, 'high': 1.1, 'low': 0.9,
+            'close': [1.0 + i * 0.001 for i in range(260)],
+            'volume': 1000000,
+        })
+        return data
+
+    def test_sector_penalty_penalizes_declining_sector(self):
+        """集成测试：下跌赛道ETF排名靠后"""
+        from strategy.backtest_utils import run_backtest
+        from strategy.multi_factor import MultiFactorStrategy
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+
+        data = self._make_test_data()
+        code_to_sector = {
+            '510300': '宽基',
+            '512480': '科技',
+            '159928': '消费',
+        }
+
+        result = run_backtest(
+            MultiFactorStrategy,
+            data,
+            initial_capital=1000000,
+            start_date='2024-04-01',
+            end_date='2024-12-31',
+            constraints=DEFAULT_BACKTEST_CONSTRAINTS,
+            lookback_momentum=60,
+            lookback_volatility=60,
+            top_n=2,
+            rebalance_freq=20,
+            sector_penalty_factor=0.5,
+            sector_exclude_threshold=-0.05,
+            code_to_sector=code_to_sector,
+        )
+
+        self.assertIn('trade_list', result)
+        self.assertGreater(result['final_value'], 0)
+
+    def test_no_sector_mapping_backward_compatible(self):
+        """向后兼容：无code_to_sector时策略正常运行"""
+        from strategy.backtest_utils import run_backtest
+        from strategy.multi_factor import MultiFactorStrategy
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+
+        data = self._make_test_data()
+
+        result = run_backtest(
+            MultiFactorStrategy,
+            data,
+            initial_capital=1000000,
+            start_date='2024-04-01',
+            end_date='2024-12-31',
+            constraints=DEFAULT_BACKTEST_CONSTRAINTS,
+            lookback_momentum=60,
+            lookback_volatility=60,
+            top_n=2,
+            rebalance_freq=20,
+        )
+
+        self.assertIn('trade_list', result)
+        self.assertGreater(result['final_value'], 0)
