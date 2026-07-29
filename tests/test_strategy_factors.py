@@ -47,20 +47,20 @@ class TestMomentumFactor(unittest.TestCase):
 class TestTrendFactor(unittest.TestCase):
 
     def test_above_ma20(self):
-        closes = [10.0] * 20 + [11.0]
+        closes = [10.0] * 30 + [11.0]
         price_data = _make_price_data(closes)
         factor = TrendFactor(period=20)
-        result = factor.calculate("test", price_data, "2025-01-21")
-        self.assertEqual(result["ma_value"], 10.0)
+        result = factor.calculate("test", price_data, "2025-01-31")
+        self.assertAlmostEqual(result["ma_value"], 10.05)
         self.assertEqual(result["price"], 11.0)
         self.assertTrue(result["above_ma"])
 
     def test_below_ma20(self):
-        closes = [10.0] * 20 + [9.0]
+        closes = [10.0] * 30 + [9.0]
         price_data = _make_price_data(closes)
         factor = TrendFactor(period=20)
-        result = factor.calculate("test", price_data, "2025-01-21")
-        self.assertEqual(result["ma_value"], 10.0)
+        result = factor.calculate("test", price_data, "2025-01-31")
+        self.assertAlmostEqual(result["ma_value"], 9.95)
         self.assertEqual(result["price"], 9.0)
         self.assertFalse(result["above_ma"])
 

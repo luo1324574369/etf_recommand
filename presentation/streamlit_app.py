@@ -257,7 +257,7 @@ with st.sidebar:
     etf_options = {f"{e['code']} - {e['name']}": e['code'] for e in etf_pool}
     all_labels = list(etf_options.keys())
 
-    default_codes = ["510300", "510500", "512480"]
+    default_codes = [e['code'] for e in etf_pool]
     available_defaults = [c for c in default_codes if c in etf_options.values()]
     if not available_defaults and etf_pool:
         available_defaults = [etf_pool[0]['code'], etf_pool[1]['code'], etf_pool[2]['code']]
@@ -289,64 +289,54 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📅 日期范围")
-    start_date = st.date_input("开始日期", datetime(2019, 1, 1))
-    end_date = st.date_input("结束日期", datetime(2024, 12, 31))
+    start_date = st.date_input("开始日期", datetime(2022, 1, 1))
+    end_date = st.date_input("结束日期", datetime(2024, 12, 1))
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")
     st.caption("多因子轮动策略：动量 + 估值 + 低波动 等权合成")
 
-    dynamic_presets = st.session_state.get('dynamic_presets', {}).get('多因子轮动', [])
-    if dynamic_presets:
-        preset_options = list(dynamic_presets)
-    else:
-        presets = PARAM_PRESETS.get('多因子轮动', [])
-        preset_options = [
-            {"name": p["name"], "params": p["params"], "is_dynamic": False}
-            for p in presets
-        ]
+    presets = PARAM_PRESETS.get('多因子轮动', [])
+    preset_options = [
+        {"name": p["name"], "params": p["params"]}
+        for p in presets
+    ]
 
     preset_names = [p["name"] for p in preset_options]
     preset_select = st.selectbox("参数预设", preset_names, index=0, key="preset_select")
     selected_preset = next((p for p in preset_options if p["name"] == preset_select), None)
     preset_params = selected_preset.get("params") if selected_preset else None
-    is_custom = preset_params is None
 
-    if is_custom:
-        lookback_momentum = st.slider("动量回看(日)", 10, 120, 60)
-        lookback_volatility = st.slider("波动率回看(日)", 10, 120, 60)
-        top_n = st.slider("选择标的数", 1, 10, 3)
-        rebalance_label = st.selectbox(
-            "调仓频率",
-            list(REBALANCE_FREQ_OPTIONS.keys()),
-            index=2,
-        )
-        rebalance_days = REBALANCE_FREQ_OPTIONS[rebalance_label]
-    else:
-        lookback_momentum = preset_params["lookback_momentum"]
-        lookback_volatility = preset_params["lookback_volatility"]
-        top_n = preset_params["top_n"]
-        rebalance_days = preset_params["rebalance_freq"]
-        rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
+    # 预设模式：全部参数自动填充
+    params = dict(preset_params)
+    lookback_momentum = params["lookback_momentum"]
+    lookback_volatility = params["lookback_volatility"]
+    top_n = params["top_n"]
+    rebalance_days = params["rebalance_freq"]
+    rebalance_label = next((k for k, v in REBALANCE_FREQ_OPTIONS.items() if v == rebalance_days), "20日（月线）")
 
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            st.info(f"动量回看: {lookback_momentum}日")
-            st.info(f"波动率回看: {lookback_volatility}日")
-        with col_p2:
-            st.info(f"选择标的: {top_n}只")
-            st.info(f"调仓频率: {rebalance_label}")
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        st.info(f"动量回看: {lookback_momentum}日")
+        st.info(f"波动率回看: {lookback_volatility}日")
+    with col_p2:
+        st.info(f"选择标的: {top_n}只")
+        st.info(f"调仓频率: {rebalance_label}")
 
-    params = {
-        "lookback_momentum": lookback_momentum,
-        "lookback_volatility": lookback_volatility,
-        "top_n": top_n,
-        "rebalance_freq": rebalance_days,
-    }
+    # 展示全部预设参数
+    extra_params = {k: v for k, v in params.items()
+                    if k not in ('lookback_momentum', 'lookback_volatility', 'top_n', 'rebalance_freq')}
+    if extra_params:
+        with st.expander("📋 全部预设参数", expanded=False):
+            for k, v in extra_params.items():
+                st.text(f"  {k}: {v}")
 
     st.markdown("---")
     st.subheader("🔒 风控约束")
     enable_constraints = st.checkbox("启用约束条件", value=True)
+    # 预设模式下，用预设值作为约束滑块默认值
+    preset_turnover = params.get('max_monthly_turnover', DEFAULT_BACKTEST_CONSTRAINTS['max_monthly_turnover'])
+    preset_sector_pct = params.get('max_sector_exposure_pct', None)
     if enable_constraints:
         max_positions = st.slider("最大持仓数", 1, 10, DEFAULT_BACKTEST_CONSTRAINTS['max_positions'])
         min_positions = st.slider("最少持仓数", 0, 10, DEFAULT_BACKTEST_CONSTRAINTS['min_positions'],
@@ -357,7 +347,7 @@ with st.sidebar:
         slippage_rate = st.slider("滑点率(%)", 0.0, 1.0, DEFAULT_BACKTEST_CONSTRAINTS['slippage_rate'], step=0.05)
         t_plus_one = st.checkbox("T+1交易约束", value=DEFAULT_BACKTEST_CONSTRAINTS['t_plus_one'])
         min_trade_amount = st.slider("最低交易金额(元)", 1000, 50000, int(DEFAULT_BACKTEST_CONSTRAINTS['min_trade_amount']), step=1000)
-        max_monthly_turnover = st.slider("月度换手率上限(%)", 20, 200, int(DEFAULT_BACKTEST_CONSTRAINTS['max_monthly_turnover']), step=10)
+        max_monthly_turnover = st.slider("月度换手率上限(%)", 20, 200, int(preset_turnover), step=10)
         max_per_sector = st.slider("单一风格上限", 0, 10, DEFAULT_BACKTEST_CONSTRAINTS['max_per_sector'],
                                    help="同一sector(如科技、医药)最多持仓数，0=不限制")
 
@@ -372,6 +362,10 @@ with st.sidebar:
             "min_trade_amount": min_trade_amount,
             "max_monthly_turnover": max_monthly_turnover,
             "max_per_sector": max_per_sector,
+            "core_allocation_pct": 50.0,
+            "core_etf_codes": ("510300", "510500"),
+            "core_weights": (0.5, 0.5),
+            "max_sector_exposure_pct": params.get("max_sector_exposure_pct", 50.0),
         }
     else:
         constraints_dict = {
@@ -385,6 +379,10 @@ with st.sidebar:
             "min_trade_amount": 0,
             "max_monthly_turnover": 9999.0,
             "max_per_sector": 0,
+            "core_allocation_pct": 50.0,
+            "core_etf_codes": ("510300", "510500"),
+            "core_weights": (0.5, 0.5),
+            "max_sector_exposure_pct": 50.0,
         }
 
     st.markdown("---")

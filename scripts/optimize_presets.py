@@ -138,6 +138,7 @@ def main():
     import pandas as pd
     hs300_nav = build_single_etf_benchmark(data_dict, '510300', args.start, args.end)
     hs300_annual_return = None
+    hs300_max_drawdown = None
     if not hs300_nav.empty and len(hs300_nav) >= 2:
         first_nav = hs300_nav.iloc[0]['nav']
         last_nav = hs300_nav.iloc[-1]['nav']
@@ -145,7 +146,11 @@ def main():
         if first_nav > 0 and days > 0:
             total_return_pct = (last_nav / first_nav - 1) * 100
             hs300_annual_return = ((last_nav / first_nav) ** (252 / days) - 1) * 100
-            print(f"📊 沪深300基准 ({args.start}~{args.end}): 总收益 {total_return_pct:.2f}%, 年化 {hs300_annual_return:.2f}%", file=sys.stderr)
+            hs300_nav_df = hs300_nav.copy()
+            hs300_nav_df['cummax'] = hs300_nav_df['nav'].cummax()
+            hs300_nav_df['drawdown'] = (hs300_nav_df['nav'] - hs300_nav_df['cummax']) / hs300_nav_df['cummax'] * 100
+            hs300_max_drawdown = float(hs300_nav_df['drawdown'].min())
+            print(f"📊 沪深300基准 ({args.start}~{args.end}): 总收益 {total_return_pct:.2f}%, 年化 {hs300_annual_return:.2f}%, 最大回撤 {hs300_max_drawdown:.2f}%", file=sys.stderr)
 
     # 跑 Walk-Forward 优化
     start_time = time.time()
@@ -159,6 +164,7 @@ def main():
         strategy_module=multi_factor,
         extra_params={'valuation_repo': valuation_repo, 'code_to_sector': code_to_sector},
         min_full_annual_return=hs300_annual_return,
+        max_allowed_drawdown=hs300_max_drawdown,
     )
     elapsed = time.time() - start_time
 

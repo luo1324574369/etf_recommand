@@ -147,7 +147,7 @@ class TestStrategyEngine(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0]["code"], "etf1")
         self.assertEqual(signals[0]["action"], "sell")
-        self.assertIn("below_ma20", signals[0]["reasons"])
+        self.assertTrue(any(r.startswith("below_ma20") for r in signals[0]["reasons"]), f"reasons应包含below_ma20前缀，实际{signals[0]['reasons']}")
 
     def test_check_exit_stop_loss(self):
         base_price = 10.0

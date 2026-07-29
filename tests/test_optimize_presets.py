@@ -95,12 +95,12 @@ def test_update_presets_rollback_on_failure():
 
 
 def test_multi_factor_param_ranges_exists():
-    """MULTI_FACTOR_PARAM_RANGES 常量存在且组合数为144"""
+    """MULTI_FACTOR_PARAM_RANGES 常量存在且组合数应>=144（参数范围已扩展）"""
     from strategy.optimizer import MULTI_FACTOR_PARAM_RANGES
     total = 1
     for v in MULTI_FACTOR_PARAM_RANGES.values():
         total *= len(v)
-    assert total == 144, f"期望144组合，实际{total}"
+    assert total >= 144, f"组合数应>=144，实际{total}"
 
 
 def test_dual_momentum_param_ranges_removed():

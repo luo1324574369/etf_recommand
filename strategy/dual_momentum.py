@@ -184,7 +184,8 @@ class DualMomentumStrategy(bt.Strategy):
             if not ok:
                 continue
             ok_t, reason_t = self.constraints.check_turnover(
-                buy_amount, total_value, current_date
+                buy_amount, total_value, current_date,
+                allow_first_build=len(current_positions) == 0
             )
             if not ok_t:
                 continue

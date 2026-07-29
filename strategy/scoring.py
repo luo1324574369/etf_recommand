@@ -16,6 +16,7 @@ FACTOR_DIRECTIONS = {
     "avg_amount_20d": 1,
     "pe_percentile": -1,
     "pb_percentile": -1,
+    "dividend_yield": 1,  # 红利因子：越高越好
 }
 
 DEFAULT_FACTORS = [
@@ -33,6 +34,7 @@ FACTOR_LABELS = {
     "avg_amount_20d": "20日日均成交额(万)",
     "pe_percentile": "PE百分位(%)",
     "pb_percentile": "PB百分位(%)",
+    "dividend_yield": "股息率(%)",
 }
 
 
@@ -159,6 +161,69 @@ def equal_weight_score(
     for code, fs in zscores.items():
         vals = [fs[f] for f in factor_names if f in fs]
         scores[code] = float(np.mean(vals)) if vals else 0.0
+
+    return scores
+
+
+def icir_weighted_score(
+    zscores: Dict[str, Dict[str, float]],
+    factor_icir: Dict[str, float],
+    factor_names: List[str] = None,
+) -> Dict[str, float]:
+    if not zscores:
+        return {}
+
+    if factor_names is None:
+        all_fs = set()
+        for f in zscores.values():
+            all_fs.update(f.keys())
+        factor_names = sorted(all_fs)
+
+    total_icir = sum(abs(factor_icir.get(f, 0)) for f in factor_names)
+    if total_icir == 0:
+        return equal_weight_score(zscores, factor_names)
+
+    weights = {}
+    for f in factor_names:
+        icir_val = abs(factor_icir.get(f, 0))
+        weights[f] = icir_val / total_icir
+
+    scores = {}
+    for code, fs in zscores.items():
+        weighted_sum = 0.0
+        for f in factor_names:
+            if f in fs:
+                weighted_sum += fs[f] * weights[f]
+        scores[code] = float(weighted_sum)
+
+    return scores
+
+
+def weighted_score(
+    zscores: Dict[str, Dict[str, float]],
+    factor_weights: Dict[str, float],
+    factor_names: List[str] = None,
+) -> Dict[str, float]:
+    if not zscores:
+        return {}
+
+    if factor_names is None:
+        all_fs = set()
+        for f in zscores.values():
+            all_fs.update(f.keys())
+        factor_names = sorted(all_fs)
+
+    total_weight = sum(factor_weights.get(f, 0) for f in factor_names)
+    if total_weight == 0:
+        return equal_weight_score(zscores, factor_names)
+
+    scores = {}
+    for code, fs in zscores.items():
+        weighted_sum = 0.0
+        for f in factor_names:
+            if f in fs and f in factor_weights:
+                weighted_sum += fs[f] * factor_weights[f]
+        scores[code] = float(weighted_sum / total_weight)
 
     return scores
 

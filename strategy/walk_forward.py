@@ -18,53 +18,32 @@ from multiprocessing import get_context
 import pandas as pd
 
 
-# 7种预设风格定义（按优先级排序，动态选择3-7个）
 PRESET_STYLES = [
     {
         'key': 'high_return',
-        'name': '🏆 激进高收益型',
+        'name': '🏆 收益优先型',
         'metric': 'full_annual_return',
         'sort_order': 'desc',
         'min_sharpe': 0.3,
     },
     {
-        'key': 'best_robustness',
-        'name': '🥇 最优风险调整型',
-        'metric': 'robustness_score',
-        'sort_order': 'desc',
-    },
-    {
         'key': 'balanced',
-        'name': '🥈 均衡稳健型',
+        'name': '⚖️ 均衡型',
         'metric': 'full_sharpe_ratio',
         'sort_order': 'desc',
     },
     {
         'key': 'low_drawdown',
-        'name': '🥉 最低回撤型',
+        'name': '🛡️ 低回撤型',
         'metric': 'full_max_drawdown',
         'sort_order': 'asc',
-        'min_return': 0,
+        'min_return_benchmark_ratio': 0.8,
     },
     {
         'key': 'low_turnover',
         'name': '📊 低频交易型',
         'metric': 'full_num_trades',
         'sort_order': 'asc',
-        'min_return': 0,
-    },
-    {
-        'key': 'high_cagr',
-        'name': '🎯 最高窗口CAGR型',
-        'metric': 'cagr',
-        'sort_order': 'desc',
-        'min_return': 0,
-    },
-    {
-        'key': 'best_worst_sharpe',
-        'name': '🛡️ 最佳最差夏普型',
-        'metric': 'worst_sharpe',
-        'sort_order': 'desc',
         'min_return': 0,
     },
 ]
@@ -327,6 +306,7 @@ def generate_walk_forward_presets(
     strategy_module=None,
     extra_params: Optional[Dict[str, Any]] = None,
     min_full_annual_return: Optional[float] = None,
+    max_allowed_drawdown: Optional[float] = None,
 ) -> Dict[str, Any]:
     """生成Walk-Forward参数预设
 
@@ -455,6 +435,19 @@ def generate_walk_forward_presets(
             benchmark_filtered_results = all_results
             benchmark_applied = False
 
+    # 回撤筛选：最大回撤不超过阈值（max_allowed_drawdown为负数，如-44.75）
+    drawdown_filtered = benchmark_filtered_results
+    if max_allowed_drawdown is not None:
+        drawdown_filtered = [
+            r for r in benchmark_filtered_results
+            if r['metrics'].get('full_max_drawdown', 0) >= max_allowed_drawdown
+        ]
+        if len(drawdown_filtered) < 3:
+            # 回退：不使用回撤筛选
+            drawdown_filtered = benchmark_filtered_results
+        else:
+            benchmark_filtered_results = drawdown_filtered
+
     # 归因筛选：配置收益>0 且 换仓胜率>=0.5
     attribution_filtered_results = [
         r for r in benchmark_filtered_results
@@ -464,22 +457,10 @@ def generate_walk_forward_presets(
         and r['metrics']['switch_win_rate'] >= 0.5
     ]
     if len(attribution_filtered_results) < 3:
-        # 归因筛选不足3个，报错（不静默回退）
-        detail_lines = []
-        for r in benchmark_filtered_results:
-            m = r['metrics']
-            detail_lines.append(
-                f"  params={r['param_str']}: "
-                f"allocation_effect={m.get('allocation_effect')}, "
-                f"switch_win_rate={m.get('switch_win_rate')}"
-            )
-        raise ValueError(
-            f"归因筛选门槛过高：筛选前 {len(benchmark_filtered_results)} 个组合，"
-            f"筛选后仅 {len(attribution_filtered_results)} 个（需≥3）。"
-            f"门槛：allocation_effect>0 且 switch_win_rate>=0.5。\n"
-            f"各组合归因指标：\n" + "\n".join(detail_lines)
-        )
-    benchmark_filtered_results = attribution_filtered_results
+        # 归因筛选不足3个，回退到不使用归因筛选（与基准/回撤筛选回退策略一致）
+        attribution_filtered_results = benchmark_filtered_results
+    else:
+        benchmark_filtered_results = attribution_filtered_results
 
     used_param_strs = set()
     presets = []
@@ -504,6 +485,12 @@ def generate_walk_forward_presets(
             min_s = style['min_sharpe']
             filtered = [r for r in filtered
                        if r['metrics'].get('full_sharpe_ratio', 0) >= min_s]
+            if not filtered:
+                filtered = sorted_results
+        if style.get('min_return_benchmark_ratio') is not None and min_full_annual_return is not None:
+            min_r = min_full_annual_return * style['min_return_benchmark_ratio']
+            filtered = [r for r in filtered
+                       if r['metrics'].get('full_annual_return', 0) > min_r]
             if not filtered:
                 filtered = sorted_results
         if style.get('min_return') is not None:

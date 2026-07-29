@@ -11,6 +11,19 @@ from typing import Dict, Optional
 from strategy.constraints import StrategyConstraints
 
 
+def _multi_vote_decision(ma_sig: str, macd_sig: str, vol_sig: str) -> str:
+    bull_count = 0
+    if ma_sig == 'bull':
+        bull_count += 1
+    if macd_sig == 'bull':
+        bull_count += 1
+    if vol_sig == 'bull':
+        bull_count += 1
+    if bull_count >= 2:
+        return 'bull'
+    return 'bear'
+
+
 def _compute_sector_momentum(data_dict, etf_to_sector, lookback):
     """计算赛道动量（赛道内ETF等权平均N日收益率）
 
@@ -79,10 +92,32 @@ class MultiFactorStrategy(bt.Strategy):
         ('start_date', None),
         ('constraints', None),
         ('valuation_repo', None),
-        ('factor_weights', None),  # None=等权
+        ('factor_weights', None),  # None=等权，或指定权重dict
         ('sector_penalty_factor', 0.7),       # 赛道软降权系数，1.0=关闭软降权
         ('sector_exclude_threshold', -0.10),   # 赛道硬排除阈值，-inf=关闭硬排除
         ('code_to_sector', None),  # ETF到赛道的映射 {code: sector}
+        ('min_liquidity_amount', 50_000_000),  # 最低20日日均成交额（元），默认5000万
+        ('drawdown_threshold', 15.0),   # 回撤止损触发阈值（%），默认15%
+        ('drawdown_recovery', 5.0),     # 回撤恢复阈值（%），默认5%
+        ('market_regime_switch', True),  # 是否启用市场状态切换
+        ('benchmark_code', '510300'),    # 市场状态识别基准ETF代码
+        ('regime_ma_period', 60),        # 市场状态判断均线周期
+        ('enable_factor_monitor', True),  # 是否启用因子失效监控
+        ('factor_monitor_lookback', 6),   # 因子监控回看期（月）
+        ('factor_invalid_threshold', 0.0),# 因子失效阈值（IC均值<=此值视为失效）
+        ('max_sector_exposure_pct', 50.0), # 行业仓位上限（%），0=不限制
+        ('max_monthly_turnover', 30.0),    # 月度换手率上限（%），0=不限制
+        ('core_allocation_pct', 50.0),     # 核心仓位占总资金比例(%)
+        ('core_etf_codes', None),          # 核心仓位ETF代码列表/tuple，None时默认['510300','510500']
+        ('core_weights', None),            # 核心仓位内部权重列表/tuple，None时等权
+        ('regime_macd_fast', 12),          # MACD快线周期
+        ('regime_macd_slow', 26),          # MACD慢线周期
+        ('regime_macd_signal', 9),         # MACD信号线周期
+        ('regime_vol_ma_period', 20),      # 成交额均线周期
+        ('regime_vol_ratio_threshold', 1.2), # 成交额放大倍数阈值
+        ('regime_confirm_days', 3),        # 连续确认天数
+        ('bull_momentum_mult', 1.3),       # bull状态动量因子权重倍数
+        ('bear_value_mult', 1.2),          # bear状态价值/红利/低波因子权重倍数
     )
 
     def __init__(self):
@@ -94,21 +129,78 @@ class MultiFactorStrategy(bt.Strategy):
             self.inds[d] = {
                 'momentum': bt.indicators.RateOfChange(d.close, period=self.p.lookback_momentum),
                 'volatility': bt.indicators.StdDev(d.close, period=self.p.lookback_volatility),
+                'liquidity': bt.indicators.SumN(d.close * d.volume * 100, period=20) / 20,  # volume单位是手，*100转为股
             }
         if self.p.constraints is None:
-            self.constraints = StrategyConstraints()
+            self.constraints = StrategyConstraints(
+                max_sector_exposure_pct=self.p.max_sector_exposure_pct,
+                max_monthly_turnover=self.p.max_monthly_turnover,
+            )
         elif isinstance(self.p.constraints, dict):
-            self.constraints = StrategyConstraints(**self.p.constraints)
+            constraints_dict = dict(self.p.constraints)
+            constraints_dict.setdefault('max_sector_exposure_pct', self.p.max_sector_exposure_pct)
+            constraints_dict.setdefault('max_monthly_turnover', self.p.max_monthly_turnover)
+            constraints_dict.setdefault('core_allocation_pct', self.p.core_allocation_pct)
+            constraints_dict.setdefault('core_etf_codes', self.p.core_etf_codes)
+            constraints_dict.setdefault('core_weights', self.p.core_weights)
+            self.constraints = StrategyConstraints(**constraints_dict)
         else:
             self.constraints = self.p.constraints
+            if not hasattr(self.constraints, 'max_sector_exposure_pct'):
+                self.constraints.max_sector_exposure_pct = self.p.max_sector_exposure_pct
+            if not hasattr(self.constraints, 'max_monthly_turnover'):
+                self.constraints.max_monthly_turnover = self.p.max_monthly_turnover
 
         # code_to_sector默认为空，由外部设置
         self.code_to_sector = self.p.code_to_sector or {}
+
+        self._drawdown_analyzer = bt.analyzers.DrawDown()
+        self._drawdown_reduced = False
 
         # 换手率追踪：每个调仓周期累加买入金额
         self._turnover_records = []  # [{'date': str, 'buy_amount': float, 'total_value': float}]
         self._current_period_buys = 0.0  # 当前调仓周期累计买入金额
         self._current_period_date = None  # 当前调仓日
+
+        # 市场状态识别
+        self._regime_ma = {}
+        if self.p.market_regime_switch:
+            for d in self.datas:
+                self._regime_ma[d] = bt.indicators.SimpleMovingAverage(d.close, period=self.p.regime_ma_period)
+            benchmark_d = None
+            for d in self.datas:
+                if d._name == self.p.benchmark_code:
+                    benchmark_d = d
+                    break
+            if benchmark_d is not None:
+                self._benchmark_data = benchmark_d
+                self._regime_macd_benchmark = bt.indicators.MACDHisto(
+                    benchmark_d.close,
+                    period_me1=self.p.regime_macd_fast,
+                    period_me2=self.p.regime_macd_slow,
+                    period_signal=self.p.regime_macd_signal,
+                )
+                benchmark_amount = benchmark_d.close * benchmark_d.volume * 100
+                self._regime_vol_ma_benchmark = bt.indicators.SimpleMovingAverage(
+                    benchmark_amount, period=self.p.regime_vol_ma_period
+                )
+
+        # 因子失效监控
+        self._factor_history = {}  # {factor_name: [(date, factor_value, forward_return)]}
+        self._invalid_factors = set()  # 当前失效的因子集合
+
+        # 核心卫星策略状态变量
+        self._core_positions = {}  # 核心持仓 {code: {'shares': int, 'avg_price': float}}
+        self._core_built = False   # 核心仓位是否已建仓
+        self._candidate_regime = 'bull'  # 候选市场状态（待确认）
+        self._candidate_streak = 0       # 候选状态连续计数
+        self._current_regime = 'bull'    # 已确认的当前市场状态
+        if not hasattr(self, '_benchmark_data'):
+            self._benchmark_data = None
+        if not hasattr(self, '_regime_macd_benchmark'):
+            self._regime_macd_benchmark = None
+        if not hasattr(self, '_regime_vol_ma_benchmark'):
+            self._regime_vol_ma_benchmark = None
 
     def _log_trade(self, d, direction, size, price, reason):
         amount = size * price
@@ -142,14 +234,87 @@ class MultiFactorStrategy(bt.Strategy):
             'reason': reason,
         })
 
-    def _get_current_positions_mv(self):
+    def _reduce_positions_to_half(self):
+        for d in self.datas:
+            if d._name in self._core_positions:
+                continue
+            pos = self.getposition(d)
+            if pos.size > 0:
+                sell_size = pos.size // 2
+                if sell_size > 0:
+                    price = d.close[0]
+                    sell_price = self.constraints.apply_slippage_sell(price)
+                    self._log_trade(d, '卖出', sell_size, sell_price,
+                                   f"组合回撤止损，卫星仓位降仓50%（核心仓位不动）")
+                    self.sell(d, size=sell_size, price=sell_price)
+
+    def _check_drawdown_stoploss(self):
+        dd_analysis = self._drawdown_analyzer.get_analysis()
+        max_dd = float(dd_analysis.get('max', {}).get('drawdown', 0.0)) if dd_analysis else 0.0
+        if max_dd > self.p.drawdown_threshold and not self._drawdown_reduced:
+            self._reduce_positions_to_half()
+            self._drawdown_reduced = True
+        if max_dd < self.p.drawdown_recovery:
+            self._drawdown_reduced = False
+
+    def _find_data_by_name(self, code):
+        for d in self.datas:
+            if d._name == code:
+                return d
+        return None
+
+    def _get_core_total_value(self):
+        total = 0.0
+        for code, pos in self._core_positions.items():
+            data = self._find_data_by_name(code)
+            if data is not None and data.close[0] is not None:
+                total += pos['shares'] * data.close[0]
+        return total
+
+    def _get_satellite_total_value(self):
+        core_codes = set(self._core_positions.keys())
+        total = 0.0
+        for d in self.datas:
+            if d._name in core_codes:
+                continue
+            pos = self.getposition(d)
+            if pos.size > 0 and d.close[0] is not None:
+                total += pos.size * d.close[0]
+        return total
+
+    def _get_current_positions_mv(self, exclude_core=False):
         """获取当前持仓市值"""
         positions = {}
+        core_codes = set(self._core_positions.keys()) if exclude_core else set()
         for d in self.datas:
+            if exclude_core and d._name in core_codes:
+                continue
             pos = self.getposition(d)
             if pos.size > 0:
                 positions[d._name] = pos.size * d.close[0]
         return positions
+
+    def _build_core_position(self):
+        if self._core_built:
+            return
+        account_value = self.broker.getvalue()
+        core_total = account_value * (self.p.core_allocation_pct / 100.0)
+        codes = self.p.core_etf_codes or ["510300", "510500"]
+        if self.p.core_weights is not None:
+            weights = list(self.p.core_weights)
+        else:
+            n = len(codes)
+            weights = [1.0 / n] * n
+        for i, code in enumerate(codes):
+            data = self._find_data_by_name(code)
+            if data is not None and data.close[0] is not None and data.close[0] > 0:
+                price = data.close[0]
+                alloc = core_total * weights[i]
+                shares = int((alloc * 0.9985) / (price * 100)) * 100
+                if shares > 0:
+                    self.buy(data=data, size=shares)
+                    self._core_positions[code] = {'shares': shares, 'avg_price': price}
+        self._core_built = True
 
     def _get_pe_percentile(self, code: str) -> Optional[float]:
         """获取ETF当前PE历史百分位"""
@@ -170,24 +335,234 @@ class MultiFactorStrategy(bt.Strategy):
         except Exception:
             return None
 
+    def _get_dividend_yield(self, code: str) -> Optional[float]:
+        if self.p.valuation_repo is None:
+            return None
+        try:
+            latest_val = self.p.valuation_repo.get_latest_valuation(code)
+            if not latest_val:
+                return None
+            dy = latest_val.get('dividend_yield')
+            return float(dy) if dy and dy > 0 else None
+        except Exception:
+            return None
+
+    def _check_ma_signal(self) -> str:
+        benchmark_d = self._benchmark_data
+        if benchmark_d is None:
+            benchmark_d = self._find_data_by_name(self.p.benchmark_code)
+        if benchmark_d is None:
+            return 'neutral'
+        ma_value = self._regime_ma.get(benchmark_d)
+        if ma_value is None or ma_value[0] is None:
+            return 'neutral'
+        if benchmark_d.close[0] is None:
+            return 'neutral'
+        if benchmark_d.close[0] > ma_value[0]:
+            return 'bull'
+        return 'bear'
+
+    def _check_macd_signal(self) -> str:
+        if self._regime_macd_benchmark is None:
+            return 'neutral'
+        histo = self._regime_macd_benchmark[0]
+        if histo is None:
+            return 'neutral'
+        if histo > 0:
+            return 'bull'
+        return 'bear'
+
+    def _check_volume_signal(self) -> str:
+        if self._regime_vol_ma_benchmark is None:
+            return 'neutral'
+        vol_ma = self._regime_vol_ma_benchmark[0]
+        if vol_ma is None:
+            return 'neutral'
+        benchmark_d = self._benchmark_data
+        if benchmark_d is None:
+            benchmark_d = self._find_data_by_name(self.p.benchmark_code)
+        if benchmark_d is None or benchmark_d.close[0] is None or benchmark_d.volume[0] is None:
+            return 'neutral'
+        current_amount = benchmark_d.close[0] * benchmark_d.volume[0] * 100
+        if vol_ma <= 0:
+            return 'neutral'
+        if current_amount / vol_ma >= self.p.regime_vol_ratio_threshold:
+            return 'bull'
+        return 'bear'
+
+    def _get_market_regime(self):
+        """识别当前市场状态（多指标投票制 + 3日确认）
+
+        Returns:
+            'bull' (主线行情): 多数指标看多且连续确认
+            'bear' (震荡/弱势行情): 多数指标看空且连续确认
+            'neutral': 未启用开关或指标仍在预热期
+        """
+        if not self.p.market_regime_switch:
+            return 'neutral'
+
+        ma_sig = self._check_ma_signal()
+        macd_sig = self._check_macd_signal()
+        vol_sig = self._check_volume_signal()
+
+        if ma_sig == 'neutral' or macd_sig == 'neutral' or vol_sig == 'neutral':
+            return self._current_regime
+
+        candidate = _multi_vote_decision(ma_sig, macd_sig, vol_sig)
+
+        if candidate == self._candidate_regime:
+            self._candidate_streak += 1
+        else:
+            self._candidate_regime = candidate
+            self._candidate_streak = 1
+
+        if self._candidate_streak >= self.p.regime_confirm_days:
+            self._current_regime = candidate
+
+        return self._current_regime
+
+    def _get_dynamic_factor_weights(self, available_factors):
+        """根据市场状态返回动态因子权重
+
+        主线行情（bull）: 侧重动量 -> 动量因子乘以 bull_momentum_mult，其他不变，归一化
+        震荡/弱势行情（bear）: 侧重价值、红利、低波 -> 价值类因子乘以 bear_value_mult，其他不变，归一化
+        neutral: 等权 base_weights，归一化
+        """
+        regime = self._get_market_regime()
+
+        base_weights = {
+            'momentum_60d': 0.33,
+            'volatility_60d': 0.33,
+            'pe_percentile': 0.34,
+        }
+
+        if 'dividend_yield' in available_factors:
+            base_weights['dividend_yield'] = 0.25
+            base_weights['momentum_60d'] = 0.25
+            base_weights['volatility_60d'] = 0.25
+            base_weights['pe_percentile'] = 0.25
+
+        if regime == 'bull':
+            new_weights = {}
+            for f, w in base_weights.items():
+                if 'momentum' in f:
+                    new_weights[f] = w * self.p.bull_momentum_mult
+                else:
+                    new_weights[f] = w
+            total = sum(new_weights.values())
+            return {f: w / total for f, w in new_weights.items()}
+        elif regime == 'bear':
+            new_weights = {}
+            value_keywords = ('pe_percentile', 'dividend_yield', 'volatility_60d')
+            for f, w in base_weights.items():
+                if any(k in f for k in value_keywords):
+                    new_weights[f] = w * self.p.bear_value_mult
+                else:
+                    new_weights[f] = w
+            total = sum(new_weights.values())
+            return {f: w / total for f, w in new_weights.items()}
+        else:
+            total = sum(base_weights.values())
+            return {f: w / total for f, w in base_weights.items()}
+
+    def _update_factor_history(self, etf_factors):
+        """更新因子历史数据，用于计算滚动IC"""
+        if not self.p.enable_factor_monitor:
+            return
+
+        current_date = self.data.datetime.date(0)
+
+        for code, factors in etf_factors.items():
+            for factor_name, value in factors.items():
+                if factor_name not in self._factor_history:
+                    self._factor_history[factor_name] = []
+                self._factor_history[factor_name].append((current_date, code, value))
+
+    def _check_factor_validity(self, available_factors):
+        """检查因子有效性（基于近N个月滚动IC）
+
+        Returns:
+            set: 当前有效的因子集合（剔除失效因子）
+        """
+        if not self.p.enable_factor_monitor:
+            return set(available_factors)
+
+        valid_factors = set()
+        lookback_days = self.p.factor_monitor_lookback * 30
+        threshold = self.p.factor_invalid_threshold
+
+        for factor_name in available_factors:
+            history = self._factor_history.get(factor_name, [])
+            if len(history) < 10:
+                valid_factors.add(factor_name)
+                continue
+
+            current_date = self.data.datetime.date(0)
+            recent_data = [h for h in history if (current_date - h[0]).days <= lookback_days]
+
+            if len(recent_data) < 5:
+                valid_factors.add(factor_name)
+                continue
+
+            import numpy as np
+            from scipy.stats import spearmanr
+
+            values = [h[2] for h in recent_data]
+            if len(set(values)) < 2:
+                valid_factors.add(factor_name)
+                continue
+
+            factor_values = []
+            forward_returns = []
+            for i in range(len(recent_data) - 1):
+                val = recent_data[i][2]
+                next_val = recent_data[i + 1][2]
+                if val != 0 and next_val != 0:
+                    factor_values.append(val)
+                    forward_returns.append(next_val / abs(val) - 1)
+
+            if len(forward_returns) < 3:
+                valid_factors.add(factor_name)
+                continue
+
+            corr, _ = spearmanr(factor_values, forward_returns)
+            if not np.isnan(corr):
+                from strategy.scoring import FACTOR_DIRECTIONS
+                direction = FACTOR_DIRECTIONS.get(factor_name, 1)
+                if (direction == 1 and corr > threshold) or (direction == -1 and corr < -threshold):
+                    valid_factors.add(factor_name)
+                else:
+                    self._invalid_factors.add(factor_name)
+            else:
+                valid_factors.add(factor_name)
+
+        return valid_factors
+
     def _compute_scores(self):
         """计算所有ETF的多因子综合得分"""
         etf_factors = {}
         etf_raw = {}
         for d in self.datas:
             code = d._name
+            avg_amount = self.inds[d]['liquidity'][0]
+            if avg_amount is not None and avg_amount < self.p.min_liquidity_amount:
+                continue
+
             momentum = self.inds[d]['momentum'][0]
             volatility = self.inds[d]['volatility'][0]
             if momentum is None or volatility is None:
                 continue
 
             pe_pct = self._get_pe_percentile(code)
+            dy = self._get_dividend_yield(code)
 
             factors = {}
             factors['momentum_60d'] = float(momentum) if momentum is not None else None
             factors['volatility_60d'] = float(volatility) * 100 if volatility is not None else None
             if pe_pct is not None:
                 factors['pe_percentile'] = pe_pct
+            if dy is not None:
+                factors['dividend_yield'] = dy
 
             # 只保留动量和波动率都有值的ETF
             if factors['momentum_60d'] is None or factors['volatility_60d'] is None:
@@ -204,15 +579,31 @@ class MultiFactorStrategy(bt.Strategy):
             return [], {}, {}
 
         # zscore标准化
-        from strategy.scoring import zscore_normalize, equal_weight_score
+        from strategy.scoring import zscore_normalize, equal_weight_score, weighted_score
 
         # 确定可用因子（所有ETF都有的）
         available_factors = ['momentum_60d', 'volatility_60d']
         if all('pe_percentile' in f for f in etf_factors.values()):
             available_factors.append('pe_percentile')
+        if all('dividend_yield' in f for f in etf_factors.values()):
+            available_factors.append('dividend_yield')
+
+        # 因子失效监控：剔除近6个月IC失效的因子
+        self._update_factor_history(etf_factors)
+        valid_factors = self._check_factor_validity(available_factors)
+        if valid_factors != set(available_factors):
+            available_factors = [f for f in available_factors if f in valid_factors]
 
         zscores = zscore_normalize(etf_factors, factor_names=available_factors)
-        scores = equal_weight_score(zscores, factor_names=available_factors)
+
+        # 根据配置选择加权方式
+        if self.p.factor_weights is not None:
+            scores = weighted_score(zscores, self.p.factor_weights, factor_names=available_factors)
+        elif self.p.market_regime_switch:
+            dynamic_weights = self._get_dynamic_factor_weights(available_factors)
+            scores = weighted_score(zscores, dynamic_weights, factor_names=available_factors)
+        else:
+            scores = equal_weight_score(zscores, factor_names=available_factors)
 
         # 赛道动量惩罚（双轨制）
         if self.code_to_sector and self.p.sector_penalty_factor is not None:
@@ -249,6 +640,32 @@ class MultiFactorStrategy(bt.Strategy):
             if current_date < self.p.start_date:
                 return
 
+        # 首日：建立核心仓位
+        if not self._core_built:
+            # 确保所有核心ETF的data.close[0]有值（非None非NaN），否则等下一bar
+            codes = self.p.core_etf_codes or ["510300", "510500"]
+            all_ready = True
+            for code in codes:
+                d = self._find_data_by_name(code)
+                if d is None or d.close[0] is None or d.close[0] <= 0:
+                    all_ready = False
+                    break
+            if all_ready:
+                self._build_core_position()
+                # 首日只建核心，跳过调仓，等下一个调仓周期
+                # 在return之前设置_current_period_date，避免换手率追踪初始化问题
+                if self._current_period_date is None:
+                    current_date = self.data.datetime.date(0)
+                    current_iso = current_date.isoformat()
+                    self._current_period_date = current_iso
+                return
+
+        self._check_drawdown_stoploss()
+
+        # 每日刷新市场状态（用于3日确认计数，即使非调仓日也要跑）
+        if self.p.market_regime_switch:
+            _ = self._get_market_regime()
+
         # 换手率追踪：在调仓日入口处记录上一周期的换手
         current_date = self.data.datetime.date(0)
         current_iso = current_date.isoformat()
@@ -270,21 +687,30 @@ class MultiFactorStrategy(bt.Strategy):
 
         selected_codes, scores, raw_factors = self._compute_scores()
 
-        selected_set = set(selected_codes)
         total_n = len(scores)
         code_rank = {code: i + 1 for i, (code, _) in enumerate(
             sorted(scores.items(), key=lambda x: x[1], reverse=True)
         )}
 
         current_date = self.data.datetime.date(0)
-        total_value = self.broker.get_value()
-        max_single_mv = total_value * self.constraints.max_position_pct / 100
-        current_positions = self._get_current_positions_mv()
+        account_total_value = self.broker.get_value()          # 账户总市值（参考用）
+        satellite_total_value = self._get_satellite_total_value()  # 卫星市值（约束计算用，>0才用）
+        constraint_base_value = satellite_total_value if satellite_total_value > 1e3 else account_total_value
+        # 单仓上限 & 持仓市值按卫星计算
+        max_single_mv = constraint_base_value * self.constraints.max_position_pct / 100
+        current_positions = self._get_current_positions_mv(exclude_core=True)  # 只含卫星
         pending_sell_amounts = 0.0
+        core_codes_set = set(self._core_positions.keys())
+        # 过滤掉核心code：核心仓位永不参与轮动调仓
+        selected_codes_filtered = [c for c in selected_codes if c not in core_codes_set]
+        selected_set = set(selected_codes_filtered)
 
         # 阶段1：卖出
         # 1a. 清仓：不在新top_n的持仓
         for d in self.datas:
+            # 核心仓位永不调仓
+            if d._name in core_codes_set:
+                continue
             pos = self.getposition(d)
             if pos.size <= 0:
                 continue
@@ -310,6 +736,9 @@ class MultiFactorStrategy(bt.Strategy):
 
         # 1b. 减仓：仍在top_n但超配
         for d in self.datas:
+            # 核心仓位永不调仓
+            if d._name in core_codes_set:
+                continue
             pos = self.getposition(d)
             if pos.size <= 0 or d._name not in selected_set:
                 continue
@@ -329,7 +758,7 @@ class MultiFactorStrategy(bt.Strategy):
                     rank = code_rank.get(d._name, 0)
                     score = scores.get(d._name, 0)
                     reason_str = (f"多因子排名第{rank}/{total_n}，超配减仓"
-                                  f"（当前{current_mv/total_value*100:.1f}%→目标{self.constraints.max_position_pct}%）")
+                                  f"（当前{current_mv/constraint_base_value*100:.1f}%→目标{self.constraints.max_position_pct}%）")
                     sell_price = self.constraints.apply_slippage_sell(price)
                     self._log_trade(d, '卖出', sell_shares, sell_price, reason_str)
                     self.constraints.record_turnover(d._name, sell_amount, current_date)
@@ -340,6 +769,9 @@ class MultiFactorStrategy(bt.Strategy):
         if self.constraints.max_per_sector > 0 and self.code_to_sector:
             sector_holdings = {}
             for d in self.datas:
+                # 核心仓位永不调仓
+                if d._name in core_codes_set:
+                    continue
                 pos = self.getposition(d)
                 if pos.size > 0:
                     sector = self.code_to_sector.get(d._name, '未知')
@@ -370,7 +802,7 @@ class MultiFactorStrategy(bt.Strategy):
         # 阶段2：现金感知买入
         effective_cash = self.broker.get_cash() + pending_sell_amounts
 
-        for code in selected_codes:
+        for code in selected_codes_filtered:  # 用过滤后的
             d = self.getdatabyname(code)
             if d is None:
                 continue
@@ -390,16 +822,17 @@ class MultiFactorStrategy(bt.Strategy):
                 continue
             buy_amount = target_size * buy_price
 
-            current_positions = self._get_current_positions_mv()
+            current_positions = self._get_current_positions_mv(exclude_core=True)
             ok, reason = self.constraints.can_buy(
-                code, buy_price, buy_amount, current_positions, total_value,
+                code, buy_price, buy_amount, current_positions, constraint_base_value,
                 current_date, effective_cash=effective_cash,
                 code_to_sector=self.code_to_sector,
             )
             if not ok:
                 continue
             ok_t, reason_t = self.constraints.check_turnover(
-                buy_amount, total_value, current_date
+                buy_amount, constraint_base_value, current_date,
+                allow_first_build=len(current_positions) == 0
             )
             if not ok_t:
                 continue

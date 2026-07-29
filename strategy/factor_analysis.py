@@ -91,6 +91,58 @@ def compute_icir(ic_series: pd.Series) -> Dict:
     }
 
 
+def compute_rolling_ic(
+    ic_df: pd.DataFrame,
+    rolling_window_months: int = 36,
+    min_samples: int = 12,
+) -> pd.DataFrame:
+    """计算滚动IC序列（滚动窗口内的ICIR）
+
+    Args:
+        ic_df: columns=['date', 'factor_name', 'ic']
+        rolling_window_months: 滚动窗口（月），默认36个月
+        min_samples: 窗口内最少IC样本数
+
+    Returns:
+        DataFrame, columns=['date', 'factor_name', 'rolling_ic_mean', 'rolling_ic_std', 
+                           'rolling_icir', 'rolling_ic_positive_ratio']
+    """
+    df = ic_df.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values(['factor_name', 'date'])
+
+    results = []
+    for factor in df['factor_name'].unique():
+        factor_df = df[df['factor_name'] == factor].copy()
+        if len(factor_df) < min_samples:
+            continue
+
+        window_days = rolling_window_months * 30
+        for i in range(len(factor_df)):
+            end_date = factor_df.iloc[i]['date']
+            start_date = end_date - pd.Timedelta(days=window_days)
+            window_data = factor_df[(factor_df['date'] >= start_date) & (factor_df['date'] <= end_date)]
+            if len(window_data) < min_samples:
+                continue
+
+            ic_vals = window_data['ic']
+            ic_mean = float(ic_vals.mean())
+            ic_std = float(ic_vals.std(ddof=1))
+            icir = ic_mean / ic_std if ic_std > 0 else 0
+            ic_positive_ratio = float((ic_vals > 0).sum() / len(ic_vals))
+
+            results.append({
+                'date': end_date,
+                'factor_name': factor,
+                'rolling_ic_mean': ic_mean,
+                'rolling_ic_std': ic_std,
+                'rolling_icir': icir,
+                'rolling_ic_positive_ratio': ic_positive_ratio,
+            })
+
+    return pd.DataFrame(results)
+
+
 def stratified_backtest(
     factor_values: pd.DataFrame,
     forward_returns: pd.DataFrame,

@@ -19,6 +19,9 @@ class StrategyConstraints:
         t_plus_one: T+1约束，当日买入不能当日卖出
         min_trade_amount: 最低交易金额(元)
         max_monthly_turnover: 月度换手率上限(%)，每月调仓金额/总市值
+        core_allocation_pct: 核心仓位占总资金比例(%)
+        core_etf_codes: 核心仓位ETF代码元组
+        core_weights: 核心仓位内部权重元组
     """
 
     def __init__(
@@ -31,8 +34,12 @@ class StrategyConstraints:
         slippage_rate: float = 0.1,
         t_plus_one: bool = True,
         min_trade_amount: float = 5000.0,
-        max_monthly_turnover: float = 100.0,
+        max_monthly_turnover: float = 30.0,
         max_per_sector: int = 0,
+        max_sector_exposure_pct: float = 50.0,
+        core_allocation_pct: float = 50.0,
+        core_etf_codes: tuple = None,
+        core_weights: tuple = None,
     ):
         self.long_only = long_only
         self.max_positions = max_positions
@@ -44,6 +51,19 @@ class StrategyConstraints:
         self.min_trade_amount = min_trade_amount
         self.max_monthly_turnover = max_monthly_turnover
         self.max_per_sector = max_per_sector
+        self.max_sector_exposure_pct = max_sector_exposure_pct
+        self.core_allocation_pct = core_allocation_pct
+
+        if core_etf_codes is None:
+            self.core_etf_codes = ("510300", "510500")
+        else:
+            self.core_etf_codes = core_etf_codes
+
+        if core_weights is None:
+            n = len(self.core_etf_codes)
+            self.core_weights = tuple(1.0 / n for _ in range(n))
+        else:
+            self.core_weights = core_weights
 
         self._buy_dates: Dict[str, date] = {}
         self._monthly_turnover: Dict[str, float] = {}
@@ -120,6 +140,19 @@ class StrategyConstraints:
                     if current_sector_count >= self.max_per_sector:
                         return False, f"{target_sector}风格持仓{current_sector_count}只已达上限{self.max_per_sector}"
 
+        # 行业仓位上限检查
+        if self.max_sector_exposure_pct > 0 and code_to_sector:
+            target_sector = code_to_sector.get(code)
+            if target_sector:
+                current_sector_exposure = sum(
+                    mv for c, mv in current_positions.items()
+                    if mv > 0 and code_to_sector.get(c) == target_sector
+                )
+                current_sector_exposure_pct = current_sector_exposure / total_value * 100 if total_value > 0 else 0
+                new_sector_exposure_pct = (current_sector_exposure + amount) / total_value * 100 if total_value > 0 else 0
+                if new_sector_exposure_pct > self.max_sector_exposure_pct + 1e-6:
+                    return False, f"{target_sector}行业仓位将达{new_sector_exposure_pct:.1f}%，超过上限{self.max_sector_exposure_pct}%"
+
         return True, ""
 
     def can_sell(
@@ -170,6 +203,7 @@ class StrategyConstraints:
         trade_amount: float,
         total_value: float,
         current_date: date,
+        allow_first_build: bool = False,
     ) -> Tuple[bool, str]:
         """检查月度换手率约束
 
@@ -177,6 +211,7 @@ class StrategyConstraints:
             trade_amount: 本次交易金额
             total_value: 总市值
             current_date: 当前日期
+            allow_first_build: 是否允许第一次建仓（不受换手率限制）
 
         Returns:
             (是否可以交易, 原因)
@@ -190,6 +225,9 @@ class StrategyConstraints:
         current_turnover = sum(self._monthly_turnover.values())
         new_turnover = current_turnover + trade_amount
         turnover_pct = new_turnover / total_value * 100
+
+        if allow_first_build and current_turnover == 0:
+            return True, ""
 
         if turnover_pct > self.max_monthly_turnover:
             return False, f"月度换手率{turnover_pct:.1f}%超过上限{self.max_monthly_turnover}%"
@@ -223,6 +261,10 @@ DEFAULT_BACKTEST_CONSTRAINTS = {
     "slippage_rate": 0.1,
     "t_plus_one": True,
     "min_trade_amount": 5000.0,
-    "max_monthly_turnover": 100.0,
+    "max_monthly_turnover": 30.0,
     "max_per_sector": 2,
+    "max_sector_exposure_pct": 50.0,
+    "core_allocation_pct": 50.0,
+    "core_etf_codes": ("510300", "510500"),
+    "core_weights": (0.5, 0.5),
 }

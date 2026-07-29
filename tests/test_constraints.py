@@ -166,6 +166,28 @@ class TestStrategyConstraints:
                                 date.today(), code_to_sector=None)
         assert ok
 
+    def test_core_satellite_defaults(self):
+        """核心卫星策略-默认参数"""
+        c = StrategyConstraints()
+        assert c.core_allocation_pct == 50.0
+        assert c.core_etf_codes == ("510300", "510500")
+        assert len(c.core_weights) == 2
+        assert abs(c.core_weights[0] - 0.5) < 1e-6
+        assert abs(c.core_weights[1] - 0.5) < 1e-6
+
+    def test_core_satellite_custom(self):
+        """核心卫星策略-自定义参数"""
+        custom_codes = ("159915", "588000", "512690")
+        custom_weights = (0.4, 0.35, 0.25)
+        c = StrategyConstraints(
+            core_allocation_pct=60.0,
+            core_etf_codes=custom_codes,
+            core_weights=custom_weights,
+        )
+        assert c.core_allocation_pct == 60.0
+        assert c.core_etf_codes == custom_codes
+        assert c.core_weights == custom_weights
+
 
 class TestDefaultBacktestConstraints(unittest.TestCase):
     """默认回测约束常量"""
@@ -194,5 +216,15 @@ class TestDefaultBacktestConstraints(unittest.TestCase):
         self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['slippage_rate'], 0.1)
         self.assertTrue(DEFAULT_BACKTEST_CONSTRAINTS['t_plus_one'])
         self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['min_trade_amount'], 5000.0)
-        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_monthly_turnover'], 100.0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_monthly_turnover'], 30.0)
         self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['max_per_sector'], 2)
+
+    def test_default_constraints_has_core_fields(self):
+        """验证 DEFAULT_BACKTEST_CONSTRAINTS 包含核心卫星策略3个新字段"""
+        from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+        self.assertIn('core_allocation_pct', DEFAULT_BACKTEST_CONSTRAINTS)
+        self.assertIn('core_etf_codes', DEFAULT_BACKTEST_CONSTRAINTS)
+        self.assertIn('core_weights', DEFAULT_BACKTEST_CONSTRAINTS)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['core_allocation_pct'], 50.0)
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['core_etf_codes'], ("510300", "510500"))
+        self.assertEqual(DEFAULT_BACKTEST_CONSTRAINTS['core_weights'], (0.5, 0.5))
