@@ -89,7 +89,7 @@ def print_progress(current, total, msg):
 
 def main():
     parser = argparse.ArgumentParser(description='Walk-Forward 多因子参数优化')
-    parser.add_argument('--start', type=str, default='2019-01-01', help='回测起始日期')
+    parser.add_argument('--start', type=str, default='2021-01-01', help='回测起始日期')
     parser.add_argument('--end', type=str, default='2024-12-31', help='回测结束日期')
     parser.add_argument('--max-combinations', type=int, default=648, help='最大参数组合数')
     parser.add_argument('--dry-run', action='store_true', help='仅打印结果不写回 settings.py')
@@ -113,14 +113,27 @@ def main():
     valuation_repo = ValuationRepo(DB_PATH)
 
     # 加载行情数据
+    # 剔除数据起始日期太晚的ETF，确保指标预热期(60个交易日≈90自然日)在start_date之前完成
+    import pandas as pd
+    min_start_date = pd.to_datetime(args.start) - pd.Timedelta(days=90)
     data_dict = {}
+    skipped_etfs = []
     for etf in ETF_UNIVERSE:
         prices = price_repo.get_daily_price(etf['code'])
         if prices and len(prices) >= 120:
-            import pandas as pd
-            data_dict[etf['code']] = pd.DataFrame(prices)
+            df = pd.DataFrame(prices)
+            df['trade_date'] = pd.to_datetime(df['trade_date'])
+            earliest = df['trade_date'].min()
+            if earliest <= min_start_date:
+                data_dict[etf['code']] = df
+            else:
+                skipped_etfs.append(f"{etf['code']}({etf.get('name','')}) 起始{earliest.date()}")
         else:
-            print(f"⚠️ {etf['code']} 数据不足，跳过", file=sys.stderr)
+            skipped_etfs.append(f"{etf['code']}({etf.get('name','')}) 数据不足{len(prices) if prices else 0}条")
+    if skipped_etfs:
+        print(f"⚠️ 剔除{len(skipped_etfs)}只ETF(数据起始晚于{min_start_date.date()}):", file=sys.stderr)
+        for s in skipped_etfs:
+            print(f"   - {s}", file=sys.stderr)
 
     if not data_dict:
         print("❌ 无可用ETF数据", file=sys.stderr)
@@ -162,7 +175,14 @@ def main():
         max_combinations=args.max_combinations,
         progress_callback=print_progress,
         strategy_module=multi_factor,
-        extra_params={'valuation_repo': valuation_repo, 'code_to_sector': code_to_sector},
+        extra_params={
+            'valuation_repo': valuation_repo,
+            'code_to_sector': code_to_sector,
+            # 核心卫星架构参数（固定，不参与参数搜索）
+            'core_allocation_pct': 50.0,
+            'core_etf_codes': ('510300', '510500'),
+            'core_weights': (0.5, 0.5),
+        },
         min_full_annual_return=hs300_annual_return,
         max_allowed_drawdown=hs300_max_drawdown,
     )

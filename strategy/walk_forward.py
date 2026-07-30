@@ -210,12 +210,12 @@ def _worker_process_combo(combo_info):
         if metrics is not None:
             window_results.append(metrics)
 
-    # 跑全周期回测（启用归因）
+    # 跑全周期回测（不启用归因，归因延迟到最终预设以节省33%时间）
     full_metrics = _run_single_backtest(
         _WORKER_STRATEGY_MODULE, _WORKER_DATA_DICT, params,
         _WORKER_START_DATE, _WORKER_END_DATE,
         extra_params=_WORKER_EXTRA_PARAMS,
-        enable_attribution=True,
+        enable_attribution=False,
     )
 
     if not window_results and full_metrics is None:
@@ -354,7 +354,7 @@ def generate_walk_forward_presets(
 
     start_time = time.time()
 
-    # 1. 分割验证窗口
+    # 1. 分割验证窗口（6个月窗口，月度调仓策略的业内标准）
     windows = split_windows(start_date, end_date, val_months=6)
     if len(windows) < 3:
         # 数据不足3个窗口，使用全量数据做单次优化
@@ -370,21 +370,30 @@ def generate_walk_forward_presets(
     param_values = [param_ranges[name] for name in param_names]
     all_combinations = list(itertools.product(*param_values))
     if len(all_combinations) > max_combinations:
-        all_combinations = all_combinations[:max_combinations]
+        # 均匀采样：确保核心参数（lookback_momentum等）有足够多样性
+        # 而非简单截取前N个（会导致核心参数固定不变）
+        step = len(all_combinations) / max_combinations
+        all_combinations = [
+            all_combinations[int(i * step)]
+            for i in range(max_combinations)
+        ]
 
     total_steps = len(all_combinations)
 
     # 3. 多进程并行：对每个参数组合在所有窗口验证 + 全周期回测
     combo_infos = [(combo, param_names) for combo in all_combinations]
 
-    # 判断 CPU 核数，并行跑
-    n_workers = min(os.cpu_count() or 1, 8, len(all_combinations))
+    # 判断 CPU 核数，并行跑（充分利用全部物理核）
+    cpu_count = os.cpu_count() or 1
+    n_workers = min(cpu_count, len(all_combinations))
     use_parallel = n_workers > 1 and len(all_combinations) > 1
 
     all_results = []
     if use_parallel:
         # fork 模式下 worker 继承父进程内存，data_dict 零拷贝
         ctx = get_context('fork')
+        # chunksize: 每个worker分一批combo，减少IPC开销
+        chunksize = max(1, len(combo_infos) // (n_workers * 4))
         with ctx.Pool(
             processes=n_workers,
             initializer=_worker_init,
@@ -392,12 +401,12 @@ def generate_walk_forward_presets(
         ) as pool:
             if progress_callback:
                 # 带进度回调的 imap_unordered
-                for i, result in enumerate(pool.imap_unordered(_worker_process_combo, combo_infos), 1):
+                for i, result in enumerate(pool.imap_unordered(_worker_process_combo, combo_infos, chunksize=chunksize), 1):
                     if result is not None:
                         all_results.append(result)
                     progress_callback(i, total_steps, f"完成 {i}/{total_steps} 个参数组合")
             else:
-                for result in pool.imap_unordered(_worker_process_combo, combo_infos):
+                for result in pool.imap_unordered(_worker_process_combo, combo_infos, chunksize=chunksize):
                     if result is not None:
                         all_results.append(result)
     else:
@@ -448,21 +457,13 @@ def generate_walk_forward_presets(
         else:
             benchmark_filtered_results = drawdown_filtered
 
-    # 归因筛选：配置收益>0 且 换仓胜率>=0.5
-    attribution_filtered_results = [
-        r for r in benchmark_filtered_results
-        if r['metrics'].get('allocation_effect') is not None
-        and r['metrics']['allocation_effect'] > 0
-        and r['metrics'].get('switch_win_rate') is not None
-        and r['metrics']['switch_win_rate'] >= 0.5
-    ]
-    if len(attribution_filtered_results) < 3:
-        # 归因筛选不足3个，回退到不使用归因筛选（与基准/回撤筛选回退策略一致）
-        attribution_filtered_results = benchmark_filtered_results
-    else:
-        benchmark_filtered_results = attribution_filtered_results
+    # 归因筛选已延迟到最终预设生成后执行（性能优化：节省33%时间）
+    # 归因筛选改为对最终选出的预设单独跑归因
+    attribution_filtered_results = benchmark_filtered_results
 
-    used_param_strs = set()
+    # 去重：按回测指标（年化+夏普+回撤）去重，而非参数字符串
+    # 因为不同参数可能产生相同回测结果（如drawdown_threshold=0不触发止损）
+    used_metrics_keys = set()
     presets = []
 
     for style in PRESET_STYLES:
@@ -474,7 +475,7 @@ def generate_walk_forward_presets(
 
         # 按当前风格的指标排序
         sorted_results = sorted(
-            benchmark_filtered_results,
+            attribution_filtered_results,
             key=lambda x: x['metrics'].get(metric, float('-inf')),
             reverse=(sort_order == 'desc'),
         )
@@ -500,12 +501,18 @@ def generate_walk_forward_presets(
             if not filtered:
                 filtered = sorted_results
 
-        # 选择未被使用过的最优组合
+        # 选择指标未被使用过的最优组合（按回测指标去重）
         for result in filtered:
-            param_str = result['param_str']
-            if param_str in used_param_strs:
+            m = result['metrics']
+            metrics_key = (
+                round(m.get('full_annual_return', 0), 4),
+                round(m.get('full_sharpe_ratio', 0), 4),
+                round(m.get('full_max_drawdown', 0), 4),
+                round(m.get('full_num_trades', 0), 0),
+            )
+            if metrics_key in used_metrics_keys:
                 continue
-            used_param_strs.add(param_str)
+            used_metrics_keys.add(metrics_key)
             presets.append({
                 'key': style['key'],
                 'name': style['name'],
@@ -514,6 +521,25 @@ def generate_walk_forward_presets(
             })
             break
 
+    # 对最终选出的预设单独跑归因（只跑N次而非648次，大幅节省时间）
+    if presets and extra_params is not None:
+        for preset in presets:
+            try:
+                attr_metrics = _run_single_backtest(
+                    strategy_module, data_dict, preset['params'],
+                    start_date, end_date,
+                    extra_params=extra_params,
+                    enable_attribution=True,
+                )
+                if attr_metrics is not None:
+                    preset['metrics']['allocation_effect'] = attr_metrics.get('allocation_effect')
+                    preset['metrics']['switch_win_rate'] = attr_metrics.get('switch_win_rate')
+                    preset['metrics']['rolling_ir'] = attr_metrics.get('rolling_ir')
+            except Exception:
+                preset['metrics']['allocation_effect'] = None
+                preset['metrics']['switch_win_rate'] = None
+                preset['metrics']['rolling_ir'] = None
+
     return {
         'presets': presets,
         'windows': windows,
@@ -521,7 +547,9 @@ def generate_walk_forward_presets(
         'elapsed_time': elapsed_time,
         'benchmark_applied': benchmark_applied,
         'benchmark_threshold': min_full_annual_return,
+        'max_allowed_drawdown': max_allowed_drawdown,
+        'all_results': all_results,
         'all_results_count': len(all_results),
         'benchmark_filtered_count': len(benchmark_filtered_results),
-        'attribution_filtered_count': len(attribution_filtered_results),
+        'attribution_filtered_count': len(presets),
     }

@@ -135,6 +135,9 @@ class MultiFactorStrategy(bt.Strategy):
             self.constraints = StrategyConstraints(
                 max_sector_exposure_pct=self.p.max_sector_exposure_pct,
                 max_monthly_turnover=self.p.max_monthly_turnover,
+                core_allocation_pct=self.p.core_allocation_pct,
+                core_etf_codes=self.p.core_etf_codes,
+                core_weights=self.p.core_weights,
             )
         elif isinstance(self.p.constraints, dict):
             constraints_dict = dict(self.p.constraints)
@@ -317,34 +320,53 @@ class MultiFactorStrategy(bt.Strategy):
         self._core_built = True
 
     def _get_pe_percentile(self, code: str) -> Optional[float]:
-        """获取ETF当前PE历史百分位"""
+        """获取ETF当前PE历史百分位（使用预加载缓存避免重复查库）"""
         if self.p.valuation_repo is None:
             return None
+        # 使用预加载缓存
+        if not hasattr(self, '_pe_cache'):
+            self._pe_cache = {}
+        if code in self._pe_cache:
+            return self._pe_cache[code]
         try:
             pe_history = self.p.valuation_repo.get_pe_history(code)
             if not pe_history:
+                self._pe_cache[code] = None
                 return None
             current_pe = pe_history[-1].get('pe')
             if current_pe is None or current_pe <= 0:
+                self._pe_cache[code] = None
                 return None
             all_pes = [h['pe'] for h in pe_history if h.get('pe') and h['pe'] > 0]
             if not all_pes:
+                self._pe_cache[code] = None
                 return None
             rank = sum(1 for pe in all_pes if pe <= current_pe)
-            return rank / len(all_pes) * 100
+            result = rank / len(all_pes) * 100
+            self._pe_cache[code] = result
+            return result
         except Exception:
+            self._pe_cache[code] = None
             return None
 
     def _get_dividend_yield(self, code: str) -> Optional[float]:
         if self.p.valuation_repo is None:
             return None
+        if not hasattr(self, '_dy_cache'):
+            self._dy_cache = {}
+        if code in self._dy_cache:
+            return self._dy_cache[code]
         try:
             latest_val = self.p.valuation_repo.get_latest_valuation(code)
             if not latest_val:
+                self._dy_cache[code] = None
                 return None
             dy = latest_val.get('dividend_yield')
-            return float(dy) if dy and dy > 0 else None
+            result = float(dy) if dy and dy > 0 else None
+            self._dy_cache[code] = result
+            return result
         except Exception:
+            self._dy_cache[code] = None
             return None
 
     def _check_ma_signal(self) -> str:
