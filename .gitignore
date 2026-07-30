@@ -31,6 +31,11 @@ data/etf_demo.db
 
 # Optimization results (one-time output)
 walk_forward_presets_result.json
+docs/wf_optimization_report*.json
+
+# Backup files
+*.bak
+config/settings.py.bak
 
 # Docs (auto-generated, don't track changes)
 docs/superpowers/
