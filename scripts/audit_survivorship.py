@@ -47,6 +47,7 @@ def audit_survivorship(start_date: str, db_path: str) -> int:
         return 2
 
     late_listed = []
+    fallback_used = []  # 记录使用 price 表近似上市日的 ETF
     missing_list_date = []
     audited_count = 0
 
@@ -55,7 +56,7 @@ def audit_survivorship(start_date: str, db_path: str) -> int:
     for etf in ETF_UNIVERSE:
         code = etf['code']
         row = conn.execute(
-            "SELECT list_date FROM etf_info WHERE code = ?", (code,)
+            "SELECT listed_date FROM etf_info WHERE code = ?", (code,)
         ).fetchone()
 
         # 数据库中无该 ETF 记录：视为不在本次审计范围内，跳过
@@ -63,10 +64,20 @@ def audit_survivorship(start_date: str, db_path: str) -> int:
             continue
 
         audited_count += 1
-        list_date = row['list_date']
+        list_date = row['listed_date']
+
+        # listed_date 为空时，fallback 到 price 表的最早行情日
         if not list_date:
-            missing_list_date.append((code, etf['name'], 'list_date 为空'))
-            continue
+            price_row = conn.execute(
+                "SELECT MIN(trade_date) as min_date FROM etf_daily_price WHERE code = ?",
+                (code,)
+            ).fetchone()
+            if price_row and price_row['min_date']:
+                list_date = price_row['min_date']
+                fallback_used.append((code, etf['name'], list_date))
+            else:
+                missing_list_date.append((code, etf['name'], 'listed_date 与 price 表均无数据'))
+                continue
 
         # 标准化日期格式比较（支持 YYYY-MM-DD 与 YYYYMMDD 两种格式）
         list_date_normalized = list_date.replace('-', '') if '-' in list_date else list_date
@@ -80,6 +91,8 @@ def audit_survivorship(start_date: str, db_path: str) -> int:
     print(f"生存偏差审计报告")
     print(f"回测起始日: {start_date}")
     print(f"ETF 池大小: {len(ETF_UNIVERSE)}（本次审计 {audited_count} 只）")
+    if fallback_used:
+        print(f"注: {len(fallback_used)} 只 ETF 的 listed_date 为空，已用 price 表最早行情日近似")
     print(f"{'='*60}\n")
 
     if late_listed:
