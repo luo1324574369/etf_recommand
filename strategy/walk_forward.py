@@ -444,12 +444,16 @@ def generate_walk_forward_presets(
             benchmark_filtered_results = all_results
             benchmark_applied = False
 
-    # 回撤筛选：最大回撤不超过阈值（max_allowed_drawdown为负数，如-44.75）
+    # 回撤筛选：最大回撤（负数，如-44.75表示44.75%）不超过基准回撤
+    # max_allowed_drawdown是负数（基准最大回撤），策略回撤比它更小（更接近0或更大的负数更小）才算通过
+    # 例子：max_allowed_drawdown=-44.75，策略回撤-39 → 通过（-39 > -44.75，回撤更小）
+    #       max_allowed_drawdown=-44.75，策略回撤-47 → 不通过（-47 < -44.75，回撤更大）
+    # 注意：full_max_drawdown是正数（backtrader用正数表示回撤幅度），需转换为负数比较
     drawdown_filtered = benchmark_filtered_results
     if max_allowed_drawdown is not None:
         drawdown_filtered = [
             r for r in benchmark_filtered_results
-            if r['metrics'].get('full_max_drawdown', 0) >= max_allowed_drawdown
+            if -r['metrics'].get('full_max_drawdown', 0) >= max_allowed_drawdown
         ]
         if len(drawdown_filtered) < 3:
             # 回退：不使用回撤筛选

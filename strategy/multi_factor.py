@@ -157,7 +157,9 @@ class MultiFactorStrategy(bt.Strategy):
         # code_to_sector默认为空，由外部设置
         self.code_to_sector = self.p.code_to_sector or {}
 
-        self._drawdown_analyzer = bt.analyzers.DrawDown()
+        # 回撤止损不使用独立的 DrawDown analyzer（需要cerebro注册才生效）
+        # 改用策略自己计算的组合最高净值（backtrader next() bar级计算，更准确）
+        self._portfolio_peak_value = 0.0
         self._drawdown_reduced = False
 
         # 换手率追踪：每个调仓周期累加买入金额
@@ -243,7 +245,9 @@ class MultiFactorStrategy(bt.Strategy):
                 continue
             pos = self.getposition(d)
             if pos.size > 0:
-                sell_size = pos.size // 2
+                # A股卖单必须是100股整数倍：pos.size→half→对齐100
+                half_size = pos.size // 2
+                sell_size = (half_size // 100) * 100
                 if sell_size > 0:
                     price = d.close[0]
                     sell_price = self.constraints.apply_slippage_sell(price)
@@ -252,12 +256,17 @@ class MultiFactorStrategy(bt.Strategy):
                     self.sell(d, size=sell_size, price=sell_price)
 
     def _check_drawdown_stoploss(self):
-        dd_analysis = self._drawdown_analyzer.get_analysis()
-        max_dd = float(dd_analysis.get('max', {}).get('drawdown', 0.0)) if dd_analysis else 0.0
-        if max_dd > self.p.drawdown_threshold and not self._drawdown_reduced:
+        """回撤止损（策略自算，避免依赖cerebro未注册的analyzer）"""
+        current_value = self.broker.getvalue()
+        if current_value > self._portfolio_peak_value:
+            self._portfolio_peak_value = current_value
+        if self._portfolio_peak_value <= 0:
+            return
+        drawdown_pct = (1 - current_value / self._portfolio_peak_value) * 100
+        if drawdown_pct > self.p.drawdown_threshold and not self._drawdown_reduced:
             self._reduce_positions_to_half()
             self._drawdown_reduced = True
-        if max_dd < self.p.drawdown_recovery:
+        if drawdown_pct < self.p.drawdown_recovery:
             self._drawdown_reduced = False
 
     def _find_data_by_name(self, code):
@@ -311,12 +320,16 @@ class MultiFactorStrategy(bt.Strategy):
         for i, code in enumerate(codes):
             data = self._find_data_by_name(code)
             if data is not None and data.close[0] is not None and data.close[0] > 0:
-                price = data.close[0]
+                close_price = data.close[0]
+                # 应用滑点（与卫星买入一致）
+                buy_price = self.constraints.apply_slippage_buy(close_price)
                 alloc = core_total * weights[i]
-                shares = int((alloc * 0.9985) / (price * 100)) * 100
+                shares = int((alloc * 0.9985) / (buy_price * 100)) * 100
                 if shares > 0:
-                    self.buy(data=data, size=shares)
-                    self._core_positions[code] = {'shares': shares, 'avg_price': price}
+                    self._log_trade(data, '买入', shares, buy_price,
+                                   f"核心仓位建仓（{self.p.core_allocation_pct:.0f}%总资金，内部权重{weights[i]*100:.0f}%）")
+                    self.buy(data=data, size=shares, price=buy_price)
+                    self._core_positions[code] = {'shares': shares, 'avg_price': buy_price}
         self._core_built = True
 
     def _get_pe_percentile(self, code: str) -> Optional[float]:
@@ -751,9 +764,10 @@ class MultiFactorStrategy(bt.Strategy):
                 score = scores.get(d._name, 0)
                 reason_str = f"多因子排名第{rank}/{total_n}，调出持仓（综合得分{score:.2f}）"
                 sell_price = self.constraints.apply_slippage_sell(price)
+                sell_amount_real = pos.size * sell_price  # 实际卖出回款（含滑点下浮）
                 self._log_trade(d, '卖出', pos.size, sell_price, reason_str)
                 self.constraints.record_turnover(d._name, sell_amount, current_date)
-                pending_sell_amounts += sell_amount
+                pending_sell_amounts += sell_amount_real
                 self.close(d)
 
         # 1b. 减仓：仍在top_n但超配
@@ -782,9 +796,10 @@ class MultiFactorStrategy(bt.Strategy):
                     reason_str = (f"多因子排名第{rank}/{total_n}，超配减仓"
                                   f"（当前{current_mv/constraint_base_value*100:.1f}%→目标{self.constraints.max_position_pct}%）")
                     sell_price = self.constraints.apply_slippage_sell(price)
+                    sell_amount_real = sell_shares * sell_price
                     self._log_trade(d, '卖出', sell_shares, sell_price, reason_str)
                     self.constraints.record_turnover(d._name, sell_amount, current_date)
-                    pending_sell_amounts += sell_amount
+                    pending_sell_amounts += sell_amount_real
                     self.sell(d, size=sell_shares, price=sell_price)
 
         # 1c. 风格分散减仓
@@ -816,13 +831,16 @@ class MultiFactorStrategy(bt.Strategy):
                             continue
                         reason_str = f"{sector}风格超限减仓（综合得分{score:.2f}）"
                         sell_price = self.constraints.apply_slippage_sell(price)
+                        sell_amount_real = pos.size * sell_price
                         self._log_trade(d, '卖出', pos.size, sell_price, reason_str)
                         self.constraints.record_turnover(d._name, sell_amount, current_date)
-                        pending_sell_amounts += sell_amount
+                        pending_sell_amounts += sell_amount_real
                         self.close(d)
 
         # 阶段2：现金感知买入
         effective_cash = self.broker.get_cash() + pending_sell_amounts
+        # 跟踪本轮买入pending市值（can_buy检查用），避免同轮多个买单向同行业超额
+        pending_buy_updates: Dict[str, float] = {}
 
         for code in selected_codes_filtered:  # 用过滤后的
             d = self.getdatabyname(code)
@@ -832,7 +850,7 @@ class MultiFactorStrategy(bt.Strategy):
             if price <= 0:
                 continue
             pos = self.getposition(d)
-            current_mv = pos.size * price
+            current_mv = pos.size * price + pending_buy_updates.get(code, 0)
             buy_budget = max(0, max_single_mv - current_mv)
             buy_budget = min(buy_budget, effective_cash)
             if buy_budget <= 0:
@@ -844,7 +862,12 @@ class MultiFactorStrategy(bt.Strategy):
                 continue
             buy_amount = target_size * buy_price
 
-            current_positions = self._get_current_positions_mv(exclude_core=True)
+            # current_positions 含同轮pending买入，防止多ETF超限
+            base_positions = self._get_current_positions_mv(exclude_core=True)
+            current_positions = {k: v + pending_buy_updates.get(k, 0) for k, v in base_positions.items()}
+            for pc, mv in pending_buy_updates.items():
+                if pc not in current_positions:
+                    current_positions[pc] = mv
             ok, reason = self.constraints.can_buy(
                 code, buy_price, buy_amount, current_positions, constraint_base_value,
                 current_date, effective_cash=effective_cash,
@@ -854,7 +877,7 @@ class MultiFactorStrategy(bt.Strategy):
                 continue
             ok_t, reason_t = self.constraints.check_turnover(
                 buy_amount, constraint_base_value, current_date,
-                allow_first_build=len(current_positions) == 0
+                allow_first_build=(len(base_positions) + len(pending_buy_updates)) == 0
             )
             if not ok_t:
                 continue
@@ -871,6 +894,7 @@ class MultiFactorStrategy(bt.Strategy):
             self.constraints.record_buy(code, current_date)
             self.constraints.record_turnover(code, buy_amount, current_date)
             self.buy(d, size=target_size, price=buy_price)
+            pending_buy_updates[code] = pending_buy_updates.get(code, 0) + buy_amount
             effective_cash -= buy_amount
 
 
