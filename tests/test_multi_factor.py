@@ -49,8 +49,8 @@ def test_multi_factor_basic():
     assert 'nav_df' in result
     assert 'final_value' in result
     assert 'num_trades' in result
-    # 应有交易记录（3只ETF + 20日调仓）
-    assert result['num_trades'] > 0 or len(result['trade_list']) > 0
+    # 口径一致性：num_trades 必须等于 trade_list 长度（每次下单算1笔）
+    assert result['num_trades'] == len(result['trade_list'])
     # 交易记录的reason应包含"多因子"
     if result['trade_list']:
         all_reasons = ' '.join(t.get('reason', '') for t in result['trade_list'])
@@ -145,7 +145,8 @@ def test_multi_factor_cash_management():
     # 验证最终市值合理（不应出现负值或异常值）
     assert result['final_value'] > 0
     # 验证总交易次数合理
-    assert result['num_trades'] >= 0
+    # num_trades 必须等于 trade_list 长度
+    assert result['num_trades'] == len(result['trade_list'])
     # 验证回测期间有净值数据
     assert len(result.get('nav_df', [])) > 0
 

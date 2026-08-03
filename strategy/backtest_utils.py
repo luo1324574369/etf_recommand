@@ -76,15 +76,24 @@ def run_backtest(
             if first_nav > 0:
                 nav_df['nav'] = nav_df['nav'] / first_nav
 
-    trade_analyzer = strat.analyzers.trades.get_analysis()
-    num_trades = trade_analyzer.get('total', {}).get('closed', 0) if trade_analyzer else 0
-    won = trade_analyzer.get('won', {}).get('total', 0) if trade_analyzer else 0
-    lost = trade_analyzer.get('lost', {}).get('total', 0) if trade_analyzer else 0
-    win_rate = (won / num_trades * 100) if num_trades > 0 else 0
-    avg_win = trade_analyzer.get('won', {}).get('pnl', {}).get('average', 0) if trade_analyzer else 0
-    avg_lost = trade_analyzer.get('lost', {}).get('pnl', {}).get('average', 0) if trade_analyzer else 0
-    profit_factor = abs(avg_win * won / (avg_lost * lost)) if avg_lost and lost else 0
-    avg_hold = trade_analyzer.get('len', {}).get('average', 0) if trade_analyzer else 0
+    # 交易指标从 trade_list 派生（单一数据源，与交易明细天然一致）
+    days = 0
+    if start_date and end_date:
+        try:
+            days = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days
+        except Exception:
+            days = 0
+    years = days / 365.25 if days > 0 else 1
+
+    trade_metrics = _compute_trade_metrics_from_log(
+        trade_list, initial_capital=initial_capital, years=years
+    )
+    num_trades = trade_metrics['num_trades']
+    win_rate = trade_metrics['win_rate']
+    avg_win = trade_metrics['avg_win']
+    avg_lost = trade_metrics['avg_lost']
+    profit_factor = trade_metrics['profit_factor']
+    avg_hold = trade_metrics['avg_hold_days']
     sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or 0
     dd = strat.analyzers.drawdown.get_analysis()
     drawdown = dd.get('max', {}).get('drawdown', 0) if dd else 0
@@ -98,29 +107,10 @@ def run_backtest(
     benchmark_navs = build_benchmarks(data_dict, DEFAULT_BENCHMARKS, start_date, end_date)
     comparison = compare(nav_df, benchmark_navs)
 
-    # 计算换手率
-    turnover_records = getattr(strat, '_turnover_records', [])
-    total_buys = sum(r['buy_amount'] for r in turnover_records)
-
-    # 年化换手率
-    days = 0
-    if start_date and end_date:
-        try:
-            days = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days
-        except Exception:
-            days = 0
-    years = days / 365.25 if days > 0 else 1
-    turnover_annual = (total_buys / initial_capital / years * 100) if years > 0 else 0
-
-    # 累计换手率
-    turnover_total = (total_buys / initial_capital * 100)
-
-    # 换手率序列
-    turnover_series = pd.DataFrame(turnover_records) if turnover_records else pd.DataFrame()
-    if not turnover_series.empty:
-        turnover_series['turnover_pct'] = (
-            turnover_series['buy_amount'] / turnover_series['total_value'] * 100
-        )
+    # 换手率从 trade_list 派生（与交易明细一致）
+    turnover_total = trade_metrics['turnover_total_pct']
+    turnover_annual = trade_metrics['turnover_annual_pct']
+    turnover_series = trade_metrics['turnover_series']
 
     # 归因（可选，默认关闭；失败不影响回测主体）
     attribution_result = None
@@ -254,3 +244,117 @@ def get_nav_curve(
                 nav_df['nav'] = nav_df['nav'] / first_nav
 
     return nav_df
+
+
+def _compute_trade_metrics_from_log(trade_list, initial_capital, years):
+    """从交易日志派生所有交易相关指标（单一数据源）
+
+    Args:
+        trade_list: 策略的 trade_log
+        initial_capital: 初始资金
+        years: 回测年数
+
+    Returns:
+        dict: num_trades, win_rate, profit_factor, avg_win, avg_lost,
+              avg_hold_days, turnover_total_pct, turnover_annual_pct, turnover_series
+    """
+    num_trades = len(trade_list)
+
+    sell_records = [t for t in trade_list if t.get('direction') == '卖出']
+    win_sells = [t for t in sell_records if t.get('pnl', 0) > 0]
+    loss_sells = [t for t in sell_records if t.get('pnl', 0) < 0]
+
+    win_rate = len(win_sells) / len(sell_records) * 100 if sell_records else 0
+    avg_win = sum(t['pnl'] for t in win_sells) / len(win_sells) if win_sells else 0
+    avg_lost = abs(sum(t['pnl'] for t in loss_sells) / len(loss_sells)) if loss_sells else 0
+    total_win_pnl = sum(t['pnl'] for t in win_sells)
+    total_loss_pnl = abs(sum(t['pnl'] for t in loss_sells))
+    profit_factor = total_win_pnl / total_loss_pnl if total_loss_pnl > 0 else 0
+
+    avg_hold_days = _compute_avg_hold_days_from_log(trade_list)
+
+    # 换手率：仅统计非核心建仓的买入
+    buy_records = [
+        t for t in trade_list
+        if t.get('direction') == '买入' and t.get('trade_type') != 'core'
+    ]
+    total_buys = sum(t.get('amount', 0) for t in buy_records)
+    turnover_total_pct = total_buys / initial_capital * 100 if initial_capital > 0 else 0
+    turnover_annual_pct = total_buys / initial_capital / years * 100 if years > 0 and initial_capital > 0 else 0
+
+    # 换手率序列：按调仓日分组
+    if buy_records:
+        turnover_df = pd.DataFrame(buy_records)
+        if 'total_value' in turnover_df.columns:
+            turnover_series = turnover_df.groupby('date').agg({
+                'amount': 'sum',
+                'total_value': 'first'
+            }).reset_index()
+            turnover_series.columns = ['date', 'buy_amount', 'total_value']
+            turnover_series['turnover_pct'] = (
+                turnover_series['buy_amount'] / turnover_series['total_value'].replace(0, float('nan')) * 100
+            ).fillna(0)
+        else:
+            turnover_series = turnover_df.groupby('date')['amount'].sum().reset_index()
+            turnover_series.columns = ['date', 'buy_amount']
+    else:
+        turnover_series = pd.DataFrame()
+
+    return {
+        'num_trades': num_trades,
+        'win_rate': win_rate,
+        'profit_factor': profit_factor,
+        'avg_win': avg_win,
+        'avg_lost': avg_lost,
+        'avg_hold_days': avg_hold_days,
+        'turnover_total_pct': float(turnover_total_pct),
+        'turnover_annual_pct': float(turnover_annual_pct),
+        'turnover_series': turnover_series,
+    }
+
+
+def _compute_avg_hold_days_from_log(trade_list):
+    """按FIFO配对计算平均持仓天数
+
+    对每个code维护买入队列，遇到卖出时按FIFO消耗队列并累加持仓天数
+
+    Args:
+        trade_list: 交易日志
+
+    Returns:
+        float: 平均持仓天数，无配对时返回0
+    """
+    from collections import defaultdict, deque
+    from datetime import datetime
+
+    buy_queues = defaultdict(deque)  # {code: deque([(date, shares), ...])}
+    hold_days_list = []
+
+    for t in trade_list:
+        code = t.get('code')
+        direction = t.get('direction')
+        date_str = t.get('date')
+        shares = t.get('quantity', 0)
+
+        try:
+            trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            continue
+
+        if direction == '买入':
+            buy_queues[code].append((trade_date, shares))
+        elif direction == '卖出':
+            remaining = shares
+            while remaining > 0 and buy_queues[code]:
+                buy_date, buy_shares = buy_queues[code][0]
+                matched = min(remaining, buy_shares)
+                hold_days = (trade_date - buy_date).days
+                hold_days_list.append(hold_days)
+                remaining -= matched
+                buy_shares -= matched
+                if buy_shares == 0:
+                    buy_queues[code].popleft()
+                else:
+                    buy_queues[code][0] = (buy_date, buy_shares)
+
+    return sum(hold_days_list) / len(hold_days_list) if hold_days_list else 0

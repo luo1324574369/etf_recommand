@@ -32,7 +32,12 @@ class DualMomentumStrategy(bt.Strategy):
         else:
             self.constraints = self.p.constraints
 
-    def _log_trade(self, d, direction, size, price, reason):
+    def _log_trade(self, d, direction, size, price, reason, trade_type='satellite'):
+        """记录交易日志
+
+        Args:
+            trade_type: 'core' | 'satellite' | 'stoploss'（dual_momentum 默认 satellite）
+        """
         amount = size * price
         fee = amount * self.p.commission_rate
         pos = self.getposition(d)
@@ -59,6 +64,8 @@ class DualMomentumStrategy(bt.Strategy):
             'cumulative_pnl': self.cumulative_pnl,
             'cash_after': self.broker.get_cash(),
             'reason': reason,
+            'trade_type': trade_type,
+            'total_value': self.broker.getvalue(),
         })
 
     def _get_current_positions_mv(self):

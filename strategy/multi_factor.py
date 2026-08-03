@@ -162,10 +162,7 @@ class MultiFactorStrategy(bt.Strategy):
         self._portfolio_peak_value = 0.0
         self._drawdown_reduced = False
 
-        # 换手率追踪：每个调仓周期累加买入金额
-        self._turnover_records = []  # [{'date': str, 'buy_amount': float, 'total_value': float}]
-        self._current_period_buys = 0.0  # 当前调仓周期累计买入金额
-        self._current_period_date = None  # 当前调仓日
+        # 换手率追踪已移除：改由 backtest_utils._compute_trade_metrics_from_log 从 trade_list 派生
 
         # 市场状态识别
         self._regime_ma = {}
@@ -207,15 +204,18 @@ class MultiFactorStrategy(bt.Strategy):
         if not hasattr(self, '_regime_vol_ma_benchmark'):
             self._regime_vol_ma_benchmark = None
 
-    def _log_trade(self, d, direction, size, price, reason):
+    def _log_trade(self, d, direction, size, price, reason, trade_type='satellite'):
+        """记录交易日志
+
+        Args:
+            trade_type: 'core' (核心建仓) | 'satellite' (卫星轮动) | 'stoploss' (回撤止损)
+        """
         amount = size * price
         fee = amount * self.p.commission_rate
         pos = self.getposition(d)
         if direction == '买入':
             position_after = pos.size + size
             pnl = 0.0
-            # 累加买入金额到当前周期
-            self._current_period_buys += amount
         else:
             position_after = pos.size - size
             if pos.price > 0:
@@ -224,6 +224,7 @@ class MultiFactorStrategy(bt.Strategy):
                 pnl = 0.0
         self.cumulative_pnl += pnl - fee
         cash_after = self.broker.get_cash()
+        total_value = self.broker.getvalue()
         self.trade_log.append({
             'date': self.data.datetime.date(0).isoformat(),
             'code': d._name,
@@ -237,6 +238,8 @@ class MultiFactorStrategy(bt.Strategy):
             'cumulative_pnl': self.cumulative_pnl,
             'cash_after': cash_after,
             'reason': reason,
+            'trade_type': trade_type,
+            'total_value': total_value,
         })
 
     def _reduce_positions_to_half(self):
@@ -252,7 +255,8 @@ class MultiFactorStrategy(bt.Strategy):
                     price = d.close[0]
                     sell_price = self.constraints.apply_slippage_sell(price)
                     self._log_trade(d, '卖出', sell_size, sell_price,
-                                   f"组合回撤止损，卫星仓位降仓50%（核心仓位不动）")
+                                   f"组合回撤止损，卫星仓位降仓50%（核心仓位不动）",
+                                   trade_type='stoploss')
                     self.sell(d, size=sell_size, price=sell_price)
 
     def _check_drawdown_stoploss(self):
@@ -327,7 +331,8 @@ class MultiFactorStrategy(bt.Strategy):
                 shares = int((alloc * 0.9985) / (buy_price * 100)) * 100
                 if shares > 0:
                     self._log_trade(data, '买入', shares, buy_price,
-                                   f"核心仓位建仓（{self.p.core_allocation_pct:.0f}%总资金，内部权重{weights[i]*100:.0f}%）")
+                                   f"核心仓位建仓（{self.p.core_allocation_pct:.0f}%总资金，内部权重{weights[i]*100:.0f}%）",
+                                   trade_type='core')
                     self.buy(data=data, size=shares, price=buy_price)
                     self._core_positions[code] = {'shares': shares, 'avg_price': buy_price}
         self._core_built = True
@@ -688,11 +693,6 @@ class MultiFactorStrategy(bt.Strategy):
             if all_ready:
                 self._build_core_position()
                 # 首日只建核心，跳过调仓，等下一个调仓周期
-                # 在return之前设置_current_period_date，避免换手率追踪初始化问题
-                if self._current_period_date is None:
-                    current_date = self.data.datetime.date(0)
-                    current_iso = current_date.isoformat()
-                    self._current_period_date = current_iso
                 return
 
         self._check_drawdown_stoploss()
@@ -700,21 +700,6 @@ class MultiFactorStrategy(bt.Strategy):
         # 每日刷新市场状态（用于3日确认计数，即使非调仓日也要跑）
         if self.p.market_regime_switch:
             _ = self._get_market_regime()
-
-        # 换手率追踪：在调仓日入口处记录上一周期的换手
-        current_date = self.data.datetime.date(0)
-        current_iso = current_date.isoformat()
-        if self._current_period_date is not None and self.day_count % self.p.rebalance_freq == 0:
-            total_value = self.broker.get_value()
-            self._turnover_records.append({
-                'date': self._current_period_date,
-                'buy_amount': self._current_period_buys,
-                'total_value': total_value,
-            })
-            self._current_period_buys = 0.0
-            self._current_period_date = current_iso
-        elif self._current_period_date is None:
-            self._current_period_date = current_iso
 
         self.day_count += 1
         if self.day_count % self.p.rebalance_freq != 0:

@@ -76,6 +76,12 @@ def build_trade_table(trade_list):
     if not trade_list:
         return pd.DataFrame()
 
+    trade_type_map = {
+        'core': '🎯 核心',
+        'satellite': '🛰️ 卫星',
+        'stoploss': '🛑 止损',
+    }
+
     rows = []
     for t in trade_list:
         code = t.get('code', '')
@@ -89,11 +95,15 @@ def build_trade_table(trade_list):
         else:
             direction_display = direction
 
+        trade_type = t.get('trade_type', 'satellite')
+        type_display = trade_type_map.get(trade_type, '🛰️ 卫星')
+
         rows.append({
             '日期': t.get('date', ''),
             '代码': code,
             '名称': name,
             '方向': direction_display,
+            '交易类型': type_display,
             '数量': t.get('quantity', 0),
             '价格': round(t.get('price', 0), 3),
             '金额': round(t.get('amount', 0), 2),
