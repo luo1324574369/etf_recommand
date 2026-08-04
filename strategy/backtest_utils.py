@@ -28,6 +28,35 @@ def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
         cerebro.adddata(data)
 
 
+def compute_alpha_stability(nav_df, benchmark_navs, primary_benchmark='沪深300'):
+    """计算全套 Alpha 稳定性指标。
+
+    Args:
+        nav_df: 策略净值 DataFrame，需含 columns ['date', 'nav']
+        benchmark_navs: dict[str, DataFrame]，每个基准含 columns ['date', 'nav']
+        primary_benchmark: 主基准 key，用于计算指标
+
+    Returns:
+        dict: 详见 spec schema。全部字段齐全，缺失填 None。
+    """
+    return {
+        # 必选层
+        'rolling_windows': None,
+        'excess_nav_series': None,
+        'max_relative_drawdown': None,
+        'max_relative_dd_info': None,
+        # 强推荐层
+        'rolling_alpha_series': None,
+        'information_ratio': None,
+        'tracking_error': None,
+        'monthly_hit_rate': None,
+        'up_down_capture': None,
+        # 诊断辅助
+        'recent_failed': False,
+        'warning_level': None,
+    }
+
+
 def run_backtest(
     strategy_cls,
     data_dict: Dict[str, pd.DataFrame],
