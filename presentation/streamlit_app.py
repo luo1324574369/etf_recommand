@@ -128,6 +128,192 @@ def _fmt_metric(val):
     return str(val)
 
 
+def _render_alpha_stability_section(result, primary_benchmark):
+    """渲染 Alpha 稳定性分析：6 指标卡 + 警告 + 2 图 + 1 表 + 2 卡片"""
+    asd = result.get('alpha_stability') if result else None
+    if not asd:
+        st.info("暂无 Alpha 稳定性分析数据")
+        return
+
+    cum_excess = None
+    excess_1y = None
+    rw = asd.get('rolling_windows')
+    if isinstance(rw, pd.DataFrame) and not rw.empty:
+        row_full = rw[rw['window'] == '成立以来']
+        if not row_full.empty:
+            cum_excess = float(row_full.iloc[0]['excess_pct'])
+        row_1y = rw[rw['window'] == '1年']
+        if not row_1y.empty:
+            excess_1y = float(row_1y.iloc[0]['excess_pct'])
+
+    warning_level = asd.get('warning_level')
+    recent_failed = asd.get('recent_failed', False)
+
+    # expander 标签
+    icon = "✅"
+    suffix = ""
+    if cum_excess is not None and cum_excess > 0:
+        icon = "⚠️" if warning_level else "✅"
+        if warning_level == 'severe':
+            suffix = "（近期已失效）"
+        elif warning_level == 'mild':
+            suffix = "（近1年走弱）"
+    label = f"{icon} 累计超额 {_fmt_metric(cum_excess)}%{suffix}"
+
+    with st.expander(label, expanded=True):
+        st.caption("识别「累计超额为正但近期已失效」的错觉 —— "
+                   "当累计超额>0但近1年/半年超额<0时，说明 Alpha 已退化，当前累计正超额仅来自历史缓冲。")
+
+        # ---- 顶部警告 ----
+        if warning_level == 'severe':
+            st.warning(f"⚠️ 严重警告：累计超额为正（{_fmt_metric(cum_excess)}%），但近1年超额（{_fmt_metric(excess_1y)}%）和近半年超额均为负。"
+                      "策略 Alpha 已退化，累计正超额仅来自历史缓冲。建议缩短回测窗口或检查策略在当前市场环境下的有效性。")
+        elif warning_level == 'mild':
+            st.info(f"ℹ️ 提示：累计超额为正（{_fmt_metric(cum_excess)}%），但近1年超额（{_fmt_metric(excess_1y)}%）为负。策略表现近期有走弱迹象。")
+
+        # ---- 6 指标卡 ----
+        ir = asd.get('information_ratio')
+        rel_dd = asd.get('max_relative_drawdown')
+        te = asd.get('tracking_error')
+        hr = asd.get('monthly_hit_rate')
+        excess_half = None
+        if isinstance(rw, pd.DataFrame) and not rw.empty:
+            row_h = rw[rw['window'] == '6月']
+            if not row_h.empty:
+                excess_half = float(row_h.iloc[0]['excess_pct'])
+
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1:
+            st.metric("累计超额", f"{_fmt_metric(cum_excess)}%")
+        with c2:
+            delta = None
+            delta_color = "normal"
+            if excess_1y is not None:
+                delta = "失效" if excess_1y < 0 else "有效"
+                delta_color = "inverse" if excess_1y < 0 else "normal"
+            st.metric("近1年超额", f"{_fmt_metric(excess_1y)}%", delta=delta, delta_color=delta_color)
+        with c3:
+            st.metric("信息比率(IR)", f"{_fmt_metric(ir)}",
+                      help="IR>0.5 合格，>1.0 优秀。单位主动风险获得的超额收益。")
+        with c4:
+            st.metric("相对回撤", f"{_fmt_metric(rel_dd)}%",
+                      help="超额净值（策略/基准）的最大回撤。评估 Alpha 稳定性。")
+        with c5:
+            st.metric("跟踪误差(TE)", f"{_fmt_metric(te)}%",
+                      help="策略日收益 vs 基准日收益差的年化波动率。增强型基金 TE<5% 合格。")
+        with c6:
+            hr_str = f"{_fmt_metric(hr)}%"
+            delta_hr = None
+            delta_color_hr = "normal"
+            if hr is not None:
+                delta_hr = "稳定" if hr >= 60 else "偏低"
+                delta_color_hr = "normal" if hr >= 60 else "inverse"
+            st.metric("月度命中率", hr_str, delta=delta_hr, delta_color=delta_color_hr,
+                      help="月度超额>0 的月份占比。>60% 为稳定 Alpha。")
+
+        # ---- 累计超额净值曲线 ----
+        st.markdown("##### 累计超额净值曲线（策略/基准）")
+        ens = asd.get('excess_nav_series')
+        dd_info = asd.get('max_relative_dd_info')
+        if isinstance(ens, pd.DataFrame) and not ens.empty:
+            ens = ens.copy()
+            ens['date'] = pd.to_datetime(ens['date'])
+            fig_e = go.Figure()
+            fig_e.add_trace(go.Scatter(
+                x=ens['date'], y=ens['excess_nav'], mode='lines', name='策略/基准',
+                line=dict(color='#2ca02c', width=1.5),
+            ))
+            if rel_dd is not None and rel_dd < -1 and dd_info:
+                try:
+                    ds = pd.to_datetime(dd_info.get('date_start'))
+                    de = pd.to_datetime(dd_info.get('date_end'))
+                    fig_e.add_vrect(
+                        x0=ds, x1=de,
+                        fillcolor='rgba(255,165,0,0.15)', line_width=0,
+                        annotation_text=f'最大相对回撤 {rel_dd:.1f}%',
+                        annotation_position='top left',
+                    )
+                except (TypeError, ValueError):
+                    pass
+            fig_e.add_hline(y=1.0, line_dash='dash', line_color='gray')
+            fig_e.update_layout(
+                yaxis_title='策略/基准', xaxis_title='日期',
+                template='plotly_white', height=320,
+                margin=dict(l=10, r=10, t=30, b=10),
+            )
+            st.plotly_chart(fig_e, use_container_width=True)
+            st.caption("曲线向上=跑赢基准，向下=跑输。橙色区间为最大相对回撤期。")
+        else:
+            st.info("暂无足够数据绘制累计超额净值曲线")
+
+        # ---- 滚动 Alpha 折线图 ----
+        st.markdown("##### 滚动超额收益（3窗口）")
+        ras = asd.get('rolling_alpha_series')
+        if isinstance(ras, pd.DataFrame) and not ras.empty:
+            ras = ras.copy()
+            ras['date'] = pd.to_datetime(ras['date'])
+            fig_r = go.Figure()
+            fig_r.add_trace(go.Scatter(x=ras['date'], y=ras['excess_252d'], mode='lines', name='252日(1年)', line=dict(color='#1f77b4', width=1.5)))
+            fig_r.add_trace(go.Scatter(x=ras['date'], y=ras['excess_126d'], mode='lines', name='126日(半年)', line=dict(color='#ff7f0e', width=1.2)))
+            fig_r.add_trace(go.Scatter(x=ras['date'], y=ras['excess_63d'],  mode='lines', name='63日(3月)',  line=dict(color='#2ca02c', width=1.0)))
+            fig_r.add_hline(y=0, line_dash='dash', line_color='red',
+                            annotation_text='0%基准线', annotation_position='top left')
+            fig_r.update_layout(
+                yaxis_title='滚动超额(%)', xaxis_title='日期',
+                template='plotly_white', height=320,
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                margin=dict(l=10, r=10, t=30, b=10),
+            )
+            st.plotly_chart(fig_r, use_container_width=True)
+            st.caption("曲线长期在0轴上方=Alpha稳定；近期跌破0轴=策略失效。")
+        else:
+            st.info("数据不足，无法绘制滚动Alpha（需至少63个交易日）")
+
+        # ---- 滚动窗口收益表 ----
+        st.markdown("##### 滚动窗口收益对比")
+        if isinstance(rw, pd.DataFrame) and not rw.empty:
+            rw_display = rw.copy()
+            for col in ['strategy_pct', 'benchmark_pct', 'excess_pct']:
+                rw_display[col] = rw_display[col].apply(lambda v: f"{v:+.2f}%" if isinstance(v, (int, float)) else v)
+            rw_display['sufficient_data'] = rw_display['sufficient_data'].map({True: '✅', False: '⚠️ 不足'})
+            rename_cols = {
+                'window': '区间',
+                'strategy_pct': '策略(%)',
+                'benchmark_pct': f'{primary_benchmark}(%)',
+                'excess_pct': '超额(%)',
+                'sufficient_data': '数据',
+            }
+            rw_display = rw_display.rename(columns=rename_cols)
+            st.dataframe(rw_display, use_container_width=True, hide_index=True)
+            st.caption("公募基金季报格式。近N月窗口=取末尾 N×21 个交易日。")
+        else:
+            st.info("暂无滚动窗口收益数据")
+
+        # ---- Up/Down Capture ----
+        st.markdown("##### 牛/熊市捕获率（Up / Down Capture）")
+        cap = asd.get('up_down_capture')
+        if cap:
+            col_u, col_d = st.columns(2)
+            up = cap.get('up_capture_pct')
+            down = cap.get('down_capture_pct')
+            up_cnt = cap.get('up_months_count', 0)
+            down_cnt = cap.get('down_months_count', 0)
+            with col_u:
+                up_status = "✅ >100 弹性大" if up is not None and up > 100 else ("✅ <100 抗涨" if up is not None and up <= 100 else "-")
+                st.metric(f"上行捕获率（{up_cnt}个涨月）",
+                          f"{_fmt_metric(up)}%",
+                          delta=up_status,
+                          help="基准月收益>0的月份：策略月收益均值 / 基准月收益均值 × 100。")
+            with col_d:
+                down_status = "✅ <100 抗跌" if down is not None and down < 100 else ("⚠️ >100 跌更深" if down is not None and down >= 100 else "-")
+                st.metric(f"下行捕获率（{down_cnt}个跌月）",
+                          f"{_fmt_metric(down)}%",
+                          delta=down_status,
+                          help="基准月收益<0的月份：策略月收益均值 / 基准月收益均值 × 100。")
+        else:
+            st.info("暂无 Up/Down Capture 数据（可能不足2个完整月份）")
+
+
 def _status_label(status: str) -> str:
     if status == "pass":
         return "✅ 通过"
@@ -621,6 +807,9 @@ if result:
         ```
         """)
 
+    st.markdown("---")
+    st.markdown("#### 📈 Alpha 稳定性分析")
+    _render_alpha_stability_section(result, PRIMARY_BENCHMARK)
     st.markdown("---")
     st.markdown("### 📊 归因分析")
 

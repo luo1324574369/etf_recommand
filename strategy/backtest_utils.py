@@ -29,31 +29,197 @@ def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
 
 
 def compute_alpha_stability(nav_df, benchmark_navs, primary_benchmark='沪深300'):
-    """计算全套 Alpha 稳定性指标。
+    """计算全套 Alpha 稳定性指标。"""
+    # ===== 输入校验 & 初始化 =====
+    empty = {
+        'rolling_windows': None, 'excess_nav_series': None,
+        'max_relative_drawdown': None, 'max_relative_dd_info': None,
+        'rolling_alpha_series': None, 'information_ratio': None,
+        'tracking_error': None, 'monthly_hit_rate': None,
+        'up_down_capture': None, 'recent_failed': False, 'warning_level': None,
+    }
+    if nav_df is None or nav_df.empty:
+        return empty
+    bench_df = benchmark_navs.get(primary_benchmark)
+    if bench_df is None or bench_df.empty:
+        return empty
 
-    Args:
-        nav_df: 策略净值 DataFrame，需含 columns ['date', 'nav']
-        benchmark_navs: dict[str, DataFrame]，每个基准含 columns ['date', 'nav']
-        primary_benchmark: 主基准 key，用于计算指标
+    nav_df = nav_df.copy()
+    bench_df = bench_df.copy()
+    nav_df['date'] = pd.to_datetime(nav_df['date'])
+    bench_df['date'] = pd.to_datetime(bench_df['date'])
 
-    Returns:
-        dict: 详见 spec schema。全部字段齐全，缺失填 None。
-    """
+    # ===== 1. 对齐日期 =====
+    merged = nav_df[['date', 'nav']].merge(
+        bench_df[['date', 'nav']], on='date', suffixes=('_s', '_b')
+    ).sort_values('date').reset_index(drop=True)
+    if len(merged) < 2:
+        return empty
+
+    n = len(merged)
+
+    # ===== 3. 滚动窗口收益表（1月/3月/6月/1年/成立以来） =====
+    # 窗口大小映射（交易日天数）
+    WIN_MAP = [
+        ('1月',  21),
+        ('3月',  63),
+        ('6月',  126),
+        ('1年',  252),
+        ('成立以来', n),
+    ]
+    rows = []
+    for window_name, w_size in WIN_MAP:
+        sufficient = (w_size <= n)
+        take_size = min(w_size, n)
+        sub = merged.tail(take_size)
+        if window_name == '成立以来':
+            s_ret = (sub.iloc[-1]['nav_s'] / 1.0 - 1) * 100
+            b_ret = (sub.iloc[-1]['nav_b'] / 1.0 - 1) * 100
+        else:
+            s_ret = (sub.iloc[-1]['nav_s'] / sub.iloc[0]['nav_s'] - 1) * 100
+            b_ret = (sub.iloc[-1]['nav_b'] / sub.iloc[0]['nav_b'] - 1) * 100
+        e_ret = s_ret - b_ret
+        rows.append({
+            'window': window_name,
+            'strategy_pct': round(s_ret, 4),
+            'benchmark_pct': round(b_ret, 4),
+            'excess_pct': round(e_ret, 4),
+            'sufficient_data': sufficient,
+        })
+    rolling_windows = pd.DataFrame(rows, columns=['window', 'strategy_pct', 'benchmark_pct', 'excess_pct', 'sufficient_data'])
+
+    # ===== 2. 累计超额净值 + 最大相对回撤 =====
+    merged['excess_nav'] = merged['nav_s'] / merged['nav_b']
+    excess_nav_series = merged[['date', 'excess_nav']].copy()
+
+    merged['excess_peak'] = merged['excess_nav'].cummax()
+    merged['rel_dd'] = (merged['excess_nav'] / merged['excess_peak'] - 1) * 100
+    max_relative_drawdown = float(merged['rel_dd'].min())
+
+    # 回撤区间信息
+    if max_relative_drawdown < 0:
+        end_idx = int(merged['rel_dd'].idxmin())
+        peak_val = merged.loc[end_idx, 'excess_peak']
+        # 找这个 peak 值首次出现位置（之前最大区间起点）
+        peak_idx = int(merged.loc[:end_idx, 'excess_nav'].idxmax())
+        # 起点（回撤开始前的峰值点前一天，若存在则取峰值当天）
+        start_idx = max(0, peak_idx)
+        max_relative_dd_info = {
+            'date_start': merged.loc[start_idx, 'date'].strftime('%Y-%m-%d'),
+            'date_peak':  merged.loc[peak_idx, 'date'].strftime('%Y-%m-%d'),
+            'date_end':   merged.loc[end_idx, 'date'].strftime('%Y-%m-%d'),
+            'drawdown_pct': round(max_relative_drawdown, 4),
+        }
+    else:
+        max_relative_dd_info = None
+
+    import numpy as np
+
+    # ===== 4. 滚动 Alpha 三窗口 =====
+    ra_dates = merged['date'].copy()
+    ra_df = pd.DataFrame({'date': ra_dates})
+    for days, col in [(63, 'excess_63d'), (126, 'excess_126d'), (252, 'excess_252d')]:
+        if n >= days:
+            s_roll = merged['nav_s'].pct_change(days)
+            b_roll = merged['nav_b'].pct_change(days)
+            ra_df[col] = (s_roll - b_roll) * 100
+        else:
+            ra_df[col] = np.nan
+    rolling_alpha_series = ra_df[['date', 'excess_63d', 'excess_126d', 'excess_252d']]
+
+    # ===== 5. 跟踪误差 & IR =====
+    s_daily = merged['nav_s'].pct_change().dropna().values
+    b_daily = merged['nav_b'].pct_change().dropna().values
+    if len(s_daily) >= 2 and len(b_daily) >= 2:
+        diff = s_daily - b_daily
+        te_daily = float(np.std(diff, ddof=1)) if len(diff) > 1 else 0.0
+        tracking_error = float(te_daily * np.sqrt(252) * 100)
+        # 年化收益（复利）
+        ann_s = (merged.iloc[-1]['nav_s'] / merged.iloc[0]['nav_s']) ** (252 / max(1, n-1)) - 1
+        ann_b = (merged.iloc[-1]['nav_b'] / merged.iloc[0]['nav_b']) ** (252 / max(1, n-1)) - 1
+        annual_excess = (ann_s - ann_b) * 100  # %
+        information_ratio = float(annual_excess / tracking_error) if tracking_error > 0.00001 else None
+    else:
+        tracking_error = None
+        information_ratio = None
+
+    # ===== 6. 月度命中率 =====
+    mdf = merged.copy()
+    mdf['ym'] = mdf['date'].dt.to_period('M')
+    monthly = []
+    for ym, g in mdf.groupby('ym'):
+        if len(g) < 2:
+            continue
+        s_m = (g.iloc[-1]['nav_s'] / g.iloc[0]['nav_s'] - 1) * 100
+        b_m = (g.iloc[-1]['nav_b'] / g.iloc[0]['nav_b'] - 1) * 100
+        monthly.append({'ym': str(ym), 's_ret': s_m, 'b_ret': b_m, 'excess': s_m - b_m})
+    if monthly:
+        m_df = pd.DataFrame(monthly)
+        hits = int((m_df['excess'] > 0).sum())
+        monthly_hit_rate = round(hits / len(m_df) * 100, 4)
+        # Up/Down Capture: 按基准月收益正负分开月份
+        up_months = m_df[m_df['b_ret'] > 0]
+        down_months = m_df[m_df['b_ret'] < 0]
+        up_capture = None
+        down_capture = None
+        if len(up_months) > 0 and up_months['b_ret'].mean() != 0:
+            up_capture = round(float(up_months['s_ret'].mean() / up_months['b_ret'].mean() * 100), 4)
+        if len(down_months) > 0 and down_months['b_ret'].mean() != 0:
+            down_capture = round(float(down_months['s_ret'].mean() / down_months['b_ret'].mean() * 100), 4)
+        up_down_capture = {
+            'up_capture_pct': up_capture,
+            'down_capture_pct': down_capture,
+            'up_months_count': len(up_months),
+            'down_months_count': len(down_months),
+        }
+    else:
+        monthly_hit_rate = None
+        up_down_capture = None
+
+    # ===== 7. 近1年/半年超额判断 + warning_level =====
+    excess_1y_val = None
+    excess_half_val = None
+    if rolling_windows is not None and not rolling_windows.empty:
+        row_1y = rolling_windows[rolling_windows['window'] == '1年']
+        if not row_1y.empty:
+            excess_1y_val = float(row_1y.iloc[0]['excess_pct'])
+        row_h = rolling_windows[rolling_windows['window'] == '6月']
+        if not row_h.empty:
+            excess_half_val = float(row_h.iloc[0]['excess_pct'])
+
+    cumulative_excess_val = None
+    if rolling_windows is not None and not rolling_windows.empty:
+        row_full = rolling_windows[rolling_windows['window'] == '成立以来']
+        if not row_full.empty:
+            cumulative_excess_val = float(row_full.iloc[0]['excess_pct'])
+
+    recent_failed = (excess_1y_val is not None and excess_1y_val < 0)
+    if cumulative_excess_val is not None and cumulative_excess_val > 0:
+        if excess_1y_val is not None and excess_1y_val < 0:
+            if excess_half_val is not None and excess_half_val < 0:
+                warning_level = 'severe'
+            else:
+                warning_level = 'mild'
+        else:
+            warning_level = None
+    else:
+        warning_level = None
+
     return {
         # 必选层
-        'rolling_windows': None,
-        'excess_nav_series': None,
-        'max_relative_drawdown': None,
-        'max_relative_dd_info': None,
+        'rolling_windows': rolling_windows,
+        'excess_nav_series': excess_nav_series,
+        'max_relative_drawdown': max_relative_drawdown,
+        'max_relative_dd_info': max_relative_dd_info,
         # 强推荐层
-        'rolling_alpha_series': None,
-        'information_ratio': None,
-        'tracking_error': None,
-        'monthly_hit_rate': None,
-        'up_down_capture': None,
+        'rolling_alpha_series': rolling_alpha_series,
+        'information_ratio': information_ratio,
+        'tracking_error': tracking_error,
+        'monthly_hit_rate': monthly_hit_rate,
+        'up_down_capture': up_down_capture,
         # 诊断辅助
-        'recent_failed': False,
-        'warning_level': None,
+        'recent_failed': recent_failed,
+        'warning_level': warning_level,
     }
 
 
@@ -170,6 +336,13 @@ def run_backtest(
             attribution_error = str(e)
             logger.warning(f"归因计算失败: {e}")
 
+    # ===== Alpha 稳定性分析 =====
+    alpha_stability = compute_alpha_stability(
+        nav_df=nav_df,
+        benchmark_navs=benchmark_navs,
+        primary_benchmark=PRIMARY_BENCHMARK,
+    )
+
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
@@ -194,6 +367,7 @@ def run_backtest(
         'turnover_series': turnover_series,
         'attribution': attribution_result,
         'attribution_error': attribution_error,
+        'alpha_stability': alpha_stability,
     }
 
 
