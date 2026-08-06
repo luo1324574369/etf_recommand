@@ -204,6 +204,224 @@ class MultiFactorStrategy(bt.Strategy):
         if not hasattr(self, '_regime_vol_ma_benchmark'):
             self._regime_vol_ma_benchmark = None
 
+        # --- ICIR 加权/因子诊断状态 ---
+        self._factor_ic_history = {}         # {factor: list of monthly IC values}
+        self._factor_excluded_since = {}     # {factor: date}
+        self._weight_history_rows = []       # [{date, factor1_w, factor2_w, ...}]
+        self._ic_rolling_rows = []           # [{date, factor1_ic, factor2_ic, ...}]
+        self.factor_diagnostics = None       # 回测结束后 set
+
+    def start(self):
+        super().start()
+        try:
+            self._warmup_ic_history()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"_warmup_ic_history failed: {e}")
+
+    def _warmup_ic_history(self):
+        """预热过去12个月的IC序列，用于ICIR加权
+
+        遍历 self.datas 构建每个 ETF 的历史 prices，按月度截面切分，
+        对每个截面计算因子值（winsorize+group_zscore）和下月收益，
+        用 rank_ic_monthly 计算每个因子的月度IC序列。
+        """
+        import backtrader as bt
+        from strategy.scoring import (
+            compute_all_factors, winsorize_mad_3sigma, group_zscore,
+            rank_ic_monthly, FACTOR_DIRECTIONS,
+        )
+        from config.settings import ETF_UNIVERSE
+
+        code_to_sector = {e['code']: e.get('sector', '其他') for e in ETF_UNIVERSE}
+
+        # 收集每个 ETF 的历史价格序列（从 backtrader 预加载数组读取）
+        code_prices = {}  # {code: list of price dicts (升序)}
+        for d in self.datas:
+            code = d._name
+            n = d.buflen()
+            if n is None or n < 60:
+                continue
+            close_arr = d.close.array
+            open_arr = d.open.array
+            high_arr = d.high.array
+            low_arr = d.low.array
+            vol_arr = d.volume.array
+            dt_arr = d.datetime.array
+            prices = []
+            for i in range(n):
+                try:
+                    c = float(close_arr[i])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if c is None or np.isnan(c) or c <= 0:
+                    continue
+                try:
+                    dt_val = dt_arr[i]
+                    dt = bt.num2date(dt_val).date()
+                except Exception:
+                    continue
+                def _safe_float(v, default=c):
+                    try:
+                        fv = float(v)
+                        if np.isnan(fv):
+                            return default
+                        return fv
+                    except (TypeError, ValueError):
+                        return default
+                prices.append({
+                    'trade_date': dt.isoformat(),
+                    'open': _safe_float(open_arr[i]),
+                    'high': _safe_float(high_arr[i]),
+                    'low': _safe_float(low_arr[i]),
+                    'close': c,
+                    'volume': _safe_float(vol_arr[i], 0.0),
+                })
+            if len(prices) >= 60:
+                code_prices[code] = prices
+
+        if len(code_prices) < 3:
+            return
+
+        # 取 warmup 截止日 = start_date
+        warmup_end = self.p.start_date
+        if warmup_end is None:
+            all_dates = []
+            for prices in code_prices.values():
+                all_dates.extend(p['trade_date'] for p in prices)
+            if not all_dates:
+                return
+            warmup_end_str = max(all_dates)
+        else:
+            warmup_end_str = warmup_end.isoformat() if hasattr(warmup_end, 'isoformat') else str(warmup_end)
+
+        # 过滤 warmup_end 之前的 prices
+        for code in list(code_prices.keys()):
+            code_prices[code] = [p for p in code_prices[code] if p['trade_date'] <= warmup_end_str]
+            if len(code_prices[code]) < 60:
+                del code_prices[code]
+
+        if len(code_prices) < 3:
+            return
+
+        # 收集所有日期，找出每月最后一个交易日
+        all_dates_set = set()
+        for prices in code_prices.values():
+            for p in prices:
+                all_dates_set.add(p['trade_date'])
+        all_dates_sorted = sorted(all_dates_set)
+
+        monthly_last_dates = []
+        last_ym = None
+        last_date = None
+        for d_str in all_dates_sorted:
+            ym = d_str[:7]
+            if last_ym is None:
+                last_ym = ym
+                last_date = d_str
+            elif ym == last_ym:
+                last_date = d_str
+            else:
+                monthly_last_dates.append(last_date)
+                last_ym = ym
+                last_date = d_str
+        if last_date:
+            monthly_last_dates.append(last_date)
+
+        # 取最近13个月末（多1个用于计算forward return）
+        monthly_last_dates = monthly_last_dates[-13:]
+        if len(monthly_last_dates) < 4:
+            return
+
+        # 对每个截面日计算因子值 + 下月收益
+        factor_ic = {}
+
+        for i in range(len(monthly_last_dates) - 1):
+            cut_date_str = monthly_last_dates[i]
+            next_date_str = monthly_last_dates[i + 1]
+
+            etf_factor_values = {}  # {factor: {code: value}}
+            etf_returns = {}        # {code: next_month_return}
+            codes_with_data = []
+
+            for code, prices in code_prices.items():
+                cut_idx = None
+                next_idx = None
+                for j, p in enumerate(prices):
+                    if p['trade_date'] == cut_date_str:
+                        cut_idx = j
+                    if p['trade_date'] == next_date_str:
+                        next_idx = j
+                    if cut_idx is not None and next_idx is not None:
+                        break
+
+                if cut_idx is None or cut_idx < 30:
+                    continue
+                if next_idx is None or next_idx <= cut_idx:
+                    continue
+
+                cut_prices = prices[:cut_idx + 1]
+                cut_close = cut_prices[-1]['close']
+                next_close = prices[next_idx]['close']
+                if cut_close <= 0:
+                    continue
+                etf_returns[code] = (next_close / cut_close - 1)
+
+                pe_pct = None
+                if self.p.valuation_repo is not None:
+                    try:
+                        pe_pct = self.p.valuation_repo.get_pe_percentile(code, end_date=cut_date_str)
+                    except Exception:
+                        try:
+                            pe_pct = self.p.valuation_repo.get_pe_percentile(code)
+                        except Exception:
+                            pe_pct = None
+
+                factors = compute_all_factors(code, cut_prices, pe_percentile=pe_pct)
+                if not factors:
+                    continue
+
+                for f, v in factors.items():
+                    etf_factor_values.setdefault(f, {})[code] = v
+                codes_with_data.append(code)
+
+            if len(codes_with_data) < 3:
+                continue
+
+            codes = codes_with_data
+            for factor, vals in etf_factor_values.items():
+                if factor not in FACTOR_DIRECTIONS:
+                    continue
+                valid_codes = [c for c in codes if c in vals and vals[c] is not None]
+                if len(valid_codes) < 3:
+                    continue
+
+                s = pd.Series({c: vals[c] for c in valid_codes})
+                s = winsorize_mad_3sigma(s)
+                zscores = group_zscore(valid_codes, {c: s[c] for c in valid_codes}, code_to_sector)
+
+                factor_series = pd.Series({c: zscores.get(c, 0.0) for c in valid_codes})
+                return_series = pd.Series({c: etf_returns.get(c, np.nan) for c in valid_codes})
+                ic = rank_ic_monthly(factor_series, return_series)
+                factor_ic.setdefault(factor, []).append(ic)
+
+        # 保存到 state（过滤掉全 None 的因子）
+        self._factor_ic_history = {
+            f: [v for v in vs if v is not None]
+            for f, vs in factor_ic.items()
+            if vs and any(v is not None for v in vs)
+        }
+
+    def _compute_icir_factor_weights(self):
+        """调仓日调用，返回 (weights, excluded, mode)"""
+        if not self._factor_ic_history:
+            from strategy.scoring import FACTOR_DIRECTIONS
+            factors = list(FACTOR_DIRECTIONS.keys())
+            return {f: 1.0 / len(factors) for f in factors}, {}, 'equal_weight_fallback'
+        from strategy.scoring import compute_icir_weights
+        hist = {k: list(v) for k, v in self._factor_ic_history.items()}
+        return compute_icir_weights(hist, rolling_months=12, return_mode=True)
+
     def _log_trade(self, d, direction, size, price, reason, trade_type='satellite'):
         """记录交易日志
 
@@ -471,21 +689,21 @@ class MultiFactorStrategy(bt.Strategy):
         regime = self._get_market_regime()
 
         base_weights = {
-            'momentum_60d': 0.33,
+            'reversal_20d': 0.33,
             'volatility_60d': 0.33,
             'pe_percentile': 0.34,
         }
 
         if 'dividend_yield' in available_factors:
             base_weights['dividend_yield'] = 0.25
-            base_weights['momentum_60d'] = 0.25
+            base_weights['reversal_20d'] = 0.25
             base_weights['volatility_60d'] = 0.25
             base_weights['pe_percentile'] = 0.25
 
         if regime == 'bull':
             new_weights = {}
             for f, w in base_weights.items():
-                if 'momentum' in f:
+                if 'reversal' in f:
                     new_weights[f] = w * self.p.bull_momentum_mult
                 else:
                     new_weights[f] = w
@@ -493,7 +711,7 @@ class MultiFactorStrategy(bt.Strategy):
             return {f: w / total for f, w in new_weights.items()}
         elif regime == 'bear':
             new_weights = {}
-            value_keywords = ('pe_percentile', 'dividend_yield', 'volatility_60d')
+            value_keywords = ('pe_percentile', 'dividend_yield', 'volatility_60d', 'reversal_20d')
             for f, w in base_weights.items():
                 if any(k in f for k in value_keywords):
                     new_weights[f] = w * self.p.bear_value_mult
@@ -597,15 +815,16 @@ class MultiFactorStrategy(bt.Strategy):
             dy = self._get_dividend_yield(code)
 
             factors = {}
-            factors['momentum_60d'] = float(momentum) if momentum is not None else None
+            # reversal_20d = -momentum（反转因子：跌越多值越大）
+            factors['reversal_20d'] = -float(momentum) if momentum is not None else None
             factors['volatility_60d'] = float(volatility) * 100 if volatility is not None else None
             if pe_pct is not None:
                 factors['pe_percentile'] = pe_pct
             if dy is not None:
                 factors['dividend_yield'] = dy
 
-            # 只保留动量和波动率都有值的ETF
-            if factors['momentum_60d'] is None or factors['volatility_60d'] is None:
+            # 只保留反转和波动率都有值的ETF
+            if factors['reversal_20d'] is None or factors['volatility_60d'] is None:
                 continue
 
             etf_factors[code] = factors
@@ -622,7 +841,7 @@ class MultiFactorStrategy(bt.Strategy):
         from strategy.scoring import zscore_normalize, equal_weight_score, weighted_score
 
         # 确定可用因子（所有ETF都有的）
-        available_factors = ['momentum_60d', 'volatility_60d']
+        available_factors = ['reversal_20d', 'volatility_60d']
         if all('pe_percentile' in f for f in etf_factors.values()):
             available_factors.append('pe_percentile')
         if all('dividend_yield' in f for f in etf_factors.values()):
@@ -636,14 +855,36 @@ class MultiFactorStrategy(bt.Strategy):
 
         zscores = zscore_normalize(etf_factors, factor_names=available_factors)
 
-        # 根据配置选择加权方式
-        if self.p.factor_weights is not None:
-            scores = weighted_score(zscores, self.p.factor_weights, factor_names=available_factors)
-        elif self.p.market_regime_switch:
-            dynamic_weights = self._get_dynamic_factor_weights(available_factors)
-            scores = weighted_score(zscores, dynamic_weights, factor_names=available_factors)
+        # ICIR 加权（主路径）
+        icir_weights, icir_excluded, icir_mode = self._compute_icir_factor_weights()
+        effective_weights = {f: icir_weights.get(f, 0.0) for f in available_factors}
+        total_w = sum(effective_weights.values())
+
+        current_date = self.data.datetime.date(0)
+        if total_w > 1e-9:
+            scores = weighted_score(zscores, effective_weights, factor_names=available_factors)
+            weights_used = effective_weights
+            weights_used_mode = icir_mode
         else:
-            scores = equal_weight_score(zscores, factor_names=available_factors)
+            # Fallback: 原始加权逻辑
+            if self.p.factor_weights is not None:
+                scores = weighted_score(zscores, self.p.factor_weights, factor_names=available_factors)
+                weights_used = dict(self.p.factor_weights)
+                weights_used_mode = 'param_factor_weights'
+            elif self.p.market_regime_switch:
+                dynamic_weights = self._get_dynamic_factor_weights(available_factors)
+                scores = weighted_score(zscores, dynamic_weights, factor_names=available_factors)
+                weights_used = dynamic_weights
+                weights_used_mode = 'regime_dynamic'
+            else:
+                scores = equal_weight_score(zscores, factor_names=available_factors)
+                weights_used = {f: 1.0 / len(available_factors) for f in available_factors} if available_factors else {}
+                weights_used_mode = 'equal_weight'
+
+        # 记录权重历史
+        row = {'date': current_date.isoformat()}
+        row.update({f: float(weights_used.get(f, 0.0)) for f in available_factors})
+        self._weight_history_rows.append(row)
 
         # 赛道动量惩罚（双轨制）
         if self.code_to_sector and self.p.sector_penalty_factor is not None:
@@ -881,6 +1122,63 @@ class MultiFactorStrategy(bt.Strategy):
             self.buy(d, size=target_size, price=buy_price)
             pending_buy_updates[code] = pending_buy_updates.get(code, 0) + buy_amount
             effective_cash -= buy_amount
+
+    def build_factor_diagnostics(self):
+        """组装因子诊断结果，供回测输出
+
+        Returns:
+            dict with keys:
+                factor_stats: DataFrame 每个因子的 IC/ICIR/胜率/状态/权重
+                rolling_ic_series: DataFrame 滚动IC序列
+                grouped_returns: dict 分组收益
+                weight_history: DataFrame 权重历史
+                weight_mode: str 加权模式
+                excluded_factors: list 被剔除的因子及原因
+        """
+        import pandas as pd
+        from strategy.scoring import FACTOR_LABELS, compute_icir_weights
+
+        rows = []
+        if self._factor_ic_history:
+            w, excl, mode = compute_icir_weights(
+                {k: list(v) for k, v in self._factor_ic_history.items()},
+                rolling_months=12, return_mode=True
+            )
+        else:
+            w, excl, mode = ({}, {}, 'equal_weight_fallback')
+
+        for f, hist in self._factor_ic_history.items():
+            arr = [x for x in hist if x is not None]
+            m = float(np.mean(arr)) if arr else float('nan')
+            s = float(np.std(arr, ddof=1)) if arr and len(arr) > 1 else float('nan')
+            icir = (m / s) if s and not np.isnan(s) and s != 0 else 0.0
+            hit = sum(1 for x in arr if x is not None and x > 0) / len(arr) if arr else 0.0
+            status = 'excluded' if f in excl else 'active'
+            used_w = w.get(f, 0.0)
+            rows.append({
+                'factor': f,
+                'label': FACTOR_LABELS.get(f, f),
+                'rank_ic_mean': m,
+                'rank_ic_std': s,
+                'icir': icir,
+                'hit_rate_12m': hit,
+                'status': status,
+                'used_weight_mean': used_w,
+                'excluded_months': 0,
+            })
+        factor_stats = pd.DataFrame(rows)
+        rolling_ic_series = pd.DataFrame(self._ic_rolling_rows) if self._ic_rolling_rows else pd.DataFrame()
+        weight_history = pd.DataFrame(self._weight_history_rows) if self._weight_history_rows else pd.DataFrame()
+
+        excluded_list = [{'factor': f, 'reason': r, 'months': 0} for f, r in excl.items()]
+        return {
+            'factor_stats': factor_stats,
+            'rolling_ic_series': rolling_ic_series,
+            'grouped_returns': {},
+            'weight_history': weight_history,
+            'weight_mode': mode,
+            'excluded_factors': excluded_list,
+        }
 
 
 def run_backtest(data_dict, initial_capital=1000000, commission_rate=0.0003,

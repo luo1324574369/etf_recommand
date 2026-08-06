@@ -343,6 +343,18 @@ def run_backtest(
         primary_benchmark=PRIMARY_BENCHMARK,
     )
 
+    # ===== 因子诊断（ICIR加权）=====
+    factor_diagnostics = None
+    if hasattr(strat, 'build_factor_diagnostics'):
+        try:
+            factor_diagnostics = strat.build_factor_diagnostics()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"build_factor_diagnostics failed: {e}")
+            factor_diagnostics = None
+    elif hasattr(strat, 'factor_diagnostics') and strat.factor_diagnostics:
+        factor_diagnostics = strat.factor_diagnostics
+
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
@@ -368,6 +380,7 @@ def run_backtest(
         'attribution': attribution_result,
         'attribution_error': attribution_error,
         'alpha_stability': alpha_stability,
+        'factor_diagnostics': factor_diagnostics,
     }
 
 
