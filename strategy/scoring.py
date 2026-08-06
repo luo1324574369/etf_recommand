@@ -10,7 +10,7 @@ from strategy.factors.valuation import ValuationPercentileFactor
 
 FACTOR_DIRECTIONS = {
     "momentum_20d": -1,  # A股反转效应：短期超跌后续反弹
-    "momentum_60d": -1,  # A股反转效应：短期超跌后续反弹
+    "reversal_20d": 1,   # 20日反转因子：值越大越好（跌越多值越大）
     "momentum_120d": 1,  # 中长期动量效应
     "volatility_60d": -1,
     "avg_amount_20d": 1,
@@ -28,7 +28,7 @@ DEFAULT_FACTORS = [
 
 FACTOR_LABELS = {
     "momentum_20d": "20日动量(%)",
-    "momentum_60d": "60日动量(%)",
+    "reversal_20d": "20日反转",
     "momentum_120d": "120日动量(%)",
     "volatility_60d": "60日波动率(%)",
     "avg_amount_20d": "20日日均成交额(万)",
@@ -66,11 +66,16 @@ def compute_all_factors(
 
     factors = {}
 
-    for period in [20, 60, 120]:
+    for period in [20, 120]:
         f = MomentumFactor(period=period, name=f"momentum_{period}d")
         val = f.calculate(code, prices, end_date)
         if val is not None:
             factors[f"momentum_{period}d"] = _safe_float(val * 100)
+
+    # 20日反转因子
+    rev20 = reversal_20d(prices)
+    if rev20 is not None:
+        factors['reversal_20d'] = rev20
 
     vf = VolatilityFactor(period=60)
     vresult = vf.calculate(code, prices, end_date)
