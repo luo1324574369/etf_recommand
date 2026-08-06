@@ -412,3 +412,105 @@ def reversal_20d(prices):
     if closes[-21] == 0:
         return None
     return float(-(closes[-1] / closes[-21] - 1))
+
+
+from scipy import stats as _sp_stats
+from collections import deque
+
+
+def rank_ic_monthly(factor_ranks_series, next_return_ranks_series):
+    """月度截面RankIC = Spearman秩相关系数。
+    输入是截面（非时间序列）对齐后的两列排名/值均可（spearman自动转秩）。
+    """
+    if len(factor_ranks_series) < 3:
+        return None
+    common_idx = factor_ranks_series.dropna().index.intersection(next_return_ranks_series.dropna().index)
+    if len(common_idx) < 3:
+        return None
+    f = factor_ranks_series.loc[common_idx].astype(float)
+    r = next_return_ranks_series.loc[common_idx].astype(float)
+    if f.std(ddof=0) == 0 or r.std(ddof=0) == 0:
+        return None
+    coef, _ = _sp_stats.spearmanr(f.values, r.values)
+    if np.isnan(coef):
+        return None
+    return float(coef)
+
+
+def compute_icir_weights(ic_history, rolling_months=12,
+                         min_icir_include=0.05,
+                         return_mode=False):
+    """ICIR加权 + 连续6月≤0剔除 + 恢复条款 + 全负fallback。
+
+    Args:
+        ic_history: {factor: list[float]} 按时间升序的月度IC序列（新值在末尾）
+        rolling_months: 使用最近N个月
+        min_icir_include: ICIR < 此值也视为弱因子，权重=0
+        return_mode: True时返回三元组 (weights, excluded, mode)；否则二元组
+    Returns:
+        weights: {factor: float} 所有权重（含被剔除的也放进去但=0）；总和=1.0
+        excluded: {factor: str} 被剔除的原因标签
+        mode: 'icir_dynamic' | 'equal_weight_fallback' （仅当return_mode=True）
+    """
+    trimmed = {}
+    for k, lst in ic_history.items():
+        if not lst:
+            continue
+        arr = list(lst)[-rolling_months:]
+        trimmed[k] = [v if v is not None else np.nan for v in arr]
+    all_factors = list(trimmed.keys())
+    weights = {f: 0.0 for f in all_factors}
+    excluded = {}
+    excluded_raw = set()
+
+    # 连续6月IC≤0 判定
+    for f, arr in trimmed.items():
+        valid_arr = [v for v in arr if not np.isnan(v)]
+        if len(valid_arr) >= 6:
+            last6 = valid_arr[-6:]
+            if all(x <= 0 for x in last6):
+                # 恢复豁免：若最近3月IC均值>0.02则不剔除
+                if len(valid_arr) >= 3:
+                    last3_mean = float(np.mean(valid_arr[-3:]))
+                    if last3_mean > 0.02:
+                        continue
+                excluded[f] = 'consecutive_6m_ic_le_0'
+                excluded_raw.add(f)
+
+    # 计算 ICIR = mean/std
+    icir_scores = {}
+    for f, arr in trimmed.items():
+        if f in excluded_raw:
+            continue
+        valid_arr = [v for v in arr if not np.isnan(v)]
+        if len(valid_arr) < 3:
+            continue
+        mean = float(np.mean(valid_arr))
+        std = float(np.std(valid_arr, ddof=1))
+        if std == 0 or np.isnan(std):
+            continue
+        icir = mean / std
+        if icir < 0:
+            continue
+        if icir < min_icir_include:
+            continue
+        icir_scores[f] = icir
+
+    mode = 'icir_dynamic'
+    total_pos = sum(icir_scores.values())
+    if total_pos <= 0:
+        mode = 'equal_weight_fallback'
+        remain = [f for f in all_factors if f not in excluded_raw]
+        if not remain and len(all_factors) > 1:
+            remain = all_factors
+        if remain:
+            w = 1.0 / len(remain)
+            for f in remain:
+                weights[f] = w
+    else:
+        for f, score in icir_scores.items():
+            weights[f] = score / total_pos
+
+    if return_mode:
+        return weights, excluded, mode
+    return weights, excluded
