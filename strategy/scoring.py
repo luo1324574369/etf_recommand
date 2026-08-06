@@ -319,3 +319,91 @@ def compute_factor_history(
 
     df = pd.DataFrame(rows)
     return df
+
+
+def winsorize_mad_3sigma(values: pd.Series) -> pd.Series:
+    """截面MAD缩尾：clip(x, median-3*1.4826*MAD, median+3*1.4826*MAD)
+
+    MAD对极端值鲁棒，优于均值-σ缩尾。和factor_analysis.py CLI对齐。
+    """
+    s = values.copy()
+    if len(s.dropna()) < 2:
+        return s
+    arr = np.array(s.values, dtype=float)
+    valid = ~np.isnan(arr)
+    if valid.sum() < 2:
+        return s
+    v = arr[valid]
+    median = np.nanmedian(v)
+    mad = np.nanmedian(np.abs(v - median))
+    if mad == 0 or np.isnan(mad):
+        return s
+    k = 3
+    half_width = k * 1.4826 * mad
+    lower = median - half_width
+    upper = median + half_width
+    arr[valid] = np.clip(v, lower, upper)
+    s = pd.Series(arr, index=s.index)
+    return s
+
+
+def group_zscore(etf_codes, factor_values, code_to_group):
+    """赛道/宽基分组zscore，返回 dict[code]=zscore。
+    单组<2个ETF的降级到全局zscore。
+    """
+    # 收集
+    group_to_vals = {}
+    for c in etf_codes:
+        g = code_to_group.get(c, '其他')
+        group_to_vals.setdefault(g, []).append((c, factor_values.get(c, np.nan)))
+    out = {}
+    global_vals = []
+    global_pairs = []
+    for g, pairs in group_to_vals.items():
+        vals = np.array([v for _, v in pairs], dtype=float)
+        n_valid = np.sum(~np.isnan(vals))
+        if n_valid < 2:
+            # 降级
+            for c, v in pairs:
+                global_pairs.append((c, v))
+                global_vals.append(v)
+            continue
+        mean = np.nanmean(vals)
+        std = np.nanstd(vals, ddof=1)
+        if std == 0 or np.isnan(std):
+            zs = np.zeros_like(vals)
+        else:
+            zs = (vals - mean) / std
+        for (c, _), z in zip(pairs, zs):
+            if np.isnan(z):
+                out[c] = 0.0
+            else:
+                out[c] = float(z)
+    # 处理降级部分 - 单组过小时按全局所有ETF的分布做zscore
+    if global_pairs:
+        all_vals = np.array([factor_values.get(c, np.nan) for c in etf_codes], dtype=float)
+        if np.sum(~np.isnan(all_vals)) >= 2:
+            mean = np.nanmean(all_vals)
+            std = np.nanstd(all_vals, ddof=1)
+            if std and not np.isnan(std):
+                fb_vals = np.array([v for _, v in global_pairs], dtype=float)
+                zs = (fb_vals - mean) / std
+                for (c, v), z in zip(global_pairs, zs):
+                    out[c] = 0.0 if np.isnan(z) else float(z)
+                return out
+        for c, v in global_pairs:
+            out[c] = 0.0
+    return out
+
+
+def reversal_20d(prices):
+    """20日反转因子 = -(close_t / close_t-20 - 1)
+    跌越多 → 值越大 → direction=+1 正向因子
+    prices: list[dict] 至少21条
+    """
+    if not prices or len(prices) < 21:
+        return None
+    closes = [p['close'] for p in prices]
+    if closes[-21] == 0:
+        return None
+    return float(-(closes[-1] / closes[-21] - 1))
