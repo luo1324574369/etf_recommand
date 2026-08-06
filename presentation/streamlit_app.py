@@ -314,6 +314,135 @@ def _render_alpha_stability_section(result, primary_benchmark):
             st.info("暂无 Up/Down Capture 数据（可能不足2个完整月份）")
 
 
+def _render_factor_diagnostics_section(result):
+    """渲染因子诊断面板：4指标卡 + 因子统计表 + 滚动IC曲线 + 分层占位 + 权重演变面积图"""
+    import numpy as np
+    fd = result.get('factor_diagnostics') if result else None
+    if not fd:
+        return
+    with st.expander("📊 因子诊断面板", expanded=True):
+        # 顶部 4 指标卡
+        factor_stats = fd.get('factor_stats')
+        if factor_stats is None:
+            factor_stats = pd.DataFrame()
+        weight_mode = fd.get('weight_mode', 'unknown')
+        excluded_factors = fd.get('excluded_factors') or []
+        if not factor_stats.empty:
+            active_n = int((factor_stats['status'] == 'active').sum()) if 'status' in factor_stats else len(factor_stats)
+            total_n = len(factor_stats)
+        else:
+            active_n, total_n = 0, 0
+
+        icir_mean = 0.0
+        if not factor_stats.empty and 'icir' in factor_stats:
+            ic_series = pd.to_numeric(factor_stats['icir'], errors='coerce').replace([np.inf, -np.inf], np.nan)
+            icir_mean = float(ic_series.mean()) if not ic_series.empty else 0.0
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("有效因子", f"{active_n} / {total_n}")
+        c2.metric("组合 ICIR 均值", f"{icir_mean:.3f}")
+        if excluded_factors:
+            label = ", ".join(f"{x.get('factor', '?')}" for x in excluded_factors[:3])
+            if len(excluded_factors) > 3:
+                label += f" 等{len(excluded_factors)}"
+            c3.metric("已剔除因子", label)
+        else:
+            c3.metric("已剔除因子", "无")
+        mode_txt = "ICIR动态加权" if weight_mode == 'icir_dynamic' else "等权(fallback)"
+        c4.metric("权重模式", mode_txt)
+
+        if weight_mode == 'equal_weight_fallback' and total_n > 0:
+            st.warning("当前全部因子ICIR≤0，已降级为等权组合。请检查因子有效性或延长回测期间。")
+
+        # 因子统计表
+        if not factor_stats.empty:
+            show_cols = ['label', 'rank_ic_mean', 'icir', 'hit_rate_12m', 'status', 'used_weight_mean', 'excluded_months']
+            show_cols = [c for c in show_cols if c in factor_stats.columns]
+            display_df = factor_stats[show_cols].copy()
+
+            def _paint_row(row):
+                css = ""
+                if str(row.get('status')) == 'excluded':
+                    css = "background-color: #ffe0e0; color: #b00020;"
+                return [css] * len(row)
+
+            format_map = {}
+            for col in ['rank_ic_mean']:
+                if col in display_df:
+                    format_map[col] = '{:.4f}'
+            for col in ['icir']:
+                if col in display_df:
+                    format_map[col] = '{:.3f}'
+            for col in ['hit_rate_12m']:
+                if col in display_df:
+                    format_map[col] = '{:.1%}'
+            for col in ['used_weight_mean']:
+                if col in display_df:
+                    format_map[col] = '{:.2%}'
+
+            try:
+                styled = display_df.style.apply(_paint_row, axis=1)
+                if format_map:
+                    styled = styled.format(format_map, na_rep='-')
+                st.dataframe(styled, use_container_width=True, hide_index=True)
+            except Exception:
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+        # 滚动 IC 曲线
+        rolling_ic = fd.get('rolling_ic_series')
+        if rolling_ic is None:
+            rolling_ic = pd.DataFrame()
+        if not rolling_ic.empty and 'date' in rolling_ic.columns:
+            long_df = rolling_ic.melt(id_vars='date', var_name='factor', value_name='ic')
+            long_df['label'] = long_df['factor'].map(FACTOR_LABELS).fillna(long_df['factor'])
+            fig = px.line(
+                long_df, x='date', y='ic', color='label',
+                title='近12个月滚动月度 RankIC（0轴上下=因子有效性）',
+                labels={'ic': 'RankIC', 'date': '日期', 'label': '因子'},
+                template='plotly_white',
+            )
+            fig.add_hline(y=0, line_dash='dash', line_color='red', opacity=0.6,
+                          annotation_text='IC=0（无效）', annotation_position='bottom right')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("暂无滚动 IC 数据（预热阶段不足或回测周期过短）")
+
+        # 分层收益（占位）
+        grouped = fd.get('grouped_returns') or {}
+        if grouped:
+            st.markdown("#### 分层收益单调性（按因子值分5组，组1=暴露最大）")
+            n_f = len(grouped)
+            cols = st.columns(min(3, n_f)) if n_f else []
+            for i, (f, df_g) in enumerate(grouped.items()):
+                if cols:
+                    with cols[i % len(cols)]:
+                        st.markdown(f"**{FACTOR_LABELS.get(f, f)}**")
+                        if isinstance(df_g, pd.DataFrame) and not df_g.empty:
+                            st.dataframe(df_g, use_container_width=True, hide_index=True)
+        else:
+            with st.expander("分层收益单调性", expanded=False):
+                st.info("本轮回测暂未输出分层收益表。可在 `_warmup_ic_history` 按月按因子分5组统计后补入 `grouped_returns`。")
+
+        # 权重演变 area chart
+        wh = fd.get('weight_history')
+        if wh is None:
+            wh = pd.DataFrame()
+        if not wh.empty and 'date' in wh.columns:
+            num_cols = [c for c in wh.columns if c != 'date']
+            if num_cols:
+                long_df = wh.melt(id_vars='date', var_name='factor', value_name='weight')
+                long_df['label'] = long_df['factor'].map(FACTOR_LABELS).fillna(long_df['factor'])
+                fig = px.area(
+                    long_df, x='date', y='weight', color='label',
+                    title='历次调仓实际使用的因子权重演变',
+                    labels={'weight': '权重', 'date': '日期', 'label': '因子'},
+                    template='plotly_white',
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("暂无权重历史数据（预热阶段不足或未触发 ICIR 加权）")
+
+
 def _status_label(status: str) -> str:
     if status == "pass":
         return "✅ 通过"
@@ -810,6 +939,7 @@ if result:
     st.markdown("---")
     st.markdown("#### 📈 Alpha 稳定性分析")
     _render_alpha_stability_section(result, PRIMARY_BENCHMARK)
+    _render_factor_diagnostics_section(result)
     st.markdown("---")
     st.markdown("### 📊 归因分析")
 
