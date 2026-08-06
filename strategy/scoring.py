@@ -20,7 +20,7 @@ FACTOR_DIRECTIONS = {
 }
 
 DEFAULT_FACTORS = [
-    "momentum_60d",
+    "reversal_20d",
     "momentum_120d",
     "pe_percentile",
     "avg_amount_20d",
