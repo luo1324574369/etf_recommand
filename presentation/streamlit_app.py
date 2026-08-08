@@ -564,7 +564,7 @@ def show_etf_detail(code):
             prices = price_repo.get_daily_price(code)
             if selected_factor in ['pe_percentile', 'pb_percentile']:
                 pe_history = valuation_repo.get_pe_history(code)
-                pb_history = valuation_repo.get_pb_history(code) if hasattr(valuation_repo, 'get_pb_history') else pe_history
+                pb_history = valuation_repo.get_pb_history(code) if hasattr(valuation_repo, 'get_pb_history') else None
             else:
                 pe_history = None
                 pb_history = None
@@ -790,6 +790,12 @@ if run_clicked:
                 st.code(data_result['message'], language='bash')
                 st.info("💡 补充完数据后，重新点击「运行回测」即可。")
                 data_ok = False
+            elif data_result['status'] == 'warn':
+                st.warning("⚠️ 数据存在警告，仍可继续回测（部分因子可能对部分ETF跳过）：")
+                st.code(data_result['message'], language='bash')
+                st.info("💡 建议后续按提示补充数据以获得更完整的因子覆盖。")
+                status.update(label="数据检查通过（含警告）", state="complete", expanded=False)
+                data_ok = True
             else:
                 st.write("✅ 数据检查通过")
                 status.update(label="数据检查完成", state="complete", expanded=False)

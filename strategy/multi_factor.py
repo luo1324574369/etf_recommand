@@ -222,10 +222,66 @@ class MultiFactorStrategy(bt.Strategy):
     def start(self):
         super().start()
         try:
+            self._warmup_price_history()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"_warmup_price_history failed: {e}")
+        try:
             self._warmup_ic_history()
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"_warmup_ic_history failed: {e}")
+
+    def _warmup_price_history(self):
+        """从 backtrader 预加载数组填充 _price_history。
+
+        backtrader 的 next() 在指标最小周期（如 StdDev(60)）之后才开始调用，
+        导致前 N 个 bar 的价格未被 next() 中的 append 逻辑记录。
+        此方法在 start() 中一次性预加载完整历史，确保首次调仓即可计算长周期因子。
+        """
+        import backtrader as bt
+        for d in self.datas:
+            code = d._name
+            n = d.buflen()
+            if n is None or n < 20:
+                continue
+            close_arr = d.close.array
+            open_arr = d.open.array
+            high_arr = d.high.array
+            low_arr = d.low.array
+            vol_arr = d.volume.array
+            dt_arr = d.datetime.array
+            prices = []
+            for i in range(n):
+                try:
+                    c = float(close_arr[i])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if c is None or np.isnan(c) or c <= 0:
+                    continue
+                try:
+                    dt_val = dt_arr[i]
+                    dt = bt.num2date(dt_val).date()
+                except Exception:
+                    continue
+                try:
+                    vol = float(vol_arr[i])
+                    if np.isnan(vol):
+                        vol = 0.0
+                except (TypeError, ValueError):
+                    vol = 0.0
+                amount = c * vol * 100
+                prices.append({
+                    'trade_date': dt.isoformat(),
+                    'open': float(open_arr[i]) if not np.isnan(float(open_arr[i])) else c,
+                    'high': float(high_arr[i]) if not np.isnan(float(high_arr[i])) else c,
+                    'low': float(low_arr[i]) if not np.isnan(float(low_arr[i])) else c,
+                    'close': c,
+                    'volume': vol,
+                    'amount': amount,
+                })
+            if prices:
+                self._price_history[code] = prices
 
     def _warmup_ic_history(self):
         """预热过去12个月的IC序列，用于ICIR加权
@@ -920,9 +976,12 @@ class MultiFactorStrategy(bt.Strategy):
 
             if len(current_returns) >= 3:
                 codes_ic = list(current_returns.keys())
-                for fn in self._last_month_factors[codes_ic[0]]:
-                    if fn == '_close':
-                        continue
+                # 仅遍历上月因子快照中的打分因子（排除 _close 等元数据和非打分因子如 avg_amount_20d）
+                snapshot_factors = [
+                    fn for fn in self._last_month_factors[codes_ic[0]]
+                    if fn != '_close' and fn in available_factors
+                ]
+                for fn in snapshot_factors:
                     f_series = pd.Series({c: self._last_month_factors[c].get(fn, np.nan) for c in codes_ic})
                     r_series = pd.Series({c: current_returns[c] for c in codes_ic})
                     ic = rank_ic_monthly(f_series, r_series)
@@ -1014,6 +1073,7 @@ class MultiFactorStrategy(bt.Strategy):
 
     def next(self):
         # 维护价格历史（用于调用 compute_all_factors，确保与IC预热使用相同因子计算逻辑）
+        # start() 已预加载完整历史，这里只追加新 bar（通过日期去重避免重复）
         for d in self.datas:
             code = d._name
             if d.close[0] is None or np.isnan(d.close[0]) or d.close[0] <= 0:
@@ -1022,8 +1082,11 @@ class MultiFactorStrategy(bt.Strategy):
                 date_str = d.datetime.date(0).isoformat()
             except Exception:
                 continue
+            hist = self._price_history.get(code, [])
+            if hist and hist[-1].get('trade_date') == date_str:
+                continue
             amount = getattr(d, 'amount', [0])[0] if hasattr(d, 'amount') else d.volume[0] * d.close[0]
-            self._price_history[code].append({
+            hist.append({
                 'trade_date': date_str,
                 'open': float(d.open[0]),
                 'high': float(d.high[0]),

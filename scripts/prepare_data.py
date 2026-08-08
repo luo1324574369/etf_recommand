@@ -28,7 +28,7 @@ from data.storage.price_repo import PriceRepository
 from data.storage.valuation_repo import ValuationRepo
 
 PE_MIN_RECORDS = 100
-PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}
+PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}  # 512200理论上有PE，但数据源链路不可靠，暂跳过
 
 
 def main():

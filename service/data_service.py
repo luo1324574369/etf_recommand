@@ -122,17 +122,22 @@ def ensure_data_ready(
     """检查数据是否完整，不全则报错并返回命令行补充指令。
 
     注意：本函数只做检查，不自动获取数据。
-    数据不全时返回 status='error'，message 中包含缺失详情和命令行指令。
+    数据不全时返回 status='error'/'warn'，message 中包含详情。
+    - price 不足: 必须修复，返回 error
+    - PE 不足但 ETF 有指数映射（理论上可补）: 返回 warn，回测可继续（PE 因子对该ETF跳过）
+    - PE 不足且 ETF 无任何指数映射（无法补）: 返回 error
     """
     from data.sources.hybrid_source import ETF_INDEX_MAP, ETF_CSINDEX_MAP
 
-    # 商品/海外ETF无PE概念，跳过PE检查
-    # 512200(房地产ETF)有PE数据，不应在此列表中
-    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100"}
+    # 无PE概念 / 数据源链路不可靠的ETF，跳过PE检查。
+    # 注：512200(房地产ETF)理论上有PE，但乐咕乐股/Tushare宽基/中证接口均无数据，
+    # 暂时放回列表避免阻塞回测；待 AkShare 成分股接口稳定后再移除。
+    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}
 
     result = {
         'status': 'ok',
         'message': '',
+        'warnings': [],
         'details': {
             'etf_list': {'status': 'ok', 'count': 0},
             'price_data': {'status': 'ok', 'per_code': {}},
@@ -185,7 +190,8 @@ def ensure_data_ready(
 
     # Step 3: Check PE history（只检查，不自动获取）
     PE_MIN_RECORDS = 100
-    missing_pe = []
+    missing_pe_error = []   # 无法补的，error 级阻塞
+    missing_pe_warn = []    # 有指数映射可补的，warn 级不阻塞
 
     for code in selected_codes:
         if code in PE_NOT_APPLICABLE:
@@ -196,31 +202,48 @@ def ensure_data_ready(
             continue
 
         code_result = {'status': 'ok', 'count': 0, 'inserted': 0}
+        has_mapping = (code in ETF_INDEX_MAP) or (code in ETF_CSINDEX_MAP)
         try:
-            if code not in ETF_INDEX_MAP and code not in ETF_CSINDEX_MAP:
+            if not has_mapping:
                 code_result['status'] = 'error'
-                missing_pe.append(code)
+                missing_pe_error.append(code)
             else:
                 count = valuation_repo.get_pe_history_count(code)
                 code_result['count'] = count
                 if count < PE_MIN_RECORDS:
                     code_result['status'] = 'insufficient'
-                    missing_pe.append(code)
-        except Exception:
+                    missing_pe_warn.append(code)
+        except Exception as e:
             code_result['status'] = 'error'
-            missing_pe.append(code)
+            if has_mapping:
+                missing_pe_warn.append(code)
+            else:
+                missing_pe_error.append(code)
         result['details']['pe_history']['per_code'][code] = code_result
 
-    if missing_pe:
+    if missing_pe_error:
         result['status'] = 'error'
         result['details']['pe_history']['status'] = 'insufficient'
-        codes_str = ' '.join(missing_pe)
+        codes_str = ' '.join(missing_pe_error)
         result['message'] = (
-            f"PE历史数据不足: {missing_pe} (需≥{PE_MIN_RECORDS}条)\n"
+            f"PE历史数据不足且无可查映射: {missing_pe_error} (需≥{PE_MIN_RECORDS}条)\n"
             f"请在命令行运行以下命令补充数据:\n\n"
             f"  .venv/bin/python scripts/prepare_data.py {codes_str} --pe-only\n"
         )
         return result
 
-    result['message'] = 'All data ready'
+    if missing_pe_warn:
+        result['status'] = 'warn'
+        result['details']['pe_history']['status'] = 'insufficient'
+        codes_str = ' '.join(missing_pe_warn)
+        warn_msg = (
+            f"PE历史数据不足（可继续回测，PE因子对以下ETF跳过）: {missing_pe_warn} (需≥{PE_MIN_RECORDS}条)\n"
+            f"建议后续在命令行补充数据:\n\n"
+            f"  .venv/bin/python scripts/prepare_data.py {codes_str} --pe-only\n"
+        )
+        result['message'] = warn_msg
+        result.setdefault('warnings', []).append(f"PE不足: {missing_pe_warn}，PE因子将对这些ETF跳过分打分")
+
+    if result['status'] == 'ok':
+        result['message'] = 'All data ready'
     return result
