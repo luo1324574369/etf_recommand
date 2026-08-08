@@ -469,9 +469,17 @@ def rank_ic_monthly(factor_ranks_series, next_return_ranks_series):
 
 
 def compute_icir_weights(ic_history, rolling_months=12,
-                         min_icir_include=0.05,
+                         min_icir_include=0.02,
                          return_mode=False):
-    """ICIR加权 + 连续6月≤0剔除 + 恢复条款 + 全负fallback。
+    """方向感知ICIR加权 + 指数衰减 + 贝叶斯收缩 + 连续8月≤0剔除。
+
+    核心改进（vs 旧版）：
+    1. 方向修复：raw IC × FACTOR_DIRECTIONS[factor] 后再算 ICIR
+    2. 阈值降低：min_icir_include 0.05 → 0.02（33ETF月度截面IC天然偏小）
+    3. 指数衰减：half-life=6月，近期IC权重更高
+    4. 贝叶斯收缩：ICIR向截面中位数收缩（κ=3），避免小样本极端值
+    5. 连续8月≤0剔除（原6月，适应A股牛熊周期）
+    6. Fallback：全负时保留方向调整后ICIR最高的2个因子（原等权）
 
     Args:
         ic_history: {factor: list[float]} 按时间升序的月度IC序列（新值在末尾）
@@ -494,47 +502,76 @@ def compute_icir_weights(ic_history, rolling_months=12,
     excluded = {}
     excluded_raw = set()
 
-    # 连续6月IC≤0 判定（恢复通过后续调用自然实现：新增正IC月后last6不再全≤0）
+    # 连续8月方向调整后IC≤0 判定（原6月，放宽以适应A股牛熊周期）
     for f, arr in trimmed.items():
         valid_arr = [v for v in arr if not np.isnan(v)]
-        if len(valid_arr) >= 6:
-            last6 = valid_arr[-6:]
-            if all(x <= 0 for x in last6):
-                excluded[f] = 'consecutive_6m_ic_le_0'
+        if len(valid_arr) >= 8:
+            direction = FACTOR_DIRECTIONS.get(f, 1)
+            last8_adj = [v * direction for v in valid_arr[-8:]]
+            if all(x <= 0 for x in last8_adj):
+                excluded[f] = 'consecutive_8m_adj_ic_le_0'
                 excluded_raw.add(f)
 
-    # 计算 ICIR = mean/std
-    icir_scores = {}
+    # 方向调整 + 指数衰减 + 贝叶斯收缩 计算ICIR
+    icir_scores = {}        # 原始ICIR
+    adj_icir_scores = {}    # 方向调整后ICIR（用于排序和权重）
     for f, arr in trimmed.items():
         if f in excluded_raw:
             continue
         valid_arr = [v for v in arr if not np.isnan(v)]
         if len(valid_arr) < 3:
             continue
-        mean = float(np.mean(valid_arr))
-        std = float(np.std(valid_arr, ddof=1))
-        if std == 0 or np.isnan(std):
+        direction = FACTOR_DIRECTIONS.get(f, 1)
+        adj_ic = [v * direction for v in valid_arr]
+
+        # 指数衰减权重（half-life=6月，近期更重要）
+        n = len(adj_ic)
+        time_weights = [0.5 ** ((n - 1 - i) / 6) for i in range(n)]
+        w_sum = sum(time_weights)
+        ew_mean = sum(w * v for w, v in zip(time_weights, adj_ic)) / w_sum
+        ew_var = sum(w * (v - ew_mean) ** 2 for w, v in zip(time_weights, adj_ic)) / w_sum
+        ew_std = ew_var ** 0.5
+        if ew_std == 0 or np.isnan(ew_std):
             continue
-        icir = mean / std
-        if icir < 0:
+
+        adj_icir = ew_mean / ew_std
+        raw_icir = float(np.mean(valid_arr)) / float(np.std(valid_arr, ddof=1))
+        icir_scores[f] = raw_icir
+        adj_icir_scores[f] = adj_icir
+
+        if adj_icir < 0:
             continue
-        if icir < min_icir_include:
+        if adj_icir < min_icir_include:
             continue
-        icir_scores[f] = icir
+
+    # 贝叶斯收缩：ICIR向截面中位数收缩（κ=3）
+    positive_adj = [v for v in adj_icir_scores.values() if v > 0]
+    if len(positive_adj) >= 2:
+        prior = float(np.median(positive_adj))
+    else:
+        prior = 0.0
+    kappa = 3
+    shrunk_icir = {}
+    for f in adj_icir_scores:
+        if f in excluded_raw:
+            continue
+        valid_arr = [v for v in trimmed[f] if not np.isnan(v)]
+        n = len(valid_arr)
+        raw = adj_icir_scores[f]
+        shrunk = (n * raw + kappa * prior) / (n + kappa)
+        if shrunk >= min_icir_include:
+            shrunk_icir[f] = shrunk
 
     mode = 'icir_dynamic'
-    total_pos = sum(icir_scores.values())
+    total_pos = sum(shrunk_icir.values())
     if total_pos <= 0:
+        # Fallback：保留方向调整后ICIR最高的2个因子（非等权）
         mode = 'equal_weight_fallback'
-        remain = [f for f in all_factors if f not in excluded_raw]
-        if not remain and len(all_factors) > 1:
-            remain = all_factors
-        if remain:
-            w = 1.0 / len(remain)
-            for f in remain:
-                weights[f] = w
+        ranked = sorted(adj_icir_scores.items(), key=lambda x: x[1], reverse=True)
+        for f, _ in ranked[:2]:
+            weights[f] = 0.5
     else:
-        for f, score in icir_scores.items():
+        for f, score in shrunk_icir.items():
             weights[f] = score / total_pos
 
     if return_mode:
