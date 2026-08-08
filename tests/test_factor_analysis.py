@@ -208,7 +208,7 @@ def test_analyze_factor_verdict():
     assert 'icir' in result
     assert 'ic_positive_ratio' in result
     assert 'verdict' in result
-    assert result['verdict'] in ['有效', '弱有效', '无效']
+    assert result['verdict'] in ['有效', '弱有效', '无效', '无数据']
 
 
 def test_judge_verdict_direction_aware():
@@ -320,7 +320,7 @@ def test_analyze_all_etfs_pe_cross_sectional():
         assert 'verdict' in metrics
         assert 'ic_series' in metrics
         assert 'stratified' in metrics
-        assert metrics['verdict'] in ['有效', '弱有效', '无效']
+        assert metrics['verdict'] in ['有效', '弱有效', '无效', '无数据']
 
 
 def test_commodity_etf_skip():

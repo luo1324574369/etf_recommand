@@ -713,3 +713,132 @@ class HybridDataSource:
                             result[code] = pe_records
 
         return result
+
+    def batch_get_valuation_history(self, etf_codes: list[str], on_progress=None) -> dict[str, list[dict]]:
+        """批量获取多只ETF的估值历史时间序列（PE/PB/股息率，日频）
+
+        复用 batch_get_pe_history 的成分股批量方案，同时请求 daily_basic 的
+        pe_ttm/pb/dv_ratio 字段，一次加权得到PE、PB、股息率三个指标。
+        写入字段与 etf_valuation 表对齐：pe, pb, ps, dividend_yield, nav, premium_rate。
+
+        返回: {etf_code: [{trade_date, pe, pb, ps, dividend_yield, nav, premium_rate}, ...]}
+                列表按 trade_date 升序
+        """
+        if not self._tushare:
+            return {}
+
+        VAL_FIELDS = 'ts_code,trade_date,pe_ttm,pb,dv_ratio,total_mv'
+
+        # 1. 分类：只处理有中证成分股映射的ETF
+        csindex_codes = [c for c in etf_codes if c in ETF_CSINDEX_MAP]
+        result = {}
+        if not csindex_codes:
+            return result
+
+        # 2. 收集所有ETF的成分股
+        if on_progress:
+            on_progress("获取ETF成分股列表...")
+        etf_constituents = {}  # {etf_code: set(tushare_codes)}
+        all_stocks = set()
+        for code in csindex_codes:
+            csindex_code = ETF_CSINDEX_MAP.get(code)
+            if not csindex_code:
+                continue
+            try:
+                cons_df = ak.index_stock_cons_csindex(symbol=csindex_code)
+                if cons_df is not None and not cons_df.empty:
+                    stock_codes = {self._to_tushare_code(c) for c in cons_df['成分券代码'].tolist()}
+                    etf_constituents[code] = stock_codes
+                    all_stocks.update(stock_codes)
+            except Exception:
+                continue
+
+        if not etf_constituents or not all_stocks:
+            return result
+
+        # 3. 逐只股票获取全部历史估值数据
+        stock_list = sorted(all_stocks)
+        total_stocks = len(stock_list)
+        stock_frames = []
+        for i, ts_code in enumerate(stock_list):
+            if on_progress and (i % 50 == 0 or i == total_stocks - 1):
+                on_progress(f"获取个股估值数据(含PB/DY): {i+1}/{total_stocks} 只股票")
+            try:
+                df = self._tushare.daily_basic(
+                    ts_code=ts_code,
+                    start_date='20150101',
+                    end_date='20261231',
+                    fields=VAL_FIELDS
+                )
+                if df is not None and not df.empty:
+                    stock_frames.append(df)
+            except Exception:
+                continue
+
+        if not stock_frames:
+            return result
+
+        if on_progress:
+            on_progress("计算加权估值(PE/PB/股息率)...")
+
+        all_df = pd.concat(stock_frames, ignore_index=True)
+        import numpy as np
+
+        for code, stock_set in etf_constituents.items():
+            cons_df = all_df[all_df['ts_code'].isin(stock_set)].copy()
+            if cons_df.empty:
+                continue
+
+            val_records = []
+            for td, group in cons_df.groupby('trade_date'):
+                td_str = str(td)
+                td_fmt = f"{td_str[:4]}-{td_str[4:6]}-{td_str[6:8]}"
+
+                rec = {
+                    "code": code,
+                    "trade_date": td_fmt,
+                    "pe": None, "pb": None, "ps": None,
+                    "dividend_yield": None, "nav": None, "premium_rate": None,
+                }
+
+                # PE: 调和加权（与 _calc_weighted_pe 同公式）
+                valid_pe = group[['total_mv', 'pe_ttm']].dropna()
+                valid_pe = valid_pe[(valid_pe['pe_ttm'] > 0) & (valid_pe['pe_ttm'] <= 500) & (valid_pe['total_mv'] > 0)]
+                if len(valid_pe) > 0:
+                    pe_vals = valid_pe['pe_ttm'].values.astype(float)
+                    mv_pe = valid_pe['total_mv'].values.astype(float)
+                    ws = self._apply_weight_cap(mv_pe, cap=0.15)
+                    earnings = ws / pe_vals
+                    te = earnings.sum()
+                    if te > 0:
+                        rec["pe"] = round(1.0 / te, 2)
+
+                # PB: 调和加权
+                valid_pb = group[['total_mv', 'pb']].dropna()
+                valid_pb = valid_pb[(valid_pb['pb'] > 0) & (valid_pb['total_mv'] > 0)]
+                if len(valid_pb) > 0:
+                    pb_vals = valid_pb['pb'].values.astype(float)
+                    mv_pb = valid_pb['total_mv'].values.astype(float)
+                    ws = self._apply_weight_cap(mv_pb, cap=0.15)
+                    book = ws / pb_vals
+                    tb = book.sum()
+                    if tb > 0:
+                        rec["pb"] = round(1.0 / tb, 2)
+
+                # 股息率 dv_ratio: 市值加权（dv_ratio 已是 % 值）
+                valid_dy = group[['total_mv', 'dv_ratio']].dropna()
+                valid_dy = valid_dy[(valid_dy['dv_ratio'] >= 0) & (valid_dy['total_mv'] > 0)]
+                if len(valid_dy) > 0:
+                    dy_vals = valid_dy['dv_ratio'].values.astype(float)
+                    mv_dy = valid_dy['total_mv'].values.astype(float)
+                    ws = self._apply_weight_cap(mv_dy, cap=0.15)
+                    rec["dividend_yield"] = round(float((ws * dy_vals).sum()), 4)
+
+                val_records.append(rec)
+
+            if val_records:
+                val_records.sort(key=lambda x: x['trade_date'])
+                result[code] = val_records
+
+        return result
+

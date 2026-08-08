@@ -815,9 +815,16 @@ if run_clicked:
                 )
 
             invalid_factors = []
+            no_data_factors = []
             for factor, metrics in (factor_report or {}).items():
-                if metrics.get('verdict') == '无效':
+                verdict = metrics.get('verdict', '')
+                if verdict == '无效':
                     invalid_factors.append(factor)
+                elif verdict == '无数据':
+                    no_data_factors.append(factor)
+
+            if no_data_factors:
+                st.info(f"ℹ️ 以下因子无历史数据，已跳过校验（策略运行时自动不使用）：{', '.join(FACTOR_LABELS.get(f, f) for f in no_data_factors)}")
 
             if invalid_factors:
                 st.error("❌ 因子有效性校验未通过，以下因子判定为「无效」，回测已终止：")

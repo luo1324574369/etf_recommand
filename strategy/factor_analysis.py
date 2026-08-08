@@ -277,7 +277,21 @@ def analyze_factor(
     ic_df = compute_rank_ic(factor_values, forward_returns, [factor_name])
     ic_series = ic_df[ic_df['factor_name'] == factor_name]['ic']
     if len(ic_series) == 0:
-        # 无有效IC数据，直接判为无效
+        # 检查因子值是否全为 NaN（数据缺失）还是有效数据不足
+        factor_col = factor_values[factor_name].dropna() if factor_name in factor_values.columns else pd.Series()
+        if len(factor_col) == 0:
+            # 因子完全无数据：数据缺失，非因子无效
+            return {
+                'ic_series': [],
+                'icir': {'ic_mean': 0, 'ic_std': 0, 'icir': 0,
+                         'ic_positive_ratio': 0, 'ic_t_stat': 0},
+                'stratified': [],
+                'monotonicity': '无数据',
+                'verdict': '无数据',
+                'ic_mean': 0,
+                'ic_positive_ratio': 0,
+            }
+        # 有因子数据但无法计算IC（样本不足）
         return {
             'ic_series': [],
             'icir': {'ic_mean': 0, 'ic_std': 0, 'icir': 0,
@@ -440,6 +454,7 @@ def analyze_all_etfs(
         factor_names = ['reversal_20d', 'pe_percentile', 'volatility_60d']
 
     has_pe_factor = any('pe' in f for f in factor_names)
+    has_dy_factor = any(f == 'dividend_yield' for f in factor_names)
 
     # ── 步骤 1: 收集所有ETF的行情数据 ──
     all_prices_by_code = {}
@@ -447,6 +462,7 @@ def analyze_all_etfs(
     all_return_rows = []
     all_price_dfs = []
     pe_history_by_code = {}
+    dy_history_by_code = {}  # {code: {trade_date: dividend_yield}}
 
     for code in etf_codes:
         prices = price_repo.get_daily_price(code)
@@ -474,13 +490,37 @@ def analyze_all_etfs(
                 }
                 pe_history_by_code[code] = pe_map
 
+        # ── 收集股息率历史（用于传入compute_all_factors） ──
+        if has_dy_factor and hasattr(valuation_repo, 'get_valuation'):
+            dy_history = valuation_repo.get_valuation(code)
+            if dy_history:
+                dy_map = {}
+                for item in dy_history:
+                    dy = item.get('dividend_yield')
+                    if dy is not None and dy > 0:
+                        dy_map[item['trade_date']] = float(dy)
+                if dy_map:
+                    dy_history_by_code[code] = dy_map
+
         # ── 逐日计算因子值（动量、波动率等非PE因子） ──
         prices_list = df.to_dict('records')
+        dy_map = dy_history_by_code.get(code, {})
+        # 股息率按日期前向填充：维护最近一次有效值
+        last_dy = None
         for i in range(60, len(prices_list)):
             sub_prices = prices_list[:i + 1]
             current_date = prices_list[i]['trade_date']
+            current_date_str = current_date.strftime('%Y-%m-%d') if hasattr(current_date, 'strftime') else str(current_date)
 
-            factors = compute_all_factors(code, sub_prices, pe_percentile=None)
+            # 前向填充股息率
+            if dy_map:
+                if current_date_str in dy_map:
+                    last_dy = dy_map[current_date_str]
+
+            factors = compute_all_factors(
+                code, sub_prices, pe_percentile=None,
+                dividend_yield=last_dy,
+            )
 
             row = {'date': current_date, 'code': code}
             for f in factor_names:
