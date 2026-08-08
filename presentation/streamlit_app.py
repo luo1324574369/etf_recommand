@@ -19,6 +19,7 @@ from strategy.scoring import (
     compute_factor_history,
     FACTOR_DIRECTIONS,
     FACTOR_LABELS,
+    DEFAULT_FACTORS,
 )
 from service.data_service import ensure_data_ready
 from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS, TUSHARE_TOKEN
@@ -35,6 +36,20 @@ REBALANCE_FREQ_OPTIONS = {
     "60日（季线）": 60,
     "120日（半年线）": 120,
     "250日（年线）": 250,
+}
+
+PARAM_CN_LABELS = {
+    "lookback_momentum": "反转/动量回看(日)",
+    "lookback_volatility": "低波回看(日)",
+    "top_n": "卫星选股数",
+    "rebalance_freq": "调仓频率(日)",
+    "sector_penalty_factor": "赛道软降权系数",
+    "sector_exclude_threshold": "赛道硬排除阈值",
+    "max_monthly_turnover": "月度换手率上限(%)",
+    "drawdown_threshold": "回撤止损阈值(%)",
+    "max_sector_exposure_pct": "单赛道仓位上限(%)",
+    "market_regime_switch": "启用市场状态切换",
+    "enable_factor_monitor": "启用因子失效监控",
 }
 
 st.set_page_config(page_title="ETF量化策略平台", layout="wide")
@@ -60,6 +75,10 @@ def run_backtest_for_result(selected_codes, start_date, end_date, params, constr
     full_params = {**params, 'constraints': constraints_dict}
     full_params['valuation_repo'] = valuation_repo
     full_params['enable_attribution'] = enable_attribution
+
+    # 构建code->sector映射，供赛道惩罚/行业暴露/持仓限制使用
+    code_to_sector = {item["code"]: item["sector"] for item in ETF_UNIVERSE}
+    full_params['code_to_sector'] = code_to_sector
 
     from strategy import multi_factor
     result = multi_factor.run_backtest(
@@ -543,8 +562,13 @@ def show_etf_detail(code):
 
         if selected_factor:
             prices = price_repo.get_daily_price(code)
-            pe_history = valuation_repo.get_pe_history(code) if selected_factor in ['pe_percentile', 'pb_percentile'] else None
-            hist_df = compute_factor_history(code, prices, [selected_factor], pe_history=pe_history)
+            if selected_factor in ['pe_percentile', 'pb_percentile']:
+                pe_history = valuation_repo.get_pe_history(code)
+                pb_history = valuation_repo.get_pb_history(code) if hasattr(valuation_repo, 'get_pb_history') else pe_history
+            else:
+                pe_history = None
+                pb_history = None
+            hist_df = compute_factor_history(code, prices, [selected_factor], pe_history=pe_history, pb_history=pb_history)
             if not hist_df.empty and selected_factor in hist_df.columns:
                 fig = px.line(
                     hist_df,
@@ -619,7 +643,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")
-    st.caption("多因子轮动策略：动量 + 估值 + 低波动 等权合成")
+    st.caption("多因子轮动策略：反转 + 估值 + 低波 + 红利 ICIR动态加权，核心卫星50/50隔离")
 
     presets = PARAM_PRESETS.get('多因子轮动', [])
     preset_options = [
@@ -631,9 +655,25 @@ with st.sidebar:
     preset_select = st.selectbox("参数预设", preset_names, index=0, key="preset_select")
     selected_preset = next((p for p in preset_options if p["name"] == preset_select), None)
     preset_params = selected_preset.get("params") if selected_preset else None
-
-    # 预设模式：全部参数自动填充
-    params = dict(preset_params)
+    if preset_params is None:
+        # 自定义参数模式：使用默认参数
+        from config.settings import STRATEGY_CONFIG
+        mf_config = STRATEGY_CONFIG.get("multi_factor", {})
+        params = {
+            "lookback_momentum": mf_config.get("lookback_momentum", 60),
+            "lookback_volatility": mf_config.get("lookback_volatility", 60),
+            "top_n": mf_config.get("top_n", 5),
+            "rebalance_freq": mf_config.get("rebalance_freq", 20),
+            "sector_penalty_factor": 1.0,
+            "sector_exclude_threshold": -0.15,
+            "max_monthly_turnover": 100.0,
+            "drawdown_threshold": 15.0,
+            "max_sector_exposure_pct": 50.0,
+            "market_regime_switch": True,
+            "enable_factor_monitor": True,
+        }
+    else:
+        params = dict(preset_params)
     lookback_momentum = params["lookback_momentum"]
     lookback_volatility = params["lookback_volatility"]
     top_n = params["top_n"]
@@ -642,10 +682,10 @@ with st.sidebar:
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        st.info(f"动量回看: {lookback_momentum}日")
-        st.info(f"波动率回看: {lookback_volatility}日")
+        st.info(f"反转/动量回看: {lookback_momentum}日")
+        st.info(f"低波回看: {lookback_volatility}日")
     with col_p2:
-        st.info(f"选择标的: {top_n}只")
+        st.info(f"卫星选股数: {top_n}只")
         st.info(f"调仓频率: {rebalance_label}")
 
     # 展示全部预设参数
@@ -654,7 +694,8 @@ with st.sidebar:
     if extra_params:
         with st.expander("📋 全部预设参数", expanded=False):
             for k, v in extra_params.items():
-                st.text(f"  {k}: {v}")
+                label = PARAM_CN_LABELS.get(k, k)
+                st.text(f"  {label}: {v}")
 
     st.markdown("---")
     st.subheader("🔒 风控约束")
@@ -764,6 +805,7 @@ if run_clicked:
                     valuation_repo=valuation_repo,
                     start_date=start_date.strftime("%Y-%m-%d"),
                     end_date=end_date.strftime("%Y-%m-%d"),
+                    factor_names=['reversal_20d', 'volatility_60d', 'pe_percentile', 'dividend_yield', 'momentum_120d'],
                 )
 
             invalid_factors = []

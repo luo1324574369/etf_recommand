@@ -56,6 +56,7 @@ def compute_all_factors(
     end_date: str = None,
     pe_percentile: float = None,
     pb_percentile: float = None,
+    dividend_yield: float = None,
 ) -> Dict[str, float]:
     if not prices or len(prices) < 20:
         return {}
@@ -96,6 +97,10 @@ def compute_all_factors(
     pbval = pbf.calculate(code, prices, end_date, percentile=pb_percentile)
     if pbval is not None:
         factors["pb_percentile"] = pbval
+
+    # 红利因子（由外部传入，scoring不负责查库）
+    if dividend_yield is not None:
+        factors["dividend_yield"] = _safe_float(dividend_yield)
 
     return factors
 
@@ -283,6 +288,7 @@ def compute_factor_history(
     prices: list,
     factor_names: list,
     pe_history: list = None,
+    pb_history: list = None,
 ) -> pd.DataFrame:
     """
     逐日计算因子历史值。
@@ -292,6 +298,7 @@ def compute_factor_history(
         prices: 行情数据列表（按日期升序，每项含 trade_date, open, high, low, close, volume, amount）
         factor_names: 需要计算的因子名称列表（如 ['momentum_20d', 'volatility_60d', 'pe_percentile']）
         pe_history: PE历史数据列表（每项含 trade_date, pe 等），用于计算PE百分位时间序列
+        pb_history: PB历史数据列表（每项含 trade_date, pb 等），用于计算PB百分位时间序列
 
     Returns:
         DataFrame with columns: date, factor1, factor2, ...
@@ -309,13 +316,27 @@ def compute_factor_history(
                     percentile = (rank / len(pe_values)) * 100
                     pe_pct_series[item["trade_date"]] = percentile
 
+    pb_pct_series = {}
+    if pb_history:
+        sorted_pb = sorted(pb_history, key=lambda x: x["trade_date"])
+        pb_values = []
+        for item in sorted_pb:
+            pb_val = item.get("pb")
+            if pb_val is not None and pb_val > 0:
+                pb_values.append(pb_val)
+                if len(pb_values) > 0:
+                    rank = sum(1 for v in pb_values if v <= pb_val)
+                    percentile = (rank / len(pb_values)) * 100
+                    pb_pct_series[item["trade_date"]] = percentile
+
     rows = []
     for i in range(len(prices)):
         sub_prices = prices[: i + 1]
         date = prices[i]["trade_date"]
         pe_pct = pe_pct_series.get(date) if pe_pct_series else None
+        pb_pct = pb_pct_series.get(date) if pb_pct_series else None
 
-        all_factors = compute_all_factors(code, sub_prices, pe_percentile=pe_pct)
+        all_factors = compute_all_factors(code, sub_prices, pe_percentile=pe_pct, pb_percentile=pb_pct)
 
         row = {"date": date}
         for f in factor_names:
@@ -401,17 +422,22 @@ def group_zscore(etf_codes, factor_values, code_to_group):
     return out
 
 
-def reversal_20d(prices):
-    """20日反转因子 = -(close_t / close_t-20 - 1)
+def reversal(prices, period=20):
+    """反转因子 = -(close_t / close_{t-period} - 1)
     跌越多 → 值越大 → direction=+1 正向因子
-    prices: list[dict] 至少21条
+    prices: list[dict] 至少 period+1 条
     """
-    if not prices or len(prices) < 21:
+    if not prices or len(prices) < period + 1:
         return None
     closes = [p['close'] for p in prices]
-    if closes[-21] == 0:
+    if closes[-(period + 1)] == 0:
         return None
-    return float(-(closes[-1] / closes[-21] - 1))
+    return float(-(closes[-1] / closes[-(period + 1)] - 1))
+
+
+def reversal_20d(prices):
+    """20日反转因子（向后兼容别名）"""
+    return reversal(prices, period=20)
 
 
 from scipy import stats as _sp_stats
@@ -463,17 +489,12 @@ def compute_icir_weights(ic_history, rolling_months=12,
     excluded = {}
     excluded_raw = set()
 
-    # 连续6月IC≤0 判定
+    # 连续6月IC≤0 判定（恢复通过后续调用自然实现：新增正IC月后last6不再全≤0）
     for f, arr in trimmed.items():
         valid_arr = [v for v in arr if not np.isnan(v)]
         if len(valid_arr) >= 6:
             last6 = valid_arr[-6:]
             if all(x <= 0 for x in last6):
-                # 恢复豁免：若最近3月IC均值>0.02则不剔除
-                if len(valid_arr) >= 3:
-                    last3_mean = float(np.mean(valid_arr[-3:]))
-                    if last3_mean > 0.02:
-                        continue
                 excluded[f] = 'consecutive_6m_ic_le_0'
                 excluded_raw.add(f)
 

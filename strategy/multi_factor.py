@@ -1,6 +1,6 @@
 """多因子轮动策略
 
-动量 + 估值 + 低波动 三因子等权轮动。
+反转 + 估值 + 低波 + 红利 四因子 ICIR动态加权，核心卫星50/50隔离。
 复用 scoring.py 的因子计算和合成能力。
 """
 import backtrader as bt
@@ -161,6 +161,9 @@ class MultiFactorStrategy(bt.Strategy):
         # 改用策略自己计算的组合最高净值（backtrader next() bar级计算，更准确）
         self._portfolio_peak_value = 0.0
         self._drawdown_reduced = False
+        # 防止优化器把阈值压到0导致频繁误触发：最低5%
+        if self.p.drawdown_threshold < 5.0:
+            self.p.drawdown_threshold = 5.0
 
         # 换手率追踪已移除：改由 backtest_utils._compute_trade_metrics_from_log 从 trade_list 派生
 
@@ -188,7 +191,7 @@ class MultiFactorStrategy(bt.Strategy):
                 )
 
         # 因子失效监控
-        self._factor_history = {}  # {factor_name: [(date, factor_value, forward_return)]}
+        self._factor_history = {}  # {factor_name: [(date, code, factor_value, close_price)]}
         self._invalid_factors = set()  # 当前失效的因子集合
 
         # 核心卫星策略状态变量
@@ -208,8 +211,13 @@ class MultiFactorStrategy(bt.Strategy):
         self._factor_ic_history = {}         # {factor: list of monthly IC values}
         self._factor_excluded_since = {}     # {factor: date}
         self._weight_history_rows = []       # [{date, factor1_w, factor2_w, ...}]
-        self._ic_rolling_rows = []           # [{date, factor1_ic, factor2_ic, ...}]
+        self._ic_rolling_rows = []           # [{date, factor, ic}]
         self.factor_diagnostics = None       # 回测结束后 set
+
+        # --- 价格历史（用于调用 compute_all_factors，与IC预热保持一致）---
+        self._price_history = {d._name: [] for d in self.datas}
+        # 上一调仓日的因子快照（用于动态计算月度IC）
+        self._last_month_factors = None
 
     def start(self):
         super().start()
@@ -368,6 +376,7 @@ class MultiFactorStrategy(bt.Strategy):
                 etf_returns[code] = (next_close / cut_close - 1)
 
                 pe_pct = None
+                dy_val = None
                 if self.p.valuation_repo is not None:
                     try:
                         pe_pct = self.p.valuation_repo.get_pe_percentile(code, end_date=cut_date_str)
@@ -376,8 +385,16 @@ class MultiFactorStrategy(bt.Strategy):
                             pe_pct = self.p.valuation_repo.get_pe_percentile(code)
                         except Exception:
                             pe_pct = None
+                    # 获取截止日的股息率（避免lookahead bias）
+                    try:
+                        valuations = self.p.valuation_repo.get_valuation(code, end_date=cut_date_str)
+                        if valuations:
+                            dy = valuations[0].get('dividend_yield')
+                            dy_val = float(dy) if dy and dy > 0 else None
+                    except Exception:
+                        dy_val = None
 
-                factors = compute_all_factors(code, cut_prices, pe_percentile=pe_pct)
+                factors = compute_all_factors(code, cut_prices, pe_percentile=pe_pct, dividend_yield=dy_val)
                 if not factors:
                     continue
 
@@ -555,54 +572,49 @@ class MultiFactorStrategy(bt.Strategy):
                     self._core_positions[code] = {'shares': shares, 'avg_price': buy_price}
         self._core_built = True
 
-    def _get_pe_percentile(self, code: str) -> Optional[float]:
-        """获取ETF当前PE历史百分位（使用预加载缓存避免重复查库）"""
+    def _get_pe_percentile(self, code: str, current_date_str: str = None) -> Optional[float]:
+        """获取ETF在指定日期的PE历史百分位（严格过滤 future data）
+
+        Args:
+            code: ETF代码
+            current_date_str: 当前交易日字符串（YYYY-MM-DD），仅使用 <= 此日期的PE历史
+        """
         if self.p.valuation_repo is None:
             return None
-        # 使用预加载缓存
-        if not hasattr(self, '_pe_cache'):
-            self._pe_cache = {}
-        if code in self._pe_cache:
-            return self._pe_cache[code]
         try:
-            pe_history = self.p.valuation_repo.get_pe_history(code)
+            pe_history = self.p.valuation_repo.get_pe_history(code, end_date=current_date_str)
             if not pe_history:
-                self._pe_cache[code] = None
                 return None
             current_pe = pe_history[-1].get('pe')
             if current_pe is None or current_pe <= 0:
-                self._pe_cache[code] = None
                 return None
             all_pes = [h['pe'] for h in pe_history if h.get('pe') and h['pe'] > 0]
             if not all_pes:
-                self._pe_cache[code] = None
                 return None
             rank = sum(1 for pe in all_pes if pe <= current_pe)
             result = rank / len(all_pes) * 100
-            self._pe_cache[code] = result
             return result
         except Exception:
-            self._pe_cache[code] = None
             return None
 
-    def _get_dividend_yield(self, code: str) -> Optional[float]:
+    def _get_dividend_yield(self, code: str, current_date_str: str = None) -> Optional[float]:
+        """获取ETF在指定日期的股息率（严格过滤 future data）
+
+        Args:
+            code: ETF代码
+            current_date_str: 当前交易日字符串（YYYY-MM-DD），取 <= 此日期的最新一条估值记录
+        """
         if self.p.valuation_repo is None:
             return None
-        if not hasattr(self, '_dy_cache'):
-            self._dy_cache = {}
-        if code in self._dy_cache:
-            return self._dy_cache[code]
         try:
-            latest_val = self.p.valuation_repo.get_latest_valuation(code)
-            if not latest_val:
-                self._dy_cache[code] = None
+            valuations = self.p.valuation_repo.get_valuation(code, end_date=current_date_str)
+            if not valuations:
                 return None
+            latest_val = valuations[0]  # get_valuation 返回按 trade_date DESC 排序
             dy = latest_val.get('dividend_yield')
             result = float(dy) if dy and dy > 0 else None
-            self._dy_cache[code] = result
             return result
         except Exception:
-            self._dy_cache[code] = None
             return None
 
     def _check_ma_signal(self) -> str:
@@ -682,62 +694,73 @@ class MultiFactorStrategy(bt.Strategy):
     def _get_dynamic_factor_weights(self, available_factors):
         """根据市场状态返回动态因子权重
 
-        主线行情（bull）: 侧重动量 -> 动量因子乘以 bull_momentum_mult，其他不变，归一化
-        震荡/弱势行情（bear）: 侧重价值、红利、低波 -> 价值类因子乘以 bear_value_mult，其他不变，归一化
+        主线行情（bull）: 侧重动量 -> momentum_120d因子乘以 bull_momentum_mult，其他不变，归一化
+        震荡/弱势行情（bear）: 侧重价值、红利 -> pe_percentile和dividend_yield乘以 bear_value_mult，其他不变，归一化
         neutral: 等权 base_weights，归一化
         """
         regime = self._get_market_regime()
 
-        base_weights = {
-            'reversal_20d': 0.33,
-            'volatility_60d': 0.33,
-            'pe_percentile': 0.34,
-        }
-
-        if 'dividend_yield' in available_factors:
-            base_weights['dividend_yield'] = 0.25
-            base_weights['reversal_20d'] = 0.25
-            base_weights['volatility_60d'] = 0.25
-            base_weights['pe_percentile'] = 0.25
+        # 等权基准权重（仅包含可用因子）
+        n = len(available_factors) if available_factors else 1
+        base_weights = {f: 1.0 / n for f in available_factors}
 
         if regime == 'bull':
             new_weights = {}
             for f, w in base_weights.items():
-                if 'reversal' in f:
+                if 'momentum_120d' in f:
                     new_weights[f] = w * self.p.bull_momentum_mult
                 else:
                     new_weights[f] = w
             total = sum(new_weights.values())
-            return {f: w / total for f, w in new_weights.items()}
+            if total > 0:
+                return {f: w / total for f, w in new_weights.items()}
+            return base_weights
         elif regime == 'bear':
             new_weights = {}
-            value_keywords = ('pe_percentile', 'dividend_yield', 'volatility_60d', 'reversal_20d')
+            value_keywords = ('pe_percentile', 'dividend_yield')
             for f, w in base_weights.items():
                 if any(k in f for k in value_keywords):
                     new_weights[f] = w * self.p.bear_value_mult
                 else:
                     new_weights[f] = w
             total = sum(new_weights.values())
-            return {f: w / total for f, w in new_weights.items()}
+            if total > 0:
+                return {f: w / total for f, w in new_weights.items()}
+            return base_weights
         else:
-            total = sum(base_weights.values())
-            return {f: w / total for f, w in base_weights.items()}
+            return base_weights
 
     def _update_factor_history(self, etf_factors):
-        """更新因子历史数据，用于计算滚动IC"""
+        """更新因子历史数据，用于计算滚动IC
+
+        存储格式: {factor_name: [(date, code, factor_value, close_price), ...]}
+        close_price 用于计算真实前向收益率，避免使用因子值比值作为伪收益率。
+        """
         if not self.p.enable_factor_monitor:
             return
 
         current_date = self.data.datetime.date(0)
 
         for code, factors in etf_factors.items():
+            # 获取当前收盘价（优先从价格历史取，回退到数据源）
+            close_price = None
+            if code in self._price_history and self._price_history[code]:
+                close_price = self._price_history[code][-1]['close']
+            else:
+                d = self._find_data_by_name(code)
+                if d is not None and d.close[0] is not None:
+                    close_price = float(d.close[0])
+
             for factor_name, value in factors.items():
                 if factor_name not in self._factor_history:
                     self._factor_history[factor_name] = []
-                self._factor_history[factor_name].append((current_date, code, value))
+                self._factor_history[factor_name].append((current_date, code, value, close_price))
 
     def _check_factor_validity(self, available_factors):
-        """检查因子有效性（基于近N个月滚动IC）
+        """检查因子有效性（基于近N个月滚动IC，使用真实价格前向收益）
+
+        对每个调仓截面日，计算截面因子值与下一截面日前向收益的Spearman秩相关，
+        若近 factor_monitor_lookback 个月内平均IC（方向调整后）<= threshold，则判定失效。
 
         Returns:
             set: 当前有效的因子集合（剔除失效因子）
@@ -745,9 +768,13 @@ class MultiFactorStrategy(bt.Strategy):
         if not self.p.enable_factor_monitor:
             return set(available_factors)
 
+        from scipy.stats import spearmanr
+        from strategy.scoring import FACTOR_DIRECTIONS
+
         valid_factors = set()
         lookback_days = self.p.factor_monitor_lookback * 30
         threshold = self.p.factor_invalid_threshold
+        current_date = self.data.datetime.date(0)
 
         for factor_name in available_factors:
             history = self._factor_history.get(factor_name, [])
@@ -755,103 +782,173 @@ class MultiFactorStrategy(bt.Strategy):
                 valid_factors.add(factor_name)
                 continue
 
-            current_date = self.data.datetime.date(0)
+            # 过滤到 lookback 窗口内
             recent_data = [h for h in history if (current_date - h[0]).days <= lookback_days]
-
             if len(recent_data) < 5:
                 valid_factors.add(factor_name)
                 continue
 
-            import numpy as np
-            from scipy.stats import spearmanr
+            # 按日期分组: {date: {code: (factor_value, close_price)}}
+            by_date = {}
+            for entry in recent_data:
+                date, code, value, close_price = entry
+                by_date.setdefault(date, {})[code] = (value, close_price)
 
-            values = [h[2] for h in recent_data]
-            if len(set(values)) < 2:
+            sorted_dates = sorted(by_date.keys())
+            if len(sorted_dates) < 2:
                 valid_factors.add(factor_name)
                 continue
 
-            factor_values = []
-            forward_returns = []
-            for i in range(len(recent_data) - 1):
-                val = recent_data[i][2]
-                next_val = recent_data[i + 1][2]
-                if val != 0 and next_val != 0:
-                    factor_values.append(val)
-                    forward_returns.append(next_val / abs(val) - 1)
+            # 对每对相邻截面日计算IC：因子值 vs 前向收益
+            ic_values = []
+            for i in range(len(sorted_dates) - 1):
+                date_i = sorted_dates[i]
+                date_j = sorted_dates[i + 1]
+                data_i = by_date[date_i]
+                data_j = by_date[date_j]
 
-            if len(forward_returns) < 3:
+                # 取两个截面共有的ETF
+                common_codes = [c for c in data_i if c in data_j]
+                if len(common_codes) < 3:
+                    continue
+
+                factor_vals = []
+                forward_rets = []
+                for c in common_codes:
+                    val_i, close_i = data_i[c]
+                    _, close_j = data_j[c]
+                    if val_i is None or close_i is None or close_j is None or close_i <= 0:
+                        continue
+                    factor_vals.append(float(val_i))
+                    forward_rets.append(float(close_j / close_i - 1))
+
+                if len(factor_vals) < 3:
+                    continue
+                if len(set(factor_vals)) < 2 or len(set(forward_rets)) < 2:
+                    continue
+
+                corr, _ = spearmanr(factor_vals, forward_rets)
+                if not np.isnan(corr):
+                    ic_values.append(corr)
+
+            if len(ic_values) < 3:
                 valid_factors.add(factor_name)
                 continue
 
-            corr, _ = spearmanr(factor_values, forward_returns)
-            if not np.isnan(corr):
-                from strategy.scoring import FACTOR_DIRECTIONS
-                direction = FACTOR_DIRECTIONS.get(factor_name, 1)
-                if (direction == 1 and corr > threshold) or (direction == -1 and corr < -threshold):
-                    valid_factors.add(factor_name)
-                else:
-                    self._invalid_factors.add(factor_name)
+            avg_ic = float(np.mean(ic_values))
+            direction = FACTOR_DIRECTIONS.get(factor_name, 1)
+            # 方向调整后IC > threshold 才视为有效
+            effective_ic = avg_ic * direction
+            if effective_ic > threshold:
+                valid_factors.add(factor_name)
             else:
-                valid_factors.add(factor_name)
+                self._invalid_factors.add(factor_name)
 
         return valid_factors
 
     def _compute_scores(self):
-        """计算所有ETF的多因子综合得分"""
+        """计算所有ETF的多因子综合得分
+
+        统一使用 scoring.compute_all_factors 计算因子值，确保IC预热与实盘因子一致。
+        bt.indicators 仅保留用于流动性过滤和交易日志展示，不参与因子打分。
+        """
+        from strategy.scoring import (
+            compute_all_factors, zscore_normalize, equal_weight_score,
+            weighted_score, rank_ic_monthly,
+        )
+        from collections import deque
+
         etf_factors = {}
         etf_raw = {}
+        current_date_str = self.data.datetime.date(0).isoformat()
+
         for d in self.datas:
             code = d._name
+            # 流动性过滤仍使用 bt.indicators（非因子打分）
             avg_amount = self.inds[d]['liquidity'][0]
             if avg_amount is not None and avg_amount < self.p.min_liquidity_amount:
                 continue
 
-            momentum = self.inds[d]['momentum'][0]
-            volatility = self.inds[d]['volatility'][0]
-            if momentum is None or volatility is None:
+            # 从价格历史获取 prices 列表（与IC预热使用相同数据源）
+            prices_list = self._price_history.get(code, [])
+            if len(prices_list) < 20:
                 continue
 
-            pe_pct = self._get_pe_percentile(code)
-            dy = self._get_dividend_yield(code)
+            # 严格过滤 future data：PE百分位和股息率仅使用 <= 当前日期的数据
+            pe_pct = self._get_pe_percentile(code, current_date_str)
+            dy = self._get_dividend_yield(code, current_date_str)
 
-            factors = {}
-            # reversal_20d = -momentum（反转因子：跌越多值越大）
-            factors['reversal_20d'] = -float(momentum) if momentum is not None else None
-            factors['volatility_60d'] = float(volatility) * 100 if volatility is not None else None
-            if pe_pct is not None:
-                factors['pe_percentile'] = pe_pct
-            if dy is not None:
-                factors['dividend_yield'] = dy
+            # 统一因子计算：调用 compute_all_factors
+            factors = compute_all_factors(
+                code, prices_list, end_date=current_date_str,
+                pe_percentile=pe_pct, dividend_yield=dy,
+            )
+            if not factors:
+                continue
 
-            # 只保留反转和波动率都有值的ETF
-            if factors['reversal_20d'] is None or factors['volatility_60d'] is None:
+            # 至少需要 reversal_20d 和 volatility_60d
+            if factors.get('reversal_20d') is None or factors.get('volatility_60d') is None:
                 continue
 
             etf_factors[code] = factors
-            etf_raw[code] = {
-                'momentum': float(momentum) if momentum else 0,
-                'pe_pct': pe_pct if pe_pct else 0,
-                'volatility': float(volatility) * 100 if volatility else 0,
-            }
+            etf_raw[code] = factors
 
         if not etf_factors:
+            # 即使没有可用ETF，也保存因子快照供下月IC计算
+            self._last_month_factors = None
             return [], {}, {}
-
-        # zscore标准化
-        from strategy.scoring import zscore_normalize, equal_weight_score, weighted_score
 
         # 确定可用因子（所有ETF都有的）
         available_factors = ['reversal_20d', 'volatility_60d']
+        if all('momentum_120d' in f for f in etf_factors.values()):
+            available_factors.append('momentum_120d')
         if all('pe_percentile' in f for f in etf_factors.values()):
             available_factors.append('pe_percentile')
         if all('dividend_yield' in f for f in etf_factors.values()):
             available_factors.append('dividend_yield')
+
+        # --- C3+C4: 动态更新IC历史 + 滚动IC记录 ---
+        # 用上一调仓日因子快照 vs 当前收益计算月度IC
+        if self._last_month_factors:
+            current_returns = {}
+            for code in self._last_month_factors:
+                if code in self._price_history and len(self._price_history[code]) >= 2:
+                    old_close = self._last_month_factors[code].get('_close')
+                    curr_close = self._price_history[code][-1]['close']
+                    if old_close and old_close > 0:
+                        current_returns[code] = (curr_close / old_close - 1)
+
+            if len(current_returns) >= 3:
+                codes_ic = list(current_returns.keys())
+                for fn in self._last_month_factors[codes_ic[0]]:
+                    if fn == '_close':
+                        continue
+                    f_series = pd.Series({c: self._last_month_factors[c].get(fn, np.nan) for c in codes_ic})
+                    r_series = pd.Series({c: current_returns[c] for c in codes_ic})
+                    ic = rank_ic_monthly(f_series, r_series)
+                    if ic is not None:
+                        dq = self._factor_ic_history.setdefault(fn, deque(maxlen=24))
+                        dq.append(ic)
+                        self._ic_rolling_rows.append({
+                            'date': current_date_str,
+                            'factor': fn,
+                            'ic': ic,
+                        })
+
+        # 保存当前因子快照供下月IC计算
+        self._last_month_factors = {code: dict(factors) for code, factors in etf_factors.items()}
+        for code in etf_factors:
+            if code in self._price_history and self._price_history[code]:
+                self._last_month_factors[code]['_close'] = self._price_history[code][-1]['close']
 
         # 因子失效监控：剔除近6个月IC失效的因子
         self._update_factor_history(etf_factors)
         valid_factors = self._check_factor_validity(available_factors)
         if valid_factors != set(available_factors):
             available_factors = [f for f in available_factors if f in valid_factors]
+
+        if not available_factors:
+            return [], {}, {}
 
         zscores = zscore_normalize(etf_factors, factor_names=available_factors)
 
@@ -916,6 +1013,26 @@ class MultiFactorStrategy(bt.Strategy):
         return selected, scores, etf_raw
 
     def next(self):
+        # 维护价格历史（用于调用 compute_all_factors，确保与IC预热使用相同因子计算逻辑）
+        for d in self.datas:
+            code = d._name
+            if d.close[0] is None or np.isnan(d.close[0]) or d.close[0] <= 0:
+                continue
+            try:
+                date_str = d.datetime.date(0).isoformat()
+            except Exception:
+                continue
+            amount = getattr(d, 'amount', [0])[0] if hasattr(d, 'amount') else d.volume[0] * d.close[0]
+            self._price_history[code].append({
+                'trade_date': date_str,
+                'open': float(d.open[0]),
+                'high': float(d.high[0]),
+                'low': float(d.low[0]),
+                'close': float(d.close[0]),
+                'volume': float(d.volume[0]),
+                'amount': float(amount),
+            })
+
         if self.p.start_date:
             current_date = self.data.datetime.date(0)
             if current_date < self.p.start_date:
@@ -1111,9 +1228,10 @@ class MultiFactorStrategy(bt.Strategy):
             rank = code_rank.get(code, 0)
             score = scores.get(code, 0)
             raw = raw_factors.get(code, {})
-            momentum_val = raw.get('momentum', 0)
-            pe_val = raw.get('pe_pct', 0) or 0
-            vol_val = raw.get('volatility', 0)
+            # bt.indicators 仅用于交易日志展示动量值（不参与因子打分）
+            momentum_val = float(self.inds[d]['momentum'][0]) if d in self.inds and self.inds[d]['momentum'][0] is not None else 0
+            pe_val = raw.get('pe_percentile', 0) or 0
+            vol_val = raw.get('volatility_60d', 0) or 0
             reason_str = (f"多因子排名第{rank}/{total_n}，综合得分{score:.2f}，"
                           f"动量{momentum_val:.1f}%，PE百分位{pe_val:.0f}%，波动率{vol_val:.1f}%")
             self._log_trade(d, '买入', target_size, buy_price, reason_str)

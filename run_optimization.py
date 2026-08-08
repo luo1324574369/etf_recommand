@@ -1,7 +1,7 @@
-"""Walk-Forward参数预设优化脚本
+"""Walk-Forward 多因子策略参数预设优化脚本
 
-精简参数范围，平衡优化质量和运行时间。
-参数组合数: 36, 验证窗口数: 12, 总回测次数: 468
+使用 multi_factor 策略参数范围进行优化，平衡优化质量和运行时间。
+参数组合数由 max_combinations 采样控制。
 """
 import sys
 import os
@@ -16,14 +16,23 @@ import pandas as pd
 from data.storage.db import init_db, get_db
 from data.storage.price_repo import PriceRepository
 from config.settings import ETF_UNIVERSE, DB_PATH
+from strategy import multi_factor
 from strategy.walk_forward import generate_walk_forward_presets
 
-# 精简参数范围：36个组合（3×3×2×2），平衡覆盖度和速度
+# 多因子策略参数范围（与 strategy/optimizer.py 的 MULTI_FACTOR_PARAM_RANGES 一致）
+# 原始组合数 6912，由 max_combinations 采样控制
 OPTIMIZATION_PARAM_RANGES = {
-    'lookback_short': [20, 40, 60],
-    'lookback_long': [120, 180, 250],
-    'top_n': [2, 3],
+    'lookback_momentum': [20, 40, 60, 120],
+    'lookback_volatility': [60],
+    'top_n': [3, 4, 5],
     'rebalance_freq': [20, 60],
+    'sector_penalty_factor': [0.5, 0.7, 1.0],
+    'sector_exclude_threshold': [-0.10, -0.15, -0.20],
+    'max_monthly_turnover': [30.0, 60.0, 100.0],
+    'drawdown_threshold': [10.0, 15.0, 20.0, 35.0],  # 移除0：会触发频繁止损
+    'max_sector_exposure_pct': [50.0, 80.0, 100.0],
+    'market_regime_switch': [True, False],
+    'enable_factor_monitor': [True, False],
 }
 
 
@@ -100,6 +109,7 @@ def main():
         OPTIMIZATION_PARAM_RANGES,
         max_combinations=144,
         progress_callback=on_progress,
+        strategy_module=multi_factor,
     )
 
     elapsed = wf_result.get('elapsed_time', 0)
@@ -120,10 +130,10 @@ def main():
         m = p['metrics']
         params = p['params']
         print(f"\n【预设 {i}】{p['name']}")
-        print(f"  参数: lookback_short={params.get('lookback_short')}, "
-              f"lookback_long={params.get('lookback_long')}, "
+        print(f"  参数: lookback_momentum={params.get('lookback_momentum')}, "
               f"top_n={params.get('top_n')}, "
-              f"rebalance_freq={params.get('rebalance_freq')}")
+              f"rebalance_freq={params.get('rebalance_freq')}, "
+              f"drawdown_threshold={params.get('drawdown_threshold')}")
         print(f"  --- 全周期指标 ---")
         print(f"  年化收益: {m.get('full_annual_return', 0):.2f}%")
         print(f"  夏普比率: {m.get('full_sharpe_ratio', 0):.2f}")
@@ -146,7 +156,7 @@ def main():
     for p in presets:
         m = p['metrics']
         params = p['params']
-        param_str = f"ls={params.get('lookback_short')},ll={params.get('lookback_long')},n={params.get('top_n')},f={params.get('rebalance_freq')}"
+        param_str = f"lm={params.get('lookback_momentum')},n={params.get('top_n')},f={params.get('rebalance_freq')},dd={params.get('drawdown_threshold')}"
         print(f"{p['name']:<22} "
               f"{m.get('full_annual_return', 0):>8.2f} "
               f"{m.get('full_sharpe_ratio', 0):>6.2f} "

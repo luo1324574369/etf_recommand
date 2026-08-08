@@ -127,7 +127,8 @@ def ensure_data_ready(
     from data.sources.hybrid_source import ETF_INDEX_MAP, ETF_CSINDEX_MAP
 
     # 商品/海外ETF无PE概念，跳过PE检查
-    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}
+    # 512200(房地产ETF)有PE数据，不应在此列表中
+    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100"}
 
     result = {
         'status': 'ok',

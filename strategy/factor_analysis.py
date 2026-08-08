@@ -426,7 +426,7 @@ def analyze_all_etfs(
         valuation_repo: ValuationRepo实例
         start_date: 开始日期 (YYYY-MM-DD)
         end_date: 结束日期 (YYYY-MM-DD)
-        factor_names: 因子名列表，None=默认['momentum_60d', 'pe_percentile', 'volatility_60d']
+        factor_names: 因子名列表，None=默认['reversal_20d', 'pe_percentile', 'volatility_60d']
         forward_period: 前瞻周期（交易日），默认60日
         sample_freq_days: 采样频率（每N个交易日采样一次），默认10日
         min_pe_records: 最少PE历史记录数，默认100条
@@ -437,7 +437,7 @@ def analyze_all_etfs(
     from strategy.scoring import compute_all_factors
 
     if factor_names is None:
-        factor_names = ['momentum_60d', 'pe_percentile', 'volatility_60d']
+        factor_names = ['reversal_20d', 'pe_percentile', 'volatility_60d']
 
     has_pe_factor = any('pe' in f for f in factor_names)
 

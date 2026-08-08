@@ -99,7 +99,7 @@ MULTI_FACTOR_PARAM_RANGES = {
     'sector_penalty_factor': [0.5, 0.7, 1.0],
     'sector_exclude_threshold': [-0.10, -0.15, -0.20],
     'max_monthly_turnover': [30.0, 60.0, 100.0],
-    'drawdown_threshold': [0.0, 20.0, 35.0],
+    'drawdown_threshold': [10.0, 15.0, 20.0, 35.0],  # 移除0：会触发频繁止损
     'max_sector_exposure_pct': [50.0, 80.0, 100.0],
     'market_regime_switch': [True, False],
     'enable_factor_monitor': [True, False],
