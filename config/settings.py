@@ -243,10 +243,10 @@ WEB_CONFIG = {
 
 PARAM_PRESETS = {
     "多因子轮动": [
-    {"name": "🏆 收益优先型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 60, "sector_penalty_factor": 0.5, "sector_exclude_threshold": -0.2, "max_monthly_turnover": 30.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
-    {"name": "⚖️ 均衡型", "params": {"lookback_momentum": 20, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 60, "sector_penalty_factor": 0.7, "sector_exclude_threshold": -0.1, "max_monthly_turnover": 60.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
-    {"name": "🛡️ 低回撤型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 60, "sector_penalty_factor": 0.5, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 30.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
-    {"name": "📊 低频交易型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 3, "rebalance_freq": 60, "sector_penalty_factor": 0.5, "sector_exclude_threshold": -0.2, "max_monthly_turnover": 30.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "🏆 收益优先型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 3, "rebalance_freq": 20, "sector_penalty_factor": 0.7, "sector_exclude_threshold": -0.1, "max_monthly_turnover": 100.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "⚖️ 均衡型", "params": {"lookback_momentum": 120, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 20, "sector_penalty_factor": 1.0, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 100.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "🛡️ 低回撤型", "params": {"lookback_momentum": 60, "lookback_volatility": 60, "top_n": 3, "rebalance_freq": 20, "sector_penalty_factor": 0.7, "sector_exclude_threshold": -0.2, "max_monthly_turnover": 60.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "📊 低频交易型", "params": {"lookback_momentum": 120, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 60, "sector_penalty_factor": 1.0, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 30.0, "drawdown_threshold": 0.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
     {"name": "⚙️ 自定义参数", "params": None},
 ],
 }
