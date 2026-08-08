@@ -897,6 +897,8 @@ class MultiFactorStrategy(bt.Strategy):
             effective_ic = avg_ic * direction
             if effective_ic > threshold:
                 valid_factors.add(factor_name)
+                # 自动恢复：因子IC回升则从失效集合中移除
+                self._invalid_factors.discard(factor_name)
             else:
                 self._invalid_factors.add(factor_name)
 
@@ -1006,8 +1008,10 @@ class MultiFactorStrategy(bt.Strategy):
         if valid_factors != set(available_factors):
             available_factors = [f for f in available_factors if f in valid_factors]
 
+        # 保底机制：即使所有因子都被判失效，也至少保留 reversal_20d 和 volatility_60d
+        # 避免排名0/0清仓踩踏（Bug #1/#3 根因）
         if not available_factors:
-            return [], {}, {}
+            available_factors = ['reversal_20d', 'volatility_60d']
 
         zscores = zscore_normalize(etf_factors, factor_names=available_factors)
 
@@ -1137,14 +1141,17 @@ class MultiFactorStrategy(bt.Strategy):
         account_total_value = self.broker.get_value()          # 账户总市值（参考用）
         satellite_total_value = self._get_satellite_total_value()  # 卫星市值（约束计算用，>0才用）
         constraint_base_value = satellite_total_value if satellite_total_value > 1e3 else account_total_value
-        # 单仓上限 & 持仓市值按卫星计算
-        max_single_mv = constraint_base_value * self.constraints.max_position_pct / 100
         current_positions = self._get_current_positions_mv(exclude_core=True)  # 只含卫星
         pending_sell_amounts = 0.0
         core_codes_set = set(self._core_positions.keys())
         # 过滤掉核心code：核心仓位永不参与轮动调仓
         selected_codes_filtered = [c for c in selected_codes if c not in core_codes_set]
         selected_set = set(selected_codes_filtered)
+        # 动态单仓上限：当选中ETF数 < top_n 时，按比例放宽上限，避免现金滞留和反复超配减仓
+        # 例：top_n=5 但仅选2只 → effective_max_pct = max(40%, 100/2) = 50%
+        n_selected = max(len(selected_codes_filtered), 1)
+        effective_max_pct = max(self.constraints.max_position_pct, 100.0 / n_selected)
+        max_single_mv = constraint_base_value * effective_max_pct / 100
 
         # 阶段1：卖出
         # 1a. 清仓：不在新top_n的持仓
@@ -1200,7 +1207,7 @@ class MultiFactorStrategy(bt.Strategy):
                     rank = code_rank.get(d._name, 0)
                     score = scores.get(d._name, 0)
                     reason_str = (f"多因子排名第{rank}/{total_n}，超配减仓"
-                                  f"（当前{current_mv/constraint_base_value*100:.1f}%→目标{self.constraints.max_position_pct}%）")
+                                  f"（当前{current_mv/constraint_base_value*100:.1f}%→目标{effective_max_pct:.0f}%）")
                     sell_price = self.constraints.apply_slippage_sell(price)
                     sell_amount_real = sell_shares * sell_price
                     self._log_trade(d, '卖出', sell_shares, sell_price, reason_str)

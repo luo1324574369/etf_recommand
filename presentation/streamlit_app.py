@@ -412,7 +412,13 @@ def _render_factor_diagnostics_section(result):
         if rolling_ic is None:
             rolling_ic = pd.DataFrame()
         if not rolling_ic.empty and 'date' in rolling_ic.columns:
-            long_df = rolling_ic.melt(id_vars='date', var_name='factor', value_name='ic')
+            cols = set(rolling_ic.columns)
+            if {'factor', 'ic'}.issubset(cols):
+                # 长表格式（date, factor, ic）直接使用
+                long_df = rolling_ic.copy()
+            else:
+                # 宽表格式（date, factor1, factor2, ...）melt 成长表
+                long_df = rolling_ic.melt(id_vars='date', var_name='factor', value_name='ic')
             long_df['label'] = long_df['factor'].map(FACTOR_LABELS).fillna(long_df['factor'])
             fig = px.line(
                 long_df, x='date', y='ic', color='label',

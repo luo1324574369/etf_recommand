@@ -73,8 +73,8 @@ def compute_all_factors(
         if val is not None:
             factors[f"momentum_{period}d"] = _safe_float(val * 100)
 
-    # 20日反转因子
-    rev20 = reversal_20d(prices)
+    # 20日反转因子（统一使用 end_date 截断，与 MomentumFactor/VolatilityFactor 一致）
+    rev20 = reversal_20d(prices, end_date=end_date)
     if rev20 is not None:
         factors['reversal_20d'] = rev20
 
@@ -422,12 +422,17 @@ def group_zscore(etf_codes, factor_values, code_to_group):
     return out
 
 
-def reversal(prices, period=20):
+def reversal(prices, period=20, end_date=None):
     """反转因子 = -(close_t / close_{t-period} - 1)
     跌越多 → 值越大 → direction=+1 正向因子
     prices: list[dict] 至少 period+1 条
+    end_date: str 'YYYY-MM-DD'，仅使用 <= end_date 的数据（防未来数据泄漏）
     """
     if not prices or len(prices) < period + 1:
+        return None
+    if end_date is not None:
+        prices = [p for p in prices if p['trade_date'] <= end_date]
+    if len(prices) < period + 1:
         return None
     closes = [p['close'] for p in prices]
     if closes[-(period + 1)] == 0:
@@ -435,9 +440,9 @@ def reversal(prices, period=20):
     return float(-(closes[-1] / closes[-(period + 1)] - 1))
 
 
-def reversal_20d(prices):
+def reversal_20d(prices, end_date=None):
     """20日反转因子（向后兼容别名）"""
-    return reversal(prices, period=20)
+    return reversal(prices, period=20, end_date=end_date)
 
 
 from scipy import stats as _sp_stats
