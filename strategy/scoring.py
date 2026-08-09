@@ -22,7 +22,7 @@ FACTOR_DIRECTIONS = {
 
 DEFAULT_FACTORS = [
     "reversal_20d",
-    "cross_mom_120d",     # was: "momentum_120d"
+    "momentum_120d",    # rollback from cross_mom_120d
     "pe_percentile",
     "avg_amount_20d",
 ]
