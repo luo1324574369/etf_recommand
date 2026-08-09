@@ -642,7 +642,24 @@ def compute_icir_weights(ic_history, rolling_months=12,
 
     mode = 'icir_dynamic'
     total_pos = sum(shrunk_icir.values())
-    if total_pos <= 0:
+    n_effective_weights = len(shrunk_icir)
+
+    if n_effective_weights < 3 and total_pos > 0:
+        mode = 'icir_dynamic_then_equal_weight'
+        ranked_candidates = [
+            (f, s) for f, s in adj_icir_scores.items()
+            if f not in excluded_raw and s > 0
+        ]
+        ranked_candidates.sort(key=lambda x: x[1], reverse=True)
+        top_factors = [f for f, _ in ranked_candidates[:4]]
+        if len(top_factors) >= 3:
+            eq_w = 1.0 / len(top_factors)
+            for f in top_factors:
+                weights[f] = eq_w
+        else:
+            for f, score in shrunk_icir.items():
+                weights[f] = score / total_pos
+    elif total_pos <= 0:
         # Fallback：保留方向调整后ICIR最高的2个因子（非等权）
         mode = 'equal_weight_fallback'
         ranked = sorted(adj_icir_scores.items(), key=lambda x: x[1], reverse=True)
