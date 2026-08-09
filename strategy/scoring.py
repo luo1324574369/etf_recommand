@@ -604,6 +604,22 @@ def compute_icir_weights(ic_history, rolling_months=12,
         if adj_icir < min_icir_include:
             continue
 
+    # ---- BUG #1 FIX: IC≈0 硬过滤(abs(mean_adj_ic) < 0.005 视为纯噪声,不给权重) ----
+    no_signal_filters = set()
+    for f in list(adj_icir_scores.keys()):
+        if f in excluded_raw:
+            continue
+        valid_arr = [v for v in trimmed[f] if not np.isnan(v)]
+        if len(valid_arr) < 3:
+            continue
+        direction = FACTOR_DIRECTIONS.get(f, 1)
+        mean_adj = float(np.mean([v * direction for v in valid_arr]))
+        if abs(mean_adj) < 0.005:
+            no_signal_filters.add(f)
+            prev_reason = excluded.get(f, '')
+            excluded[f] = (prev_reason + '|' if prev_reason else '') + 'ic_magnitude_lt_0.005'
+    excluded_raw |= no_signal_filters
+
     # 贝叶斯收缩：ICIR向截面中位数收缩（κ=3）
     # 判定用收缩前raw_adj（真实信号强度），数值用收缩后shrunk（避免极端值）
     positive_adj = [v for v in adj_icir_scores.values() if v > 0]
