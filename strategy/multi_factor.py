@@ -107,7 +107,11 @@ class MultiFactorStrategy(bt.Strategy):
         ('factor_invalid_threshold', 0.0),# 因子失效阈值（IC均值<=此值视为失效）
         ('max_sector_exposure_pct', 50.0), # 行业仓位上限（%），0=不限制
         ('max_monthly_turnover', 30.0),    # 月度换手率上限（%），0=不限制
-        ('core_allocation_pct', 50.0),     # 核心仓位占总资金比例(%)
+        ('core_allocation_pct', 50.0),     # 核心仓位占总资金比例(%) — neutral/baseline 目标占比
+        ('core_dynamic', True),            # 是否启用动态核心（随市场状态小幅调整核心仓位占比）
+        ('core_bull_alloc_pct', 55.0),     # bull状态核心目标占比(%) — 保守±5pp，避免追涨杀跌
+        ('core_bear_alloc_pct', 45.0),     # bear状态核心目标占比(%)
+        ('core_rebalance_threshold_pct', 3.0),  # 核心占比偏离>此值才再平衡(pp)
         ('core_etf_codes', None),          # 核心仓位ETF代码列表/tuple，None时默认['510300','510500']
         ('core_weights', None),            # 核心仓位内部权重列表/tuple，None时等权
         ('regime_macd_fast', 12),          # MACD快线周期
@@ -606,7 +610,9 @@ class MultiFactorStrategy(bt.Strategy):
         if self._core_built:
             return
         account_value = self.broker.getvalue()
-        core_total = account_value * (self.p.core_allocation_pct / 100.0)
+        # 首日用动态目标占比（基于 regime 初始值）而非固定 50%
+        target_pct = self._get_target_core_alloc()
+        core_total = account_value * (target_pct / 100.0)
         codes = self.p.core_etf_codes or ["510300", "510500"]
         if self.p.core_weights is not None:
             weights = list(self.p.core_weights)
@@ -623,11 +629,95 @@ class MultiFactorStrategy(bt.Strategy):
                 shares = int((alloc * 0.9985) / (buy_price * 100)) * 100
                 if shares > 0:
                     self._log_trade(data, '买入', shares, buy_price,
-                                   f"核心仓位建仓（{self.p.core_allocation_pct:.0f}%总资金，内部权重{weights[i]*100:.0f}%）",
+                                   f"核心仓位建仓（动态目标{target_pct:.0f}%，内部权重{weights[i]*100:.0f}%）",
                                    trade_type='core')
                     self.buy(data=data, size=shares, price=buy_price)
                     self._core_positions[code] = {'shares': shares, 'avg_price': buy_price}
         self._core_built = True
+
+    def _get_target_core_alloc(self) -> float:
+        """根据已确认的市场状态返回核心仓位目标占比(%)。
+
+        【关键】直接读 self._current_regime，不调用 _get_market_regime()（有streak++副作用），
+        避免同一天streak被double-count导致regime提前切换确认。
+
+        档位保守（±5pp）：bull=55%, bear=45%, neutral=50%
+        — 避免regime滞后信号造成追涨杀跌（9月底指数高点加、10月暴跌后减）
+        """
+        if not self.p.core_dynamic:
+            return self.p.core_allocation_pct
+        # 直接读取已确认状态（无副作用）。_current_regime 初始='bull'兼容首日建仓
+        regime = self._current_regime if hasattr(self, '_current_regime') else 'neutral'
+        if regime == 'bull':
+            return self.p.core_bull_alloc_pct
+        elif regime == 'bear':
+            return self.p.core_bear_alloc_pct
+        else:
+            return self.p.core_allocation_pct
+
+    def _rebalance_core_position(self):
+        """调仓日再平衡核心仓位到目标占比。
+
+        仅当实际占比偏离目标占比超过 core_rebalance_threshold_pct (默认5pp) 时才执行，
+        避免 regime 频繁切换造成的交易成本。
+        买入/卖出按 core_weights 比例在各核心 ETF 间分配。
+        """
+        if not self._core_built:
+            return
+        account_value = self.broker.getvalue()
+        if account_value <= 0:
+            return
+        core_mv = self._get_core_total_value()
+        actual_pct = core_mv / account_value * 100.0
+        target_pct = self._get_target_core_alloc()
+        gap = target_pct - actual_pct  # 正值=需加仓核心，负值=需减仓核心
+        threshold = self.p.core_rebalance_threshold_pct
+        if abs(gap) <= threshold:
+            return
+        # 每个核心 ETF 需要调整的金额
+        codes = self.p.core_etf_codes or ["510300", "510500"]
+        weights = list(self.p.core_weights) if self.p.core_weights is not None else [1.0 / len(codes)] * len(codes)
+        # 目标核心总资金
+        target_core_mv = account_value * (target_pct / 100.0)
+        for i, code in enumerate(codes):
+            d = self._find_data_by_name(code)
+            if d is None or d.close[0] is None or d.close[0] <= 0:
+                continue
+            target_code_mv = target_core_mv * weights[i]
+            current_mv = 0.0
+            if code in self._core_positions:
+                current_mv = self._core_positions[code]['shares'] * d.close[0]
+            diff_mv = target_code_mv - current_mv
+            close_price = d.close[0]
+            if diff_mv > 0:  # 加仓
+                buy_price = self.constraints.apply_slippage_buy(close_price)
+                # 留0.15%现金避免现金不足
+                shares = int((diff_mv * 0.9985) / (buy_price * 100)) * 100
+                if shares > 0:
+                    self._log_trade(d, '买入', shares, buy_price,
+                                   f"核心仓位加仓（目标{target_pct:.0f}%，偏离{gap:+.1f}pp，调仓差额{diff_mv:,.0f}）",
+                                   trade_type='core_rebalance')
+                    self.buy(data=d, size=shares, price=buy_price)
+                    old_shares = self._core_positions.get(code, {}).get('shares', 0)
+                    old_avg = self._core_positions.get(code, {}).get('avg_price', buy_price)
+                    new_shares = old_shares + shares
+                    new_avg = (old_avg * old_shares + buy_price * shares) / new_shares if new_shares > 0 else buy_price
+                    self._core_positions[code] = {'shares': new_shares, 'avg_price': new_avg}
+            elif diff_mv < 0:  # 减仓
+                sell_price = self.constraints.apply_slippage_sell(close_price)
+                shares_to_sell = int(abs(diff_mv) / (sell_price * 100)) * 100
+                if shares_to_sell > 0 and code in self._core_positions:
+                    current_shares = self._core_positions[code]['shares']
+                    shares_to_sell = min(shares_to_sell, current_shares)
+                    if shares_to_sell > 0:
+                        shares_to_sell = (shares_to_sell // 100) * 100
+                        if shares_to_sell <= 0:
+                            continue
+                        self._log_trade(d, '卖出', shares_to_sell, sell_price,
+                                       f"核心仓位减仓（目标{target_pct:.0f}%，偏离{gap:+.1f}pp，调仓差额{diff_mv:,.0f}）",
+                                       trade_type='core_rebalance')
+                        self.sell(data=d, size=shares_to_sell, price=sell_price)
+                        self._core_positions[code]['shares'] = current_shares - shares_to_sell
 
     def _get_pe_percentile(self, code: str, current_date_str: str = None) -> Optional[float]:
         """获取ETF在指定日期的PE历史百分位（严格过滤 future data）
@@ -1149,6 +1239,10 @@ class MultiFactorStrategy(bt.Strategy):
         # 每日刷新市场状态（用于3日确认计数，即使非调仓日也要跑）
         if self.p.market_regime_switch:
             _ = self._get_market_regime()
+
+        # 每日再平衡核心仓位（不等待调仓日），减少regime信号与20天调仓窗的时间错位
+        # — 用当前已确认的_current_regime判定档位（±5pp），温和调整避免追涨杀跌
+        self._rebalance_core_position()
 
         self.day_count += 1
         if self.day_count % self.p.rebalance_freq != 0:

@@ -1266,14 +1266,18 @@ if result:
                 "代码": code,
                 "名称": name,
                 "状态": _status_label(v['status']),
-                "数据点": metric_dict.get("重合数据点", {}).get("value", "-"),
-                "相关系数": metric_dict.get("相关系数", {}).get("value", "-"),
+                "数据点": metric_dict.get("重合数据点", {}).get("value"),
+                "相关系数": metric_dict.get("相关系数", {}).get("value"),
                 "平均误差": f"{metric_dict.get('平均相对误差', {}).get('value', '-')}%",
                 "通过率": f"{metric_dict.get('通过率', {}).get('value', '-')}%",
-                "最新本地PE": metric_dict.get("均值比率", {}).get("value", "-"),
+                "最新本地PE": metric_dict.get("均值比率", {}).get("value"),
                 "校验时间": v.get('validated_at', '')[:19],
             })
         val_df = pd.DataFrame(val_rows)
+        # object列(含None/数值混合)安全转Arrow:统一把None保留,数值列转float避免'-' str→int64失败
+        for col in ("数据点", "相关系数", "最新本地PE"):
+            if col in val_df.columns:
+                val_df[col] = pd.to_numeric(val_df[col], errors='coerce')
         st.dataframe(val_df, use_container_width=True, hide_index=True)
 
         pass_count = sum(1 for v in val_results if v['status'] == 'pass')
