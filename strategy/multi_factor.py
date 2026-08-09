@@ -1042,37 +1042,6 @@ class MultiFactorStrategy(bt.Strategy):
             etf_factors[code] = factors
             etf_raw[code] = factors
 
-        # ===== B1 NEW: 横截面动量 追加到 etf_factors =====
-        # 在33只ETF池子里按收益率排名→百分位,IC是时序动量的3-5倍
-        from strategy.scoring import cross_sectional_momentum as _cs_mom
-        _periods = [120]
-        _cross_ret = {}
-        for _d in self.datas:
-            _c = _d._name
-            if _c not in etf_factors:
-                continue   # 已被流动性/最小长度过滤,不参与横截面
-            _prices = self._price_history.get(_c, [])
-            if len(_prices) < 121:
-                continue
-            _row = {}
-            for _p in _periods:
-                if len(_prices) < _p + 1:
-                    continue
-                try:
-                    _denom = _prices[-_p - 1]['close']
-                    if _denom and _denom > 0:
-                        _row[_p] = float((_prices[-1]['close'] - _denom) / _denom)
-                except (ZeroDivisionError, IndexError, TypeError):
-                    pass
-            if _row:
-                _cross_ret[_c] = _row
-        if _cross_ret:
-            _cf = _cs_mom(_cross_ret, _periods)
-            for _c, _fs in _cf.items():
-                if _c in etf_factors:
-                    etf_factors[_c].update(_fs)
-        # =====================================================
-
         if not etf_factors:
             # 即使没有可用ETF，也保存因子快照供下月IC计算
             self._last_month_factors = None
@@ -1089,9 +1058,6 @@ class MultiFactorStrategy(bt.Strategy):
             available_factors.append('pe_percentile')
         if sum(1 for f in etf_factors.values() if 'dividend_yield' in f) >= min_count:
             available_factors.append('dividend_yield')
-        # B1: 横截面120日动量
-        if sum(1 for f in etf_factors.values() if 'cross_mom_120d' in f) >= min_count:
-            available_factors.append('cross_mom_120d')
 
         # --- C3+C4: 动态更新IC历史 + 滚动IC记录 ---
         # 用上一调仓日因子快照 vs 当前收益计算月度IC
@@ -1156,8 +1122,7 @@ class MultiFactorStrategy(bt.Strategy):
                 adjusted = dict(effective_weights)
                 if regime == 'bull':
                     for f in adjusted:
-                        # 时序动量 + 横截面动量 都在牛市享受1.3x加成
-                        if 'momentum_120d' in f or 'cross_mom_' in f:
+                        if 'momentum_120d' in f:
                             adjusted[f] *= self.p.bull_momentum_mult
                 elif regime == 'bear':
                     value_keys = ('pe_percentile', 'dividend_yield', 'volatility')
