@@ -381,6 +381,7 @@ def run_backtest(
         'attribution_error': attribution_error,
         'alpha_stability': alpha_stability,
         'factor_diagnostics': factor_diagnostics,
+        'market_regime_log': getattr(strat, '_regime_log', []),
     }
 
 

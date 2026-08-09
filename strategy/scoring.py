@@ -545,6 +545,7 @@ def compute_icir_weights(ic_history, rolling_months=12,
             continue
 
     # 贝叶斯收缩：ICIR向截面中位数收缩（κ=3）
+    # 判定用收缩前raw_adj（真实信号强度），数值用收缩后shrunk（避免极端值）
     positive_adj = [v for v in adj_icir_scores.values() if v > 0]
     if len(positive_adj) >= 2:
         prior = float(np.median(positive_adj))
@@ -557,10 +558,11 @@ def compute_icir_weights(ic_history, rolling_months=12,
             continue
         valid_arr = [v for v in trimmed[f] if not np.isnan(v)]
         n = len(valid_arr)
-        raw = adj_icir_scores[f]
-        shrunk = (n * raw + kappa * prior) / (n + kappa)
-        if shrunk >= min_icir_include:
-            shrunk_icir[f] = shrunk
+        raw_adj = adj_icir_scores[f]
+        shrunk = (n * raw_adj + kappa * prior) / (n + kappa)
+        # 判定用收缩前（真实信号强度），数值用收缩后（稳健估计）
+        if raw_adj >= min_icir_include:
+            shrunk_icir[f] = max(shrunk, min_icir_include * 0.5)
 
     mode = 'icir_dynamic'
     total_pos = sum(shrunk_icir.values())

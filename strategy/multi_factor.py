@@ -212,6 +212,7 @@ class MultiFactorStrategy(bt.Strategy):
         self._factor_excluded_since = {}     # {factor: date}
         self._weight_history_rows = []       # [{date, factor1_w, factor2_w, ...}]
         self._ic_rolling_rows = []           # [{date, factor, ic}]
+        self._regime_log = []                # [{date, regime, ma_sig, macd_sig, vol_sig, candidate, streak}]
         self.factor_diagnostics = None       # 回测结束后 set
 
         # --- 价格历史（用于调用 compute_all_factors，与IC预热保持一致）---
@@ -956,13 +957,16 @@ class MultiFactorStrategy(bt.Strategy):
             self._last_month_factors = None
             return [], {}, {}
 
-        # 确定可用因子（所有ETF都有的）
+        # 确定可用因子（多数ETF有即可纳入；zscore_normalize 对缺失值返回0，不影响排名稳健性）
+        # 原bug: 用 all() 要求所有ETF都有该因子，商品ETF(159985/518880)缺PE导致pe_percentile被永久剔除
         available_factors = ['reversal_20d', 'volatility_60d']
-        if all('momentum_120d' in f for f in etf_factors.values()):
+        n_etfs = len(etf_factors)
+        min_count = max(3, n_etfs // 2)  # 至少半数ETF有该因子
+        if sum(1 for f in etf_factors.values() if 'momentum_120d' in f) >= min_count:
             available_factors.append('momentum_120d')
-        if all('pe_percentile' in f for f in etf_factors.values()):
+        if sum(1 for f in etf_factors.values() if 'pe_percentile' in f) >= min_count:
             available_factors.append('pe_percentile')
-        if all('dividend_yield' in f for f in etf_factors.values()):
+        if sum(1 for f in etf_factors.values() if 'dividend_yield' in f) >= min_count:
             available_factors.append('dividend_yield')
 
         # --- C3+C4: 动态更新IC历史 + 滚动IC记录 ---
@@ -1022,9 +1026,29 @@ class MultiFactorStrategy(bt.Strategy):
 
         current_date = self.data.datetime.date(0)
         if total_w > 1e-9:
+            # Regime-aware 二次叠加：ICIR权重 × 牛熊倍数 → 归一化
+            if self.p.market_regime_switch:
+                regime = self._get_market_regime()
+                adjusted = dict(effective_weights)
+                if regime == 'bull':
+                    for f in adjusted:
+                        if 'momentum_120d' in f:
+                            adjusted[f] *= self.p.bull_momentum_mult
+                elif regime == 'bear':
+                    value_keys = ('pe_percentile', 'dividend_yield', 'volatility')
+                    for f in adjusted:
+                        if any(k in f for k in value_keys):
+                            adjusted[f] *= self.p.bear_value_mult
+                t = sum(adjusted.values())
+                if t > 0:
+                    effective_weights = {f: w / t for f, w in adjusted.items()}
+                    weights_used_mode = f'{icir_mode}_x_regime_{regime}'
+                else:
+                    weights_used_mode = icir_mode
+            else:
+                weights_used_mode = icir_mode
             scores = weighted_score(zscores, effective_weights, factor_names=available_factors)
             weights_used = effective_weights
-            weights_used_mode = icir_mode
         else:
             # Fallback: 原始加权逻辑
             if self.p.factor_weights is not None:
@@ -1130,6 +1154,21 @@ class MultiFactorStrategy(bt.Strategy):
         if self.day_count % self.p.rebalance_freq != 0:
             return
 
+        # 调仓日记录 regime 快照（用于诊断）
+        if self.p.market_regime_switch:
+            ma_sig = self._check_ma_signal()
+            macd_sig = self._check_macd_signal()
+            vol_sig = self._check_volume_signal()
+            self._regime_log.append({
+                'date': self.data.datetime.date(0).isoformat(),
+                'regime': self._current_regime,
+                'candidate': self._candidate_regime,
+                'streak': self._candidate_streak,
+                'ma_sig': ma_sig,
+                'macd_sig': macd_sig,
+                'vol_sig': vol_sig,
+            })
+
         selected_codes, scores, raw_factors = self._compute_scores()
 
         total_n = len(scores)
@@ -1191,6 +1230,12 @@ class MultiFactorStrategy(bt.Strategy):
             pos = self.getposition(d)
             if pos.size <= 0 or d._name not in selected_set:
                 continue
+            # 实际卫星持仓数不足top_n时，排名靠前的不强制减仓（避免现金滞留+反复踩踏）
+            n_actual_positions = len(current_positions)
+            if n_actual_positions < self.p.top_n:
+                rank = code_rank.get(d._name, total_n)
+                if rank <= n_actual_positions:
+                    continue
             price = d.close[0]
             current_mv = pos.size * price
             if current_mv > max_single_mv * 1.05:

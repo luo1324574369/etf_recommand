@@ -208,11 +208,62 @@ def main():
             mrf['date'] = pd.to_datetime(mrf['date'])
             mrf = mrf.sort_values('date')
             pd.set_option('display.max_colwidth', 60)
-            print(mrf.to_string(index=False))
+            # 统计各状态出现次数
+            print(f'调仓日总数: {len(mrf)}')
+            print(f'regime分布:\n{mrf["regime"].value_counts().to_string()}')
+            # 打印2024-09前后的regime变化
+            bp_ts = pd.Timestamp(BREAKPOINT)
+            mrf_around = mrf[(mrf['date'] >= bp_ts - pd.Timedelta(days=120)) &
+                             (mrf['date'] <= bp_ts + pd.Timedelta(days=120))]
+            if not mrf_around.empty:
+                print('\n2024-09前后±4个月调仓日regime:')
+                print(mrf_around[['date', 'regime', 'candidate', 'streak',
+                                  'ma_sig', 'macd_sig', 'vol_sig']].to_string(index=False))
+            # 打印regime切换的点
+            mrf_sorted = mrf.sort_values('date').reset_index(drop=True)
+            switches = []
+            prev_regime = None
+            for _, row in mrf_sorted.iterrows():
+                if prev_regime is not None and row['regime'] != prev_regime:
+                    switches.append(row)
+                prev_regime = row['regime']
+            if switches:
+                print(f'\nregime切换次数: {len(switches)}')
+                print(pd.DataFrame(switches)[['date', 'regime', 'candidate', 'streak',
+                                              'ma_sig', 'macd_sig', 'vol_sig']].to_string(index=False))
+            else:
+                print('\nregime从未切换（全程保持初始值）')
         else:
             print('market_regime_log 列:', mrf.columns.tolist()[:10])
     else:
         print('market_regime_log 为空（可能未记录）')
+
+    # === 4b. 因子权重历史 ===
+    print('\n' + '=' * 70)
+    print('PART 4b: 因子权重历史（每次调仓各因子权重）')
+    print('=' * 70)
+    fd_full = result.get('factor_diagnostics') or {}
+    wh = fd_full.get('weight_history') if isinstance(fd_full, dict) else None
+    if isinstance(wh, pd.DataFrame) and not wh.empty:
+        wh = wh.copy()
+        wh['date'] = pd.to_datetime(wh['date'])
+        wh = wh.sort_values('date')
+        # 只看2024-08之后
+        wh_after = wh[wh['date'] >= pd.Timestamp('2024-08-01')]
+        if not wh_after.empty:
+            print(f'2024-08后调仓次数: {len(wh_after)}')
+            print(wh_after.to_string(index=False))
+        else:
+            print('weight_history 无2024-08后记录')
+        # 统计每个因子权重>0的调仓次数
+        print('\n各因子权重>0的调仓次数统计:')
+        for col in wh.columns:
+            if col == 'date':
+                continue
+            n_pos = (wh[col] > 0).sum()
+            print(f'  {col}: {n_pos}/{len(wh)} = {n_pos/max(1,len(wh))*100:.1f}%')
+    else:
+        print('weight_history 为空')
 
     # === 5. 止损触发统计 ===
     print('\n' + '=' * 70)
