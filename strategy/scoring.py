@@ -17,11 +17,12 @@ FACTOR_DIRECTIONS = {
     "pe_percentile": -1,
     "pb_percentile": -1,
     "dividend_yield": 1,  # 红利因子：越高越好
+    "cross_mom_120d": 1,   # NEW: 横截面120日动量,排名越高越好
 }
 
 DEFAULT_FACTORS = [
     "reversal_20d",
-    "momentum_120d",
+    "cross_mom_120d",     # was: "momentum_120d"
     "pe_percentile",
     "avg_amount_20d",
 ]
@@ -35,6 +36,7 @@ FACTOR_LABELS = {
     "pe_percentile": "PE百分位(%)",
     "pb_percentile": "PB百分位(%)",
     "dividend_yield": "股息率(%)",
+    "cross_mom_120d": "横截面120日动量(百分位)",  # NEW
 }
 
 
