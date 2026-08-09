@@ -103,7 +103,7 @@ class MultiFactorStrategy(bt.Strategy):
         ('benchmark_code', '510300'),    # 市场状态识别基准ETF代码
         ('regime_ma_period', 60),        # 市场状态判断均线周期
         ('enable_factor_monitor', True),  # 是否启用因子失效监控
-        ('factor_monitor_lookback', 6),   # 因子监控回看期（月）
+        ('factor_monitor_lookback', 12),   # 因子监控回看期（月）适应A股牛熊周期，避免价值/红利/低波因子在牛市短期IC回落中过早淘汰
         ('factor_invalid_threshold', 0.0),# 因子失效阈值（IC均值<=此值视为失效）
         ('max_sector_exposure_pct', 50.0), # 行业仓位上限（%），0=不限制
         ('max_monthly_turnover', 30.0),    # 月度换手率上限（%），0=不限制

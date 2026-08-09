@@ -531,14 +531,14 @@ def rank_ic_monthly(factor_ranks_series, next_return_ranks_series):
 def compute_icir_weights(ic_history, rolling_months=12,
                          min_icir_include=0.02,
                          return_mode=False):
-    """方向感知ICIR加权 + 指数衰减 + 贝叶斯收缩 + 连续8月≤0剔除。
+    """方向感知ICIR加权 + 指数衰减 + 贝叶斯收缩 + 连续12月≤0剔除。
 
     核心改进（vs 旧版）：
     1. 方向修复：raw IC × FACTOR_DIRECTIONS[factor] 后再算 ICIR
     2. 阈值降低：min_icir_include 0.05 → 0.02（33ETF月度截面IC天然偏小）
     3. 指数衰减：half-life=6月，近期IC权重更高
     4. 贝叶斯收缩：ICIR向截面中位数收缩（κ=3），避免小样本极端值
-    5. 连续8月≤0剔除（原6月，适应A股牛熊周期）
+    5. 连续12月≤0剔除（与factor_monitor_lookback对齐，适应A股政策市牛熊快切）
     6. Fallback：全负时保留方向调整后ICIR最高的2个因子（原等权）
 
     Args:
@@ -562,14 +562,14 @@ def compute_icir_weights(ic_history, rolling_months=12,
     excluded = {}
     excluded_raw = set()
 
-    # 连续8月方向调整后IC≤0 判定（原6月，放宽以适应A股牛熊周期）
+    # 连续12月方向调整后IC≤0 判定（与multi_factor.py factor_monitor_lookback=12对齐）
     for f, arr in trimmed.items():
         valid_arr = [v for v in arr if not np.isnan(v)]
-        if len(valid_arr) >= 8:
+        if len(valid_arr) >= 12:
             direction = FACTOR_DIRECTIONS.get(f, 1)
-            last8_adj = [v * direction for v in valid_arr[-8:]]
-            if all(x <= 0 for x in last8_adj):
-                excluded[f] = 'consecutive_8m_adj_ic_le_0'
+            last12_adj = [v * direction for v in valid_arr[-12:]]
+            if all(x <= 0 for x in last12_adj):
+                excluded[f] = 'consecutive_12m_adj_ic_le_0'
                 excluded_raw.add(f)
 
     # 方向调整 + 指数衰减 + 贝叶斯收缩 计算ICIR
