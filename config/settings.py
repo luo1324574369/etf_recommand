@@ -29,51 +29,73 @@ _load_dotenv()
 TUSHARE_TOKEN = os.environ.get('TUSHARE_TOKEN', '')
 
 ETF_UNIVERSE = [
-    # 宽基指数
-    {"code": "510300", "name": "沪深300ETF", "sector": "宽基", "type": "指数"},
-    {"code": "510500", "name": "中证500ETF", "sector": "宽基", "type": "指数"},
-    {"code": "159915", "name": "创业板ETF", "sector": "宽基", "type": "指数"},
-    {"code": "588000", "name": "科创50ETF", "sector": "宽基", "type": "指数"},
-    {"code": "510050", "name": "上证50ETF", "sector": "宽基", "type": "指数"},
-    {"code": "159919", "name": "沪深300ETF", "sector": "宽基", "type": "指数"},
-    # 消费
-    {"code": "159928", "name": "消费ETF", "sector": "消费", "type": "行业"},
-    {"code": "512690", "name": "酒ETF", "sector": "消费", "type": "行业"},
-    {"code": "159996", "name": "家电ETF", "sector": "消费", "type": "行业"},
-    # 医药
-    {"code": "159992", "name": "创新药ETF", "sector": "医药", "type": "行业"},
-    {"code": "512010", "name": "医药ETF", "sector": "医药", "type": "行业"},
-    # 新能源
-    {"code": "515030", "name": "新能源车ETF", "sector": "新能源", "type": "行业"},
-    {"code": "515790", "name": "光伏ETF", "sector": "新能源", "type": "行业"},
-    # 科技
-    {"code": "159995", "name": "芯片ETF", "sector": "科技", "type": "行业"},
-    {"code": "515000", "name": "科技ETF", "sector": "科技", "type": "行业"},
-    {"code": "512480", "name": "半导体ETF", "sector": "科技", "type": "行业"},
-    # 金融
-    {"code": "512880", "name": "证券ETF", "sector": "金融", "type": "行业"},
-    {"code": "512000", "name": "券商ETF", "sector": "金融", "type": "行业"},
-    {"code": "512800", "name": "银行ETF", "sector": "金融", "type": "行业"},
-    # 周期
-    {"code": "159825", "name": "农业ETF", "sector": "周期", "type": "行业"},
-    {"code": "515210", "name": "钢铁ETF", "sector": "周期", "type": "行业"},
-    {"code": "515220", "name": "煤炭ETF", "sector": "周期", "type": "行业"},
-    {"code": "512400", "name": "有色金属ETF", "sector": "周期", "type": "行业"},
-    {"code": "512200", "name": "房地产ETF", "sector": "周期", "type": "行业"},
-    # 商品
-    {"code": "159985", "name": "豆粕ETF", "sector": "商品", "type": "商品"},
-    {"code": "518880", "name": "黄金ETF", "sector": "商品", "type": "商品"},
-    # 红利
-    {"code": "510880", "name": "红利ETF", "sector": "红利", "type": "指数"},
-    {"code": "512890", "name": "红利低波ETF", "sector": "红利", "type": "指数"},
-    # 军工
-    {"code": "512660", "name": "军工ETF", "sector": "军工", "type": "行业"},
-    # 传媒
-    {"code": "159805", "name": "传媒ETF", "sector": "传媒", "type": "行业"},
-    {"code": "512980", "name": "传媒ETF", "sector": "传媒", "type": "行业"},
-    # 海外
-    {"code": "159920", "name": "恒生ETF", "sector": "海外", "type": "指数"},
-    {"code": "513100", "name": "纳指ETF", "sector": "海外", "type": "指数"},
+    # 宽基指数（原6只 + 新增7只 = 13只）
+    {"code": "510300", "name": "沪深300ETF", "sector": "宽基", "type": "指数", "ts_code": "510300.SH"},
+    {"code": "510500", "name": "中证500ETF", "sector": "宽基", "type": "指数", "ts_code": "510500.SH"},
+    {"code": "159915", "name": "创业板ETF", "sector": "宽基", "type": "指数", "ts_code": "159915.SZ"},
+    {"code": "588000", "name": "科创50ETF", "sector": "宽基", "type": "指数", "ts_code": "588000.SH"},
+    {"code": "510050", "name": "上证50ETF", "sector": "宽基", "type": "指数", "ts_code": "510050.SH"},
+    {"code": "159919", "name": "沪深300ETF", "sector": "宽基", "type": "指数", "ts_code": "159919.SZ"},
+    {"code": "512100", "name": "中证1000ETF", "sector": "宽基", "type": "指数", "ts_code": "512100.SH"},
+    {"code": "588080", "name": "科创板50ETF", "sector": "宽基", "type": "指数", "ts_code": "588080.SH"},
+    {"code": "159949", "name": "创业板50ETF", "sector": "宽基", "type": "指数", "ts_code": "159949.SZ"},
+    {"code": "159781", "name": "科创创业50ETF", "sector": "宽基", "type": "指数", "ts_code": "159781.SZ"},
+    {"code": "512310", "name": "沪深300成长ETF", "sector": "宽基", "type": "指数", "ts_code": "512310.SH"},
+    {"code": "512040", "name": "沪深300价值ETF", "sector": "宽基", "type": "指数", "ts_code": "512040.SH"},
+    {"code": "159530", "name": "中证2000ETF", "sector": "宽基", "type": "指数", "ts_code": "159530.SZ"},
+    # 消费（原3只 + 新增1只 = 4只）
+    {"code": "159928", "name": "消费ETF", "sector": "消费", "type": "行业", "ts_code": "159928.SZ"},
+    {"code": "512690", "name": "酒ETF", "sector": "消费", "type": "行业", "ts_code": "512690.SH"},
+    {"code": "159996", "name": "家电ETF", "sector": "消费", "type": "行业", "ts_code": "159996.SZ"},
+    {"code": "560880", "name": "家电ETF龙头", "sector": "消费", "type": "行业", "ts_code": "560880.SH"},
+    # 医药（原2只 + 新增2只 = 4只）
+    {"code": "159992", "name": "创新药ETF", "sector": "医药", "type": "行业", "ts_code": "159992.SZ"},
+    {"code": "512010", "name": "医药ETF", "sector": "医药", "type": "行业", "ts_code": "512010.SH"},
+    {"code": "512170", "name": "医疗ETF", "sector": "医药", "type": "行业", "ts_code": "512170.SH"},
+    {"code": "515120", "name": "创新药ETF沪港深", "sector": "医药", "type": "行业", "ts_code": "515120.SH"},
+    # 新能源（原2只 + 新增3只 = 5只）
+    {"code": "515030", "name": "新能源车ETF", "sector": "新能源", "type": "行业", "ts_code": "515030.SH"},
+    {"code": "515790", "name": "光伏ETF", "sector": "新能源", "type": "行业", "ts_code": "515790.SH"},
+    {"code": "159755", "name": "电池ETF", "sector": "新能源", "type": "行业", "ts_code": "159755.SZ"},
+    {"code": "159863", "name": "光伏ETF", "sector": "新能源", "type": "行业", "ts_code": "159863.SZ"},
+    {"code": "516160", "name": "新能源车ETF", "sector": "新能源", "type": "行业", "ts_code": "516160.SH"},
+    # 科技（原3只 + 新增1只 = 4只）
+    {"code": "159995", "name": "芯片ETF", "sector": "科技", "type": "行业", "ts_code": "159995.SZ"},
+    {"code": "515000", "name": "科技ETF", "sector": "科技", "type": "行业", "ts_code": "515000.SH"},
+    {"code": "512480", "name": "半导体ETF", "sector": "科技", "type": "行业", "ts_code": "512480.SH"},
+    {"code": "515050", "name": "5GETF", "sector": "科技", "type": "行业", "ts_code": "515050.SH"},
+    # 金融（原3只 + 新增2只 = 5只）
+    {"code": "512880", "name": "证券ETF", "sector": "金融", "type": "行业", "ts_code": "512880.SH"},
+    {"code": "512000", "name": "券商ETF", "sector": "金融", "type": "行业", "ts_code": "512000.SH"},
+    {"code": "512800", "name": "银行ETF", "sector": "金融", "type": "行业", "ts_code": "512800.SH"},
+    {"code": "512990", "name": "保险主题ETF", "sector": "金融", "type": "行业", "ts_code": "512990.SH"},
+    {"code": "159841", "name": "银行ETF", "sector": "金融", "type": "行业", "ts_code": "159841.SZ"},
+    # 周期（原5只）
+    {"code": "159825", "name": "农业ETF", "sector": "周期", "type": "行业", "ts_code": "159825.SZ"},
+    {"code": "515210", "name": "钢铁ETF", "sector": "周期", "type": "行业", "ts_code": "515210.SH"},
+    {"code": "515220", "name": "煤炭ETF", "sector": "周期", "type": "行业", "ts_code": "515220.SH"},
+    {"code": "512400", "name": "有色金属ETF", "sector": "周期", "type": "行业", "ts_code": "512400.SH"},
+    {"code": "512200", "name": "房地产ETF", "sector": "周期", "type": "行业", "ts_code": "512200.SH"},
+    # 商品（原2只）
+    {"code": "159985", "name": "豆粕ETF", "sector": "商品", "type": "商品", "ts_code": "159985.SZ"},
+    {"code": "518880", "name": "黄金ETF", "sector": "商品", "type": "商品", "ts_code": "518880.SH"},
+    # 红利（原2只）
+    {"code": "510880", "name": "红利ETF", "sector": "红利", "type": "指数", "ts_code": "510880.SH"},
+    {"code": "512890", "name": "红利低波ETF", "sector": "红利", "type": "指数", "ts_code": "512890.SH"},
+    # 军工（原1只 + 新增1只 = 2只）
+    {"code": "512660", "name": "军工ETF", "sector": "军工", "type": "行业", "ts_code": "512660.SH"},
+    {"code": "512680", "name": "军工ETF", "sector": "军工", "type": "行业", "ts_code": "512680.SH"},
+    # 传媒（原2只 + 新增2只 = 4只）
+    {"code": "159805", "name": "传媒ETF", "sector": "传媒", "type": "行业", "ts_code": "159805.SZ"},
+    {"code": "512980", "name": "传媒ETF", "sector": "传媒", "type": "行业", "ts_code": "512980.SH"},
+    {"code": "159869", "name": "游戏ETF", "sector": "传媒", "type": "行业", "ts_code": "159869.SZ"},
+    {"code": "516010", "name": "游戏ETF", "sector": "传媒", "type": "行业", "ts_code": "516010.SH"},
+    # 海外（原2只）
+    {"code": "159920", "name": "恒生ETF", "sector": "海外", "type": "指数", "ts_code": "159920.SZ"},
+    {"code": "513100", "name": "纳指ETF", "sector": "海外", "type": "指数", "ts_code": "513100.SH"},
+    # 国企改革（新增2只）
+    {"code": "159958", "name": "国企改革ETF", "sector": "国企改革", "type": "行业", "ts_code": "159958.SZ"},
+    {"code": "512950", "name": "央企改革ETF", "sector": "国企改革", "type": "行业", "ts_code": "512950.SH"},
 ]
 
 STRATEGY_CONFIG = {

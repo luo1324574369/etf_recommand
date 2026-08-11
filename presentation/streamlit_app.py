@@ -644,8 +644,12 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📅 日期范围")
-    start_date = st.date_input("开始日期", datetime(2022, 1, 1))
-    end_date = st.date_input("结束日期", datetime(2024, 12, 1))
+    import datetime as _dt
+    _today = _dt.date.today()
+    _default_start = (_today - _dt.timedelta(days=365*2)).replace(day=1)
+    _default_end = (_today - _dt.timedelta(days=31*3)).replace(day=1)
+    start_date = st.date_input("开始日期", _default_start)
+    end_date = st.date_input("结束日期", _default_end)
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")

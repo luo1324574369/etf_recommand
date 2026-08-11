@@ -18,9 +18,14 @@ from data.storage.valuation_repo import ValuationRepo
 from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
 from strategy import multi_factor
 
-START = '2022-01-01'
-END = '2026-12-01'
-BREAKPOINT = '2024-09-01'
+from datetime import timedelta as _td
+_today = datetime.today().date()
+START = (_today - _td(days=365*2)).replace(day=1).strftime('%Y-%m-%d')
+END = (_today - _td(days=31*3)).replace(day=1).strftime('%Y-%m-%d')
+_start_dt = datetime.strptime(START, '%Y-%m-%d')
+_end_dt = datetime.strptime(END, '%Y-%m-%d')
+_total_days = (_end_dt - _start_dt).days
+BREAKPOINT = (_start_dt + _td(days=int(_total_days * 0.6))).replace(day=1).strftime('%Y-%m-%d')
 BENCH_CODE = '510300'
 
 PRESETS = {
