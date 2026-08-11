@@ -20,6 +20,54 @@ FACTOR_DIRECTIONS = {
     "cross_mom_120d": 1,   # NEW: 横截面120日动量,排名越高越好
 }
 
+FACTOR_LOGIC = {
+    "reversal_20d": {
+        "logic": "短期均值回归：超跌ETF后续反弹概率高",
+        "category": "反转",
+        "expected_ic_sign": "positive",
+    },
+    "momentum_120d": {
+        "logic": "中长期动量效应：趋势延续，赢家继续赢",
+        "category": "动量",
+        "expected_ic_sign": "positive",
+    },
+    "momentum_20d": {
+        "logic": "短期反转效应：A股短期超涨后续回调",
+        "category": "反转",
+        "expected_ic_sign": "negative",
+    },
+    "pe_percentile": {
+        "logic": "估值均值回归：PE历史分位越低，后续反弹空间越大",
+        "category": "价值",
+        "expected_ic_sign": "negative",
+    },
+    "pb_percentile": {
+        "logic": "估值均值回归：PB历史分位越低，后续反弹空间越大",
+        "category": "价值",
+        "expected_ic_sign": "negative",
+    },
+    "dividend_yield": {
+        "logic": "红利因子：高股息率提供安全边际和稳定现金流",
+        "category": "红利",
+        "expected_ic_sign": "positive",
+    },
+    "volatility_60d": {
+        "logic": "低波因子：低波动率ETF风险调整后收益更优",
+        "category": "低波",
+        "expected_ic_sign": "negative",
+    },
+    "avg_amount_20d": {
+        "logic": "流动性因子：高流动性ETF交易成本更低、执行滑点更小",
+        "category": "流动性",
+        "expected_ic_sign": "positive",
+    },
+    "cross_mom_120d": {
+        "logic": "横截面动量：在ETF池内按收益率排名，排名越高后续表现越好",
+        "category": "动量",
+        "expected_ic_sign": "positive",
+    },
+}
+
 DEFAULT_FACTORS = [
     "reversal_20d",
     "momentum_120d",
@@ -561,6 +609,12 @@ def compute_icir_weights(ic_history, rolling_months=12,
     weights = {f: 0.0 for f in all_factors}
     excluded = {}
     excluded_raw = set()
+
+    # ---- 准入校验：未在 FACTOR_LOGIC 登记的因子拒绝赋权 ----
+    for f in all_factors:
+        if f not in FACTOR_LOGIC:
+            excluded[f] = 'not_registered_in_FACTOR_LOGIC'
+            excluded_raw.add(f)
 
     # 连续12月方向调整后IC≤0 判定（与multi_factor.py factor_monitor_lookback=12对齐）
     for f, arr in trimmed.items():

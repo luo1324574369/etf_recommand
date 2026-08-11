@@ -216,6 +216,8 @@ class MultiFactorStrategy(bt.Strategy):
         self._factor_excluded_since = {}     # {factor: date}
         self._weight_history_rows = []       # [{date, factor1_w, factor2_w, ...}]
         self._ic_rolling_rows = []           # [{date, factor, ic}]
+        self._factor_event_log = []       # [{date, factor, event, reason}] 因子剔除/恢复事件
+        self._last_excluded = {}          # 上一次调仓的excluded快照，用于diff
         self._regime_log = []                # [{date, regime, ma_sig, macd_sig, vol_sig, candidate, streak}]
         self.factor_diagnostics = None       # 回测结束后 set
 
@@ -1111,6 +1113,38 @@ class MultiFactorStrategy(bt.Strategy):
 
         # ICIR 加权（主路径）
         icir_weights, icir_excluded, icir_mode = self._compute_icir_factor_weights()
+
+        # 记录因子剔除/恢复事件
+        current_date_str = self.data.datetime.date(0).isoformat()
+        new_excluded_set = set(icir_excluded.keys())
+        old_excluded_set = set(self._last_excluded.keys())
+        # 新剔除的因子
+        for f in new_excluded_set - old_excluded_set:
+            self._factor_event_log.append({
+                'date': current_date_str,
+                'factor': f,
+                'event': 'excluded',
+                'reason': icir_excluded.get(f, ''),
+            })
+        # 恢复的因子
+        for f in old_excluded_set - new_excluded_set:
+            self._factor_event_log.append({
+                'date': current_date_str,
+                'factor': f,
+                'event': 'restored',
+                'reason': '',
+            })
+        # 等权降级事件
+        if icir_mode == 'icir_dynamic_then_equal_weight' and self._last_excluded.get('_mode') != 'icir_dynamic_then_equal_weight':
+            self._factor_event_log.append({
+                'date': current_date_str,
+                'factor': '_all',
+                'event': 'weight_degraded',
+                'reason': 'effective_factors_lt_3_equal_weight',
+            })
+        self._last_excluded = dict(icir_excluded)
+        self._last_excluded['_mode'] = icir_mode
+
         effective_weights = {f: icir_weights.get(f, 0.0) for f in available_factors}
         total_w = sum(effective_weights.values())
 
@@ -1505,6 +1539,7 @@ class MultiFactorStrategy(bt.Strategy):
             'weight_history': weight_history,
             'weight_mode': mode,
             'excluded_factors': excluded_list,
+            'factor_event_log': pd.DataFrame(self._factor_event_log) if self._factor_event_log else pd.DataFrame(),
         }
 
 
