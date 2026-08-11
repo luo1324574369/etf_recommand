@@ -29,20 +29,16 @@ _load_dotenv()
 TUSHARE_TOKEN = os.environ.get('TUSHARE_TOKEN', '')
 
 ETF_UNIVERSE = [
-    # 宽基指数（原6只 + 新增7只 = 13只）
+    # 宽基指数（删除创业板/科创板有门槛标的，保留 51/56 开头沪深主板）
     {"code": "510300", "name": "沪深300ETF", "sector": "宽基", "type": "指数", "ts_code": "510300.SH"},
     {"code": "510500", "name": "中证500ETF", "sector": "宽基", "type": "指数", "ts_code": "510500.SH"},
-    {"code": "159915", "name": "创业板ETF", "sector": "宽基", "type": "指数", "ts_code": "159915.SZ"},
-    {"code": "588000", "name": "科创50ETF", "sector": "宽基", "type": "指数", "ts_code": "588000.SH"},
     {"code": "510050", "name": "上证50ETF", "sector": "宽基", "type": "指数", "ts_code": "510050.SH"},
-    {"code": "159919", "name": "沪深300ETF", "sector": "宽基", "type": "指数", "ts_code": "159919.SZ"},
+    {"code": "510310", "name": "沪深300ETF易方达", "sector": "宽基", "type": "指数", "ts_code": "510310.SH"},
     {"code": "512100", "name": "中证1000ETF", "sector": "宽基", "type": "指数", "ts_code": "512100.SH"},
-    {"code": "588080", "name": "科创板50ETF", "sector": "宽基", "type": "指数", "ts_code": "588080.SH"},
-    {"code": "159949", "name": "创业板50ETF", "sector": "宽基", "type": "指数", "ts_code": "159949.SZ"},
-    {"code": "159781", "name": "科创创业50ETF", "sector": "宽基", "type": "指数", "ts_code": "159781.SZ"},
     {"code": "512310", "name": "沪深300成长ETF", "sector": "宽基", "type": "指数", "ts_code": "512310.SH"},
     {"code": "512040", "name": "沪深300价值ETF", "sector": "宽基", "type": "指数", "ts_code": "512040.SH"},
-    {"code": "159530", "name": "中证2000ETF", "sector": "宽基", "type": "指数", "ts_code": "159530.SZ"},
+    {"code": "560050", "name": "上证50ETF华安", "sector": "宽基", "type": "指数", "ts_code": "560050.SH"},
+    {"code": "511030", "name": "沪深300ETF华泰柏瑞", "sector": "宽基", "type": "指数", "ts_code": "511030.SH"},
     # 消费（原3只 + 新增1只 = 4只）
     {"code": "159928", "name": "消费ETF", "sector": "消费", "type": "行业", "ts_code": "159928.SZ"},
     {"code": "512690", "name": "酒ETF", "sector": "消费", "type": "行业", "ts_code": "512690.SH"},
