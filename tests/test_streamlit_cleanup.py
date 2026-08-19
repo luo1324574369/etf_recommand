@@ -27,6 +27,20 @@ def test_streamlit_app_no_dual_momentum_references():
     assert not found, f"streamlit_app.py 仍有残留引用: {found}"
 
 
+def test_streamlit_app_has_single_factor_diagnostics_source():
+    """因子诊断只由实际回测结果渲染，避免出现两套不一致口径"""
+    src = Path('presentation/streamlit_app.py').read_text(encoding='utf-8')
+    assert 'analyze_all_etfs' not in src
+    tree = ast.parse(src)
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == '_render_factor_diagnostics_section'
+    ]
+    assert len(calls) == 1
+
+
 def test_settings_no_dual_momentum_preset():
     """settings.py 中 PARAM_PRESETS 不含双动量轮动键"""
     from config.settings import PARAM_PRESETS

@@ -30,11 +30,11 @@ BENCH_CODE = '510300'
 
 PRESETS = {
     "⚖️ 均衡型": {
-        "lookback_momentum": 120, "lookback_volatility": 60, "top_n": 5,
-        "rebalance_freq": 20, "sector_penalty_factor": 1.0,
-        "sector_exclude_threshold": -0.15, "max_monthly_turnover": 100.0,
-        "drawdown_threshold": 15.0, "max_sector_exposure_pct": 50.0,
-        "market_regime_switch": True, "enable_factor_monitor": True,
+        "lookback_momentum": 120, "lookback_volatility": 60, "top_n": 4,
+        "rebalance_freq": 60, "sector_penalty_factor": 0.7,
+        "sector_exclude_threshold": -0.15, "max_monthly_turnover": 30.0,
+        "drawdown_threshold": 35.0, "max_sector_exposure_pct": 100.0,
+        "market_regime_switch": False, "enable_factor_monitor": True,
     }
 }
 

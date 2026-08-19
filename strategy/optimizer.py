@@ -92,16 +92,18 @@ def optimize_parameters(
 
 
 MULTI_FACTOR_PARAM_RANGES = {
-    'lookback_momentum': [20, 40, 60, 120],
-    'lookback_volatility': [60],
+    # 核心调参（4维，共36组合）
+    'lookback_momentum': [60, 120],
     'top_n': [3, 4, 5],
     'rebalance_freq': [20, 60],
     'sector_penalty_factor': [0.5, 0.7, 1.0],
-    'sector_exclude_threshold': [-0.10, -0.15, -0.20],
-    'max_monthly_turnover': [30.0, 60.0, 100.0],
-    'drawdown_threshold': [10.0, 15.0, 20.0, 35.0],  # 移除0：会触发频繁止损
-    'max_sector_exposure_pct': [50.0, 80.0, 100.0],
-    'market_regime_switch': [True, False],
-    'enable_factor_monitor': [True, False],
+    # 结构参数（固定，不参与搜索）
+    'lookback_volatility': [60],
+    'sector_exclude_threshold': [-0.15],
+    'max_monthly_turnover': [60.0],
+    'drawdown_threshold': [35.0],
+    'max_sector_exposure_pct': [100.0],
+    'market_regime_switch': [True],
+    'enable_factor_monitor': [True],
 }
-# 4 × 1 × 3 × 2 × 3 × 3 × 3 × 3 × 3 × 2 × 2 = 6,912 组合（需max_combinations控制采样）
+# 2 × 3 × 2 × 3 = 36 组合（全量搜索，无需采样）

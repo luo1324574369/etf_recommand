@@ -130,9 +130,8 @@ def ensure_data_ready(
     from data.sources.hybrid_source import ETF_INDEX_MAP, ETF_CSINDEX_MAP
 
     # 无PE概念 / 数据源链路不可靠的ETF，跳过PE检查。
-    # 注：512200(房地产ETF)理论上有PE，但乐咕乐股/Tushare宽基/中证接口均无数据，
-    # 暂时放回列表避免阻塞回测；待 AkShare 成分股接口稳定后再移除。
-    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100", "512200"}
+    # 商品ETF(豆粕/黄金)和海外QDII(恒生/纳指)无PE概念
+    PE_NOT_APPLICABLE = {"159985", "518880", "159920", "513100"}
 
     result = {
         'status': 'ok',

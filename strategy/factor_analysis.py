@@ -240,18 +240,32 @@ def _judge_verdict(ic_mean: float, icir: float, ic_positive_ratio: float,
     return '无效'
 
 
-def _check_monotonicity(strat_df: pd.DataFrame, n_groups: int = 5) -> bool:
-    """检查分层收益是否单调"""
+def _check_monotonicity(strat_df: pd.DataFrame, n_groups: int = 5) -> tuple:
+    """检查分层收益是否单调（行业标准：Spearman |rho|>=0.7 或 反转次数<=1）
+
+    Returns:
+        (is_monotonic: bool, spearman_rho: float)
+            is_monotonic=True 代表分组收益有稳定的单方向梯度
+            spearman_rho: 组号(1~N)与平均收益的秩相关系数，|rho|越大梯度越明显
+    """
     if strat_df.empty:
-        return False
+        return False, 0.0
     avg_by_group = strat_df.groupby('group')['avg_return'].mean()
     if len(avg_by_group) < n_groups:
-        return False
-    # 检查是否单调递增或递减
+        return False, 0.0
     values = avg_by_group.values
-    increasing = all(values[i] <= values[i + 1] for i in range(len(values) - 1))
-    decreasing = all(values[i] >= values[i + 1] for i in range(len(values) - 1))
-    return increasing or decreasing
+    groups = np.arange(1, len(values) + 1)
+
+    rho, _ = spearmanr(groups, values)
+    if np.isnan(rho):
+        rho = 0.0
+
+    n_violations_inc = sum(1 for i in range(len(values) - 1) if values[i] > values[i + 1])
+    n_violations_dec = sum(1 for i in range(len(values) - 1) if values[i] < values[i + 1])
+    n_violations = min(n_violations_inc, n_violations_dec)
+
+    is_monotonic = (abs(rho) >= 0.7) or (n_violations <= 1)
+    return is_monotonic, float(rho)
 
 
 def analyze_factor(
@@ -287,6 +301,7 @@ def analyze_factor(
                          'ic_positive_ratio': 0, 'ic_t_stat': 0},
                 'stratified': [],
                 'monotonicity': '无数据',
+                'spearman_rho': 0.0,
                 'verdict': '无数据',
                 'ic_mean': 0,
                 'ic_positive_ratio': 0,
@@ -298,24 +313,28 @@ def analyze_factor(
                      'ic_positive_ratio': 0, 'ic_t_stat': 0},
             'stratified': [],
             'monotonicity': '非单调',
+            'spearman_rho': 0.0,
             'verdict': '无效',
             'ic_mean': 0,
             'ic_positive_ratio': 0,
         }
     icir_result = compute_icir(ic_series)
     strat_df = stratified_backtest(factor_values, forward_returns, factor_name, n_groups)
-    monotonic = _check_monotonicity(strat_df, n_groups)
+    monotonic, spearman_rho = _check_monotonicity(strat_df, n_groups)
 
     verdict = _judge_verdict(
         icir_result['ic_mean'], icir_result['icir'],
         icir_result['ic_positive_ratio'], monotonic, direction
     )
 
+    mono_label = '单调' if monotonic else '非单调'
+
     return {
         'ic_series': ic_df.to_dict('records'),
         'icir': icir_result,
         'stratified': strat_df.to_dict('records'),
-        'monotonicity': '单调' if monotonic else '非单调',
+        'monotonicity': mono_label,
+        'spearman_rho': spearman_rho,
         'verdict': verdict,
         'ic_mean': icir_result['ic_mean'],
         'ic_positive_ratio': icir_result['ic_positive_ratio'],

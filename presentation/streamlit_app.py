@@ -101,11 +101,16 @@ def build_trade_table(trade_list):
         'stoploss': '🛑 止损',
     }
 
+    # 先从内存映射查名称，找不到再查数据库
+    name_map = {e['code']: e['name'] for e in ETF_UNIVERSE}
+
     rows = []
     for t in trade_list:
         code = t.get('code', '')
-        etf_info = etf_repo.get_etf(code)
-        name = etf_info.get('name', '') if etf_info else ''
+        name = name_map.get(code, '')
+        if not name:
+            etf_info = etf_repo.get_etf(code)
+            name = etf_info.get('name', '') if etf_info else ''
         direction = t.get('direction', '')
         if direction == '买入':
             direction_display = '🟢 买入'
@@ -811,68 +816,25 @@ if run_clicked:
                 status.update(label="数据检查完成", state="complete", expanded=False)
                 data_ok = True
 
-        # Step 2: 因子有效性校验（在 status 块外渲染，确保表格正常显示）
+        # Step 2: 运行回测
         if data_ok:
-            with st.spinner("正在校验因子有效性（约30-60秒）..."):
-                from strategy.factor_analysis import analyze_all_etfs
-                factor_report = analyze_all_etfs(
-                    etf_codes=selected_codes,
-                    price_repo=price_repo,
-                    valuation_repo=valuation_repo,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"),
-                    factor_names=['reversal_20d', 'volatility_60d', 'pe_percentile', 'dividend_yield', 'momentum_120d'],
-                )
-
-            invalid_factors = []
-            no_data_factors = []
-            for factor, metrics in (factor_report or {}).items():
-                verdict = metrics.get('verdict', '')
-                if verdict == '无效':
-                    invalid_factors.append(factor)
-                elif verdict == '无数据':
-                    no_data_factors.append(factor)
-
-            if no_data_factors:
-                st.info(f"ℹ️ 以下因子无历史数据，已跳过校验（策略运行时自动不使用）：{', '.join(FACTOR_LABELS.get(f, f) for f in no_data_factors)}")
-
-            if invalid_factors:
-                st.error("❌ 因子有效性校验未通过，以下因子判定为「无效」，回测已终止：")
-                summary_rows = []
-                for factor, metrics in (factor_report or {}).items():
-                    summary_rows.append({
-                        '因子': FACTOR_LABELS.get(factor, factor),
-                        'RankIC均值': f"{metrics.get('ic_mean', 0):.4f}",
-                        'ICIR': f"{metrics.get('icir', {}).get('icir', 0):.3f}",
-                        'IC正比例': f"{metrics.get('ic_positive_ratio', 0):.1%}",
-                        '单调性': metrics.get('monotonicity', '-'),
-                        '判定': metrics.get('verdict', '-'),
-                    })
-                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-                st.info("💡 建议调整回测区间或ETF池后重试。"
-                        "判定标准（考虑因子方向）：方向匹配、RankIC绝对值≥0.03有效/0.015-0.03弱有效、"
-                        "ICIR绝对值≥0.15有效/0.075-0.15弱有效、"
-                        "IC正确比例≥55%有效/50%-55%弱有效（反向因子用1-正比例）、单调性；"
-                        "5指标中≥2个有效判为「有效」。")
-            else:
-                # Step 3: 运行回测
-                with st.spinner("正在运行回测..."):
-                    try:
-                        result = run_backtest_for_result(
-                            selected_codes,
-                            start_date,
-                            end_date,
-                            params,
-                            constraints_dict,
-                            enable_attribution=enable_attribution,
-                        )
-                    except RuntimeError as bt_err:
-                        result = None
-                        st.error(f"回测失败: {bt_err}")
-                    st.session_state['result'] = result
-                    st.session_state['selected_codes_saved'] = selected_codes
-                    if result is not None:
-                        st.success(f"✅ 多因子轮动 回测完成（{start_date} ~ {end_date}）")
+            with st.spinner("正在运行回测..."):
+                try:
+                    result = run_backtest_for_result(
+                        selected_codes,
+                        start_date,
+                        end_date,
+                        params,
+                        constraints_dict,
+                        enable_attribution=enable_attribution,
+                    )
+                except RuntimeError as bt_err:
+                    result = None
+                    st.error(f"回测失败: {bt_err}")
+                st.session_state['result'] = result
+                st.session_state['selected_codes_saved'] = selected_codes
+                if result is not None:
+                    st.success(f"✅ 多因子轮动 回测完成（{start_date} ~ {end_date}）")
 
 
 result = st.session_state.get('result')

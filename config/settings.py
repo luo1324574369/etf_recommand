@@ -35,7 +35,6 @@ ETF_UNIVERSE = [
     {"code": "510050", "name": "上证50ETF", "sector": "宽基", "type": "指数", "ts_code": "510050.SH"},
     {"code": "510310", "name": "沪深300ETF易方达", "sector": "宽基", "type": "指数", "ts_code": "510310.SH"},
     {"code": "512100", "name": "中证1000ETF", "sector": "宽基", "type": "指数", "ts_code": "512100.SH"},
-    {"code": "512310", "name": "沪深300成长ETF", "sector": "宽基", "type": "指数", "ts_code": "512310.SH"},
     {"code": "512040", "name": "沪深300价值ETF", "sector": "宽基", "type": "指数", "ts_code": "512040.SH"},
     {"code": "560050", "name": "上证50ETF华安", "sector": "宽基", "type": "指数", "ts_code": "560050.SH"},
     {"code": "511030", "name": "沪深300ETF华泰柏瑞", "sector": "宽基", "type": "指数", "ts_code": "511030.SH"},
@@ -89,8 +88,7 @@ ETF_UNIVERSE = [
     # 海外（原2只）
     {"code": "159920", "name": "恒生ETF", "sector": "海外", "type": "指数", "ts_code": "159920.SZ"},
     {"code": "513100", "name": "纳指ETF", "sector": "海外", "type": "指数", "ts_code": "513100.SH"},
-    # 国企改革（新增2只）
-    {"code": "159958", "name": "国企改革ETF", "sector": "国企改革", "type": "行业", "ts_code": "159958.SZ"},
+    # 国企改革（新增1只）
     {"code": "512950", "name": "央企改革ETF", "sector": "国企改革", "type": "行业", "ts_code": "512950.SH"},
 ]
 
@@ -261,10 +259,10 @@ WEB_CONFIG = {
 
 PARAM_PRESETS = {
     "多因子轮动": [
-    {"name": "🏆 收益优先型", "params": {"lookback_momentum": 40, "lookback_volatility": 60, "top_n": 3, "rebalance_freq": 20, "sector_penalty_factor": 0.7, "sector_exclude_threshold": -0.1, "max_monthly_turnover": 100.0, "drawdown_threshold": 15.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
-    {"name": "⚖️ 均衡型", "params": {"lookback_momentum": 120, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 20, "sector_penalty_factor": 1.0, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 100.0, "drawdown_threshold": 15.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
-    {"name": "🛡️ 低回撤型", "params": {"lookback_momentum": 60, "lookback_volatility": 60, "top_n": 3, "rebalance_freq": 20, "sector_penalty_factor": 0.7, "sector_exclude_threshold": -0.2, "max_monthly_turnover": 60.0, "drawdown_threshold": 10.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
-    {"name": "📊 低频交易型", "params": {"lookback_momentum": 120, "lookback_volatility": 60, "top_n": 5, "rebalance_freq": 60, "sector_penalty_factor": 1.0, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 30.0, "drawdown_threshold": 15.0, "max_sector_exposure_pct": 50.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "🏆 收益优先型", "params": {"lookback_momentum": 60, "top_n": 3, "rebalance_freq": 60, "sector_penalty_factor": 0.5, "lookback_volatility": 60, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 60.0, "drawdown_threshold": 35.0, "max_sector_exposure_pct": 100.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "⚖️ 均衡型", "params": {"lookback_momentum": 60, "top_n": 4, "rebalance_freq": 60, "sector_penalty_factor": 0.7, "lookback_volatility": 60, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 60.0, "drawdown_threshold": 35.0, "max_sector_exposure_pct": 100.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "🛡️ 低回撤型", "params": {"lookback_momentum": 60, "top_n": 3, "rebalance_freq": 20, "sector_penalty_factor": 0.7, "lookback_volatility": 60, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 60.0, "drawdown_threshold": 35.0, "max_sector_exposure_pct": 100.0, "market_regime_switch": True, "enable_factor_monitor": True}},
+    {"name": "📊 低频交易型", "params": {"lookback_momentum": 60, "top_n": 3, "rebalance_freq": 20, "sector_penalty_factor": 1.0, "lookback_volatility": 60, "sector_exclude_threshold": -0.15, "max_monthly_turnover": 60.0, "drawdown_threshold": 35.0, "max_sector_exposure_pct": 100.0, "market_regime_switch": True, "enable_factor_monitor": True}},
     {"name": "⚙️ 自定义参数", "params": None},
 ],
 }
