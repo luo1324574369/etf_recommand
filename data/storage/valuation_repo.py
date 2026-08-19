@@ -75,7 +75,7 @@ class ValuationRepo:
         finally:
             conn.close()
 
-    def get_valuation_percentile(self, code: str, metric: str = "pe", end_date: str = None) -> float:
+    def get_valuation_percentile(self, code: str, metric: str = "pe", end_date: str = None) -> float | None:
         """从 etf_valuation 表计算百分位（旧接口，数据较少时不可靠）"""
         conn = get_db(self.db_path)
         try:
@@ -86,16 +86,21 @@ class ValuationRepo:
                 params.append(end_date)
             rows = conn.execute(query, params).fetchall()
             if not rows:
-                return 50.0
+                return None
             values = [float(row[0]) for row in rows]
             values.sort()
-            latest = conn.execute(f"""
+            latest_query = f"""
                 SELECT {metric} FROM etf_valuation
                 WHERE code = ? AND {metric} IS NOT NULL
-                ORDER BY trade_date DESC LIMIT 1
-            """, (code,)).fetchone()
+            """
+            latest_params = [code]
+            if end_date:
+                latest_query += " AND trade_date <= ?"
+                latest_params.append(end_date)
+            latest_query += " ORDER BY trade_date DESC LIMIT 1"
+            latest = conn.execute(latest_query, latest_params).fetchone()
             if not latest or latest[0] is None:
-                return 50.0
+                return None
             latest_val = float(latest[0])
             cnt = sum(1 for v in values if v <= latest_val)
             return (cnt / len(values)) * 100
@@ -141,7 +146,7 @@ class ValuationRepo:
         finally:
             conn.close()
 
-    def get_pe_percentile(self, code: str, end_date: str = None) -> float:
+    def get_pe_percentile(self, code: str, end_date: str = None) -> float | None:
         """从 index_pe_history 计算PE百分位（基于5000+条历史数据）"""
         conn = get_db(self.db_path)
         try:
@@ -152,7 +157,7 @@ class ValuationRepo:
                 params.append(end_date)
             rows = conn.execute(query, params).fetchall()
             if not rows:
-                return 50.0
+                return None
 
             values = [float(row[0]) for row in rows]
             values.sort()
@@ -169,7 +174,7 @@ class ValuationRepo:
 
             latest = conn.execute(latest_query, latest_params).fetchone()
             if not latest or latest[0] is None:
-                return 50.0
+                return None
 
             latest_val = float(latest[0])
             cnt = sum(1 for v in values if v <= latest_val)

@@ -9,6 +9,7 @@ import numpy as np
 from typing import Dict, Optional
 
 from strategy.constraints import StrategyConstraints
+from strategy.diagnostics import FactorDiagnosticReport, FactorObservation
 
 
 def _multi_vote_decision(ma_sig: str, macd_sig: str, vol_sig: str) -> str:
@@ -108,7 +109,7 @@ class MultiFactorStrategy(bt.Strategy):
         ('max_sector_exposure_pct', 50.0), # 行业仓位上限（%），0=不限制
         ('max_monthly_turnover', 30.0),    # 月度换手率上限（%），0=不限制
         ('core_allocation_pct', 50.0),     # 核心仓位占总资金比例(%) — neutral/baseline 目标占比
-        ('core_dynamic', True),            # 是否启用动态核心（随市场状态小幅调整核心仓位占比）
+        ('core_dynamic', False),           # 兼容旧参数；核心仓位固定为50%，不随市场状态调整
         ('core_bull_alloc_pct', 55.0),     # bull状态核心目标占比(%) — 保守±5pp，避免追涨杀跌
         ('core_bear_alloc_pct', 45.0),     # bear状态核心目标占比(%)
         ('core_rebalance_threshold_pct', 3.0),  # 核心占比偏离>此值才再平衡(pp)
@@ -127,6 +128,7 @@ class MultiFactorStrategy(bt.Strategy):
     def __init__(self):
         self.day_count = self.p.rebalance_freq - 1
         self.trade_log = []
+        self._pending_orders = {}
         self.cumulative_pnl = 0.0
         self.inds = {}
         for d in self.datas:
@@ -196,6 +198,8 @@ class MultiFactorStrategy(bt.Strategy):
 
         # 因子失效监控
         self._factor_history = {}  # {factor_name: [(date, code, factor_value, close_price)]}
+        self._factor_snapshot_total = 0
+        self._factor_available_counts = {}
         self._invalid_factors = set()  # 当前失效的因子集合
 
         # 核心卫星策略状态变量
@@ -203,7 +207,7 @@ class MultiFactorStrategy(bt.Strategy):
         self._core_built = False   # 核心仓位是否已建仓
         self._candidate_regime = 'bull'  # 候选市场状态（待确认）
         self._candidate_streak = 0       # 候选状态连续计数
-        self._current_regime = 'bull'    # 已确认的当前市场状态
+        self._current_regime = 'neutral' # 已确认的当前市场状态
         if not hasattr(self, '_benchmark_data'):
             self._benchmark_data = None
         if not hasattr(self, '_regime_macd_benchmark'):
@@ -240,13 +244,22 @@ class MultiFactorStrategy(bt.Strategy):
             logging.getLogger(__name__).warning(f"_warmup_ic_history failed: {e}")
 
     def _warmup_price_history(self):
-        """从 backtrader 预加载数组填充 _price_history。
+        """仅用交易开始日前的历史填充 ``_price_history``。
 
         backtrader 的 next() 在指标最小周期（如 StdDev(60)）之后才开始调用，
         导致前 N 个 bar 的价格未被 next() 中的 append 逻辑记录。
-        此方法在 start() 中一次性预加载完整历史，确保首次调仓即可计算长周期因子。
+        这里只预加载交易开始日前的 warm-up 数据；开始日之后的数据必须由 next()
+        按当前 bar 增量追加，避免把未来数据带入早期调仓。
         """
+        if self.p.start_date is None:
+            return
+
         import backtrader as bt
+        warmup_end = (
+            self.p.start_date.isoformat()
+            if hasattr(self.p.start_date, 'isoformat')
+            else str(self.p.start_date)
+        )
         for d in self.datas:
             code = d._name
             n = d.buflen()
@@ -270,6 +283,8 @@ class MultiFactorStrategy(bt.Strategy):
                     dt_val = dt_arr[i]
                     dt = bt.num2date(dt_val).date()
                 except Exception:
+                    continue
+                if dt.isoformat() > warmup_end:
                     continue
                 try:
                     vol = float(vol_arr[i])
@@ -299,7 +314,7 @@ class MultiFactorStrategy(bt.Strategy):
         """
         import backtrader as bt
         from strategy.scoring import (
-            compute_all_factors, winsorize_mad_3sigma, group_zscore,
+            compute_all_factors, preprocess_factor_cross_section,
             rank_ic_monthly, FACTOR_DIRECTIONS,
         )
         from config.settings import ETF_UNIVERSE
@@ -354,17 +369,12 @@ class MultiFactorStrategy(bt.Strategy):
         if len(code_prices) < 3:
             return
 
-        # 取 warmup 截止日 = start_date
+        # 取 warmup 截止日 = start_date；未指定交易开始日时不预热，
+        # 避免把完整数据集当作历史信息。
         warmup_end = self.p.start_date
         if warmup_end is None:
-            all_dates = []
-            for prices in code_prices.values():
-                all_dates.extend(p['trade_date'] for p in prices)
-            if not all_dates:
-                return
-            warmup_end_str = max(all_dates)
-        else:
-            warmup_end_str = warmup_end.isoformat() if hasattr(warmup_end, 'isoformat') else str(warmup_end)
+            return
+        warmup_end_str = warmup_end.isoformat() if hasattr(warmup_end, 'isoformat') else str(warmup_end)
 
         # 过滤 warmup_end 之前的 prices
         for code in list(code_prices.keys()):
@@ -476,12 +486,24 @@ class MultiFactorStrategy(bt.Strategy):
                 if len(valid_codes) < 3:
                     continue
 
-                s = pd.Series({c: vals[c] for c in valid_codes})
-                s = winsorize_mad_3sigma(s)
-                zscores = group_zscore(valid_codes, {c: s[c] for c in valid_codes}, code_to_sector)
-
-                factor_series = pd.Series({c: zscores.get(c, 0.0) for c in valid_codes})
-                return_series = pd.Series({c: etf_returns.get(c, np.nan) for c in valid_codes})
+                snapshot = {
+                    c: {factor: vals[c]} for c in valid_codes
+                }
+                zscores = preprocess_factor_cross_section(
+                    snapshot,
+                    [factor],
+                    code_to_group=code_to_sector,
+                )
+                factor_series = pd.Series({
+                    c: (
+                        zscores.get(c, {}).get(factor) * FACTOR_DIRECTIONS.get(factor, 1)
+                        if zscores.get(c, {}).get(factor) is not None else None
+                    )
+                    for c in valid_codes
+                }).dropna()
+                return_series = pd.Series({
+                    c: etf_returns.get(c, np.nan) for c in factor_series.index
+                })
                 ic = rank_ic_monthly(factor_series, return_series)
                 factor_ic.setdefault(factor, []).append(ic)
 
@@ -502,42 +524,95 @@ class MultiFactorStrategy(bt.Strategy):
         hist = {k: list(v) for k, v in self._factor_ic_history.items()}
         return compute_icir_weights(hist, rolling_months=12, return_mode=True)
 
-    def _log_trade(self, d, direction, size, price, reason, trade_type='satellite'):
-        """记录交易日志
-
-        Args:
-            trade_type: 'core' (核心建仓) | 'satellite' (卫星轮动) | 'stoploss' (回撤止损)
-        """
-        amount = size * price
-        fee = amount * self.p.commission_rate
-        pos = self.getposition(d)
+    def _submit_order(self, data, direction, size, price, reason, trade_type='satellite'):
+        """提交订单意图；交易日志在成交回报中生成。"""
+        position = self.getposition(data)
         if direction == '买入':
-            position_after = pos.size + size
-            pnl = 0.0
+            order = self.buy(data=data, size=size, price=price)
         else:
-            position_after = pos.size - size
-            if pos.price > 0:
-                pnl = (price - pos.price) * size
-            else:
-                pnl = 0.0
+            order = self.sell(data=data, size=size, price=price)
+        self._pending_orders[order.ref] = {
+            'reason': reason,
+            'trade_type': trade_type,
+            'position_price': float(position.price or 0.0),
+        }
+        return order
+
+    def notify_order(self, order):
+        """仅将 Broker 确认的完整成交写入交易日志。"""
+        metadata = self._pending_orders.get(order.ref)
+        if metadata is None:
+            return
+
+        if order.status in (bt.Order.Submitted, bt.Order.Accepted):
+            return
+        if order.status not in (bt.Order.Partial, bt.Order.Completed):
+            self._pending_orders.pop(order.ref, None)
+            return
+
+        cumulative_size = int(order.executed.size)
+        previous_size = int(metadata.get('executed_size', 0))
+        fill_size = int(abs(cumulative_size - previous_size))
+        metadata['executed_size'] = cumulative_size
+        if order.status == bt.Order.Completed:
+            self._pending_orders.pop(order.ref, None)
+
+        executed_size = fill_size
+        if executed_size <= 0:
+            return
+        executed_price = float(order.executed.price)
+        cumulative_value = abs(float(order.executed.value or 0.0))
+        previous_value = float(metadata.get('executed_value', 0.0))
+        amount = cumulative_value - previous_value
+        metadata['executed_value'] = cumulative_value
+        if amount <= 0:
+            amount = executed_size * executed_price
+        cumulative_fee = float(order.executed.comm or 0.0)
+        previous_fee = float(metadata.get('executed_fee', 0.0))
+        fee = max(0.0, cumulative_fee - previous_fee)
+        metadata['executed_fee'] = cumulative_fee
+        direction = '买入' if cumulative_size > 0 else '卖出'
+        pnl = 0.0
+        if direction == '卖出' and metadata['position_price'] > 0:
+            pnl = (executed_price - metadata['position_price']) * executed_size
         self.cumulative_pnl += pnl - fee
-        cash_after = self.broker.get_cash()
-        total_value = self.broker.getvalue()
+        try:
+            executed_date = bt.num2date(order.executed.dt).date().isoformat()
+        except Exception:
+            executed_date = self.data.datetime.date(0).isoformat()
+        position_after = self.getposition(order.data).size
+        if metadata['trade_type'] == 'core' and direction == '买入':
+            code = order.data._name
+            previous = self._core_positions.get(code)
+            if previous is None:
+                self._core_positions[code] = {
+                    'shares': executed_size,
+                    'avg_price': executed_price,
+                }
+            else:
+                previous_shares = previous['shares']
+                total_shares = previous_shares + executed_size
+                previous['avg_price'] = (
+                    previous['avg_price'] * previous_shares
+                    + executed_price * executed_size
+                ) / total_shares
+                previous['shares'] = total_shares
         self.trade_log.append({
-            'date': self.data.datetime.date(0).isoformat(),
-            'code': d._name,
+            'order_id': order.ref,
+            'date': executed_date,
+            'code': order.data._name,
             'direction': direction,
-            'quantity': size,
-            'price': price,
+            'quantity': executed_size,
+            'price': executed_price,
             'amount': amount,
             'fee': fee,
             'position_after': position_after,
             'pnl': pnl,
             'cumulative_pnl': self.cumulative_pnl,
-            'cash_after': cash_after,
-            'reason': reason,
-            'trade_type': trade_type,
-            'total_value': total_value,
+            'cash_after': self.broker.get_cash(),
+            'reason': metadata['reason'],
+            'trade_type': metadata['trade_type'],
+            'total_value': self.broker.getvalue(),
         })
 
     def _reduce_positions_to_half(self):
@@ -552,10 +627,11 @@ class MultiFactorStrategy(bt.Strategy):
                 if sell_size > 0:
                     price = d.close[0]
                     sell_price = self.constraints.apply_slippage_sell(price)
-                    self._log_trade(d, '卖出', sell_size, sell_price,
-                                   f"组合回撤止损，卫星仓位降仓50%（核心仓位不动）",
-                                   trade_type='stoploss')
-                    self.sell(d, size=sell_size, price=sell_price)
+                    self._submit_order(
+                        d, '卖出', sell_size, sell_price,
+                        "组合回撤止损，卫星仓位降仓50%（核心仓位不动）",
+                        trade_type='stoploss',
+                    )
 
     def _check_drawdown_stoploss(self):
         """回撤止损（策略自算，避免依赖cerebro未注册的analyzer）"""
@@ -612,7 +688,7 @@ class MultiFactorStrategy(bt.Strategy):
         if self._core_built:
             return
         account_value = self.broker.getvalue()
-        # 首日用动态目标占比（基于 regime 初始值）而非固定 50%
+        # 核心仓位按固定 50% 建仓，市场状态只影响卫星仓位。
         target_pct = self._get_target_core_alloc()
         core_total = account_value * (target_pct / 100.0)
         codes = self.p.core_etf_codes or ["510300", "510500"]
@@ -630,96 +706,20 @@ class MultiFactorStrategy(bt.Strategy):
                 alloc = core_total * weights[i]
                 shares = int((alloc * 0.9985) / (buy_price * 100)) * 100
                 if shares > 0:
-                    self._log_trade(data, '买入', shares, buy_price,
-                                   f"核心仓位建仓（动态目标{target_pct:.0f}%，内部权重{weights[i]*100:.0f}%）",
-                                   trade_type='core')
-                    self.buy(data=data, size=shares, price=buy_price)
-                    self._core_positions[code] = {'shares': shares, 'avg_price': buy_price}
+                    self._submit_order(
+                        data, '买入', shares, buy_price,
+                        f"多因子策略核心仓位建仓（固定目标{target_pct:.0f}%，内部权重{weights[i]*100:.0f}%）",
+                        trade_type='core',
+                    )
         self._core_built = True
 
     def _get_target_core_alloc(self) -> float:
-        """根据已确认的市场状态返回核心仓位目标占比(%)。
-
-        【关键】直接读 self._current_regime，不调用 _get_market_regime()（有streak++副作用），
-        避免同一天streak被double-count导致regime提前切换确认。
-
-        档位保守（±5pp）：bull=55%, bear=45%, neutral=50%
-        — 避免regime滞后信号造成追涨杀跌（9月底指数高点加、10月暴跌后减）
-        """
-        if not self.p.core_dynamic:
-            return self.p.core_allocation_pct
-        # 直接读取已确认状态（无副作用）。_current_regime 初始='bull'兼容首日建仓
-        regime = self._current_regime if hasattr(self, '_current_regime') else 'neutral'
-        if regime == 'bull':
-            return self.p.core_bull_alloc_pct
-        elif regime == 'bear':
-            return self.p.core_bear_alloc_pct
-        else:
-            return self.p.core_allocation_pct
+        """返回固定核心仓位比例。"""
+        return self.p.core_allocation_pct
 
     def _rebalance_core_position(self):
-        """调仓日再平衡核心仓位到目标占比。
-
-        仅当实际占比偏离目标占比超过 core_rebalance_threshold_pct (默认5pp) 时才执行，
-        避免 regime 频繁切换造成的交易成本。
-        买入/卖出按 core_weights 比例在各核心 ETF 间分配。
-        """
-        if not self._core_built:
-            return
-        account_value = self.broker.getvalue()
-        if account_value <= 0:
-            return
-        core_mv = self._get_core_total_value()
-        actual_pct = core_mv / account_value * 100.0
-        target_pct = self._get_target_core_alloc()
-        gap = target_pct - actual_pct  # 正值=需加仓核心，负值=需减仓核心
-        threshold = self.p.core_rebalance_threshold_pct
-        if abs(gap) <= threshold:
-            return
-        # 每个核心 ETF 需要调整的金额
-        codes = self.p.core_etf_codes or ["510300", "510500"]
-        weights = list(self.p.core_weights) if self.p.core_weights is not None else [1.0 / len(codes)] * len(codes)
-        # 目标核心总资金
-        target_core_mv = account_value * (target_pct / 100.0)
-        for i, code in enumerate(codes):
-            d = self._find_data_by_name(code)
-            if d is None or d.close[0] is None or d.close[0] <= 0:
-                continue
-            target_code_mv = target_core_mv * weights[i]
-            current_mv = 0.0
-            if code in self._core_positions:
-                current_mv = self._core_positions[code]['shares'] * d.close[0]
-            diff_mv = target_code_mv - current_mv
-            close_price = d.close[0]
-            if diff_mv > 0:  # 加仓
-                buy_price = self.constraints.apply_slippage_buy(close_price)
-                # 留0.15%现金避免现金不足
-                shares = int((diff_mv * 0.9985) / (buy_price * 100)) * 100
-                if shares > 0:
-                    self._log_trade(d, '买入', shares, buy_price,
-                                   f"核心仓位加仓（目标{target_pct:.0f}%，偏离{gap:+.1f}pp，调仓差额{diff_mv:,.0f}）",
-                                   trade_type='core_rebalance')
-                    self.buy(data=d, size=shares, price=buy_price)
-                    old_shares = self._core_positions.get(code, {}).get('shares', 0)
-                    old_avg = self._core_positions.get(code, {}).get('avg_price', buy_price)
-                    new_shares = old_shares + shares
-                    new_avg = (old_avg * old_shares + buy_price * shares) / new_shares if new_shares > 0 else buy_price
-                    self._core_positions[code] = {'shares': new_shares, 'avg_price': new_avg}
-            elif diff_mv < 0:  # 减仓
-                sell_price = self.constraints.apply_slippage_sell(close_price)
-                shares_to_sell = int(abs(diff_mv) / (sell_price * 100)) * 100
-                if shares_to_sell > 0 and code in self._core_positions:
-                    current_shares = self._core_positions[code]['shares']
-                    shares_to_sell = min(shares_to_sell, current_shares)
-                    if shares_to_sell > 0:
-                        shares_to_sell = (shares_to_sell // 100) * 100
-                        if shares_to_sell <= 0:
-                            continue
-                        self._log_trade(d, '卖出', shares_to_sell, sell_price,
-                                       f"核心仓位减仓（目标{target_pct:.0f}%，偏离{gap:+.1f}pp，调仓差额{diff_mv:,.0f}）",
-                                       trade_type='core_rebalance')
-                        self.sell(data=d, size=shares_to_sell, price=sell_price)
-                        self._core_positions[code]['shares'] = current_shares - shares_to_sell
+        """保留兼容方法；核心仓位固定后不再执行再平衡。"""
+        return
 
     def _get_pe_percentile(self, code: str, current_date_str: str = None) -> Optional[float]:
         """获取ETF在指定日期的PE历史百分位（严格过滤 future data）
@@ -889,6 +889,13 @@ class MultiFactorStrategy(bt.Strategy):
             return
 
         current_date = self.data.datetime.date(0)
+        self._factor_snapshot_total += len(etf_factors)
+        for factor_name in {name for values in etf_factors.values() for name in values}:
+            self._factor_available_counts.setdefault(factor_name, 0)
+            self._factor_available_counts[factor_name] += sum(
+                values.get(factor_name) is not None
+                for values in etf_factors.values()
+            )
 
         for code, factors in etf_factors.items():
             # 获取当前收盘价（优先从价格历史取，回退到数据源）
@@ -903,7 +910,9 @@ class MultiFactorStrategy(bt.Strategy):
             for factor_name, value in factors.items():
                 if factor_name not in self._factor_history:
                     self._factor_history[factor_name] = []
-                self._factor_history[factor_name].append((current_date, code, value, close_price))
+                self._factor_history[factor_name].append(
+                    FactorObservation(current_date, code, value, close_price)
+                )
 
     def _check_factor_validity(self, available_factors):
         """检查因子有效性（基于近N个月滚动IC，使用真实价格前向收益）
@@ -918,7 +927,11 @@ class MultiFactorStrategy(bt.Strategy):
             return set(available_factors)
 
         from scipy.stats import spearmanr
-        from strategy.scoring import FACTOR_DIRECTIONS
+        from strategy.scoring import (
+            FACTOR_DIRECTIONS,
+            group_zscore,
+            winsorize_mad_3sigma,
+        )
 
         valid_factors = set()
         lookback_days = self.p.factor_monitor_lookback * 30
@@ -961,12 +974,19 @@ class MultiFactorStrategy(bt.Strategy):
                 if len(common_codes) < 3:
                     continue
 
+                raw_values = {c: data_i[c][0] for c in common_codes}
+                winsorized = winsorize_mad_3sigma(pd.Series(raw_values))
+                groups = getattr(self, 'code_to_sector', None) or {
+                    c: '__all__' for c in common_codes
+                }
+                normalized = group_zscore(common_codes, winsorized.to_dict(), groups)
                 factor_vals = []
                 forward_rets = []
                 for c in common_codes:
-                    val_i, close_i = data_i[c]
+                    _, close_i = data_i[c]
                     _, close_j = data_j[c]
-                    if val_i is None or close_i is None or close_j is None or close_i <= 0:
+                    val_i = normalized.get(c, 0.0)
+                    if close_i is None or close_j is None or close_i <= 0:
                         continue
                     factor_vals.append(float(val_i))
                     forward_rets.append(float(close_j / close_i - 1))
@@ -1004,7 +1024,7 @@ class MultiFactorStrategy(bt.Strategy):
         bt.indicators 仅保留用于流动性过滤和交易日志展示，不参与因子打分。
         """
         from strategy.scoring import (
-            compute_all_factors, zscore_normalize, equal_weight_score,
+            compute_all_factors, preprocess_factor_cross_section, equal_weight_score,
             weighted_score, rank_ic_monthly,
         )
         from collections import deque
@@ -1109,7 +1129,11 @@ class MultiFactorStrategy(bt.Strategy):
         if not available_factors:
             available_factors = ['reversal_20d', 'volatility_60d']
 
-        zscores = zscore_normalize(etf_factors, factor_names=available_factors)
+        zscores = preprocess_factor_cross_section(
+            etf_factors,
+            factor_names=available_factors,
+            code_to_group=self.code_to_sector,
+        )
 
         # ICIR 加权（主路径）
         icir_weights, icir_excluded, icir_mode = self._compute_icir_factor_weights()
@@ -1274,8 +1298,7 @@ class MultiFactorStrategy(bt.Strategy):
         if self.p.market_regime_switch:
             _ = self._get_market_regime()
 
-        # 每日再平衡核心仓位（不等待调仓日），减少regime信号与20天调仓窗的时间错位
-        # — 用当前已确认的_current_regime判定档位（±5pp），温和调整避免追涨杀跌
+        # 核心仓位固定，市场状态只影响卫星仓位。
         self._rebalance_core_position()
 
         self.day_count += 1
@@ -1345,10 +1368,9 @@ class MultiFactorStrategy(bt.Strategy):
                 reason_str = f"多因子排名第{rank}/{total_n}，调出持仓（综合得分{score:.2f}）"
                 sell_price = self.constraints.apply_slippage_sell(price)
                 sell_amount_real = pos.size * sell_price  # 实际卖出回款（含滑点下浮）
-                self._log_trade(d, '卖出', pos.size, sell_price, reason_str)
+                self._submit_order(d, '卖出', pos.size, sell_price, reason_str)
                 self.constraints.record_turnover(d._name, sell_amount, current_date)
                 pending_sell_amounts += sell_amount_real
-                self.close(d)
 
         # 1b. 减仓：仍在top_n但超配
         for d in self.datas:
@@ -1383,10 +1405,9 @@ class MultiFactorStrategy(bt.Strategy):
                                   f"（当前{current_mv/constraint_base_value*100:.1f}%→目标{effective_max_pct:.0f}%）")
                     sell_price = self.constraints.apply_slippage_sell(price)
                     sell_amount_real = sell_shares * sell_price
-                    self._log_trade(d, '卖出', sell_shares, sell_price, reason_str)
+                    self._submit_order(d, '卖出', sell_shares, sell_price, reason_str)
                     self.constraints.record_turnover(d._name, sell_amount, current_date)
                     pending_sell_amounts += sell_amount_real
-                    self.sell(d, size=sell_shares, price=sell_price)
 
         # 1c. 风格分散减仓
         if self.constraints.max_per_sector > 0 and self.code_to_sector:
@@ -1418,10 +1439,9 @@ class MultiFactorStrategy(bt.Strategy):
                         reason_str = f"{sector}风格超限减仓（综合得分{score:.2f}）"
                         sell_price = self.constraints.apply_slippage_sell(price)
                         sell_amount_real = pos.size * sell_price
-                        self._log_trade(d, '卖出', pos.size, sell_price, reason_str)
+                        self._submit_order(d, '卖出', pos.size, sell_price, reason_str)
                         self.constraints.record_turnover(d._name, sell_amount, current_date)
                         pending_sell_amounts += sell_amount_real
-                        self.close(d)
 
         # 阶段2：现金感知买入
         effective_cash = self.broker.get_cash() + pending_sell_amounts
@@ -1477,12 +1497,103 @@ class MultiFactorStrategy(bt.Strategy):
             vol_val = raw.get('volatility_60d', 0) or 0
             reason_str = (f"多因子排名第{rank}/{total_n}，综合得分{score:.2f}，"
                           f"动量{momentum_val:.1f}%，PE百分位{pe_val:.0f}%，波动率{vol_val:.1f}%")
-            self._log_trade(d, '买入', target_size, buy_price, reason_str)
+            self._submit_order(d, '买入', target_size, buy_price, reason_str)
             self.constraints.record_buy(code, current_date)
             self.constraints.record_turnover(code, buy_amount, current_date)
-            self.buy(d, size=target_size, price=buy_price)
             pending_buy_updates[code] = pending_buy_updates.get(code, 0) + buy_amount
             effective_cash -= buy_amount
+
+    def _build_grouped_returns(self):
+        """基于历史因子观察构建五组后续收益。"""
+        from strategy.scoring import (
+            FACTOR_DIRECTIONS,
+            group_zscore,
+            winsorize_mad_3sigma,
+        )
+
+        grouped_returns = {}
+        for factor_name, observations in self._factor_history.items():
+            by_date = {}
+            for observation_date, code, factor_value, close_price in observations:
+                if factor_value is None or close_price is None or close_price <= 0:
+                    continue
+                date_key = str(observation_date)
+                by_date.setdefault(date_key, {})[code] = (float(factor_value), float(close_price))
+
+            dates = sorted(by_date)
+            period_rows = []
+            direction = FACTOR_DIRECTIONS.get(factor_name, 1)
+            groups = getattr(self, 'code_to_sector', None) or {
+                code: '__all__'
+                for date_data in by_date.values()
+                for code in date_data
+            }
+            processed_by_date = {}
+            for date_key, date_data in by_date.items():
+                raw_values = {code: value for code, (value, _) in date_data.items()}
+                winsorized = winsorize_mad_3sigma(pd.Series(raw_values))
+                normalized = group_zscore(list(date_data), winsorized.to_dict(), groups)
+                processed_by_date[date_key] = {
+                    code: (normalized.get(code, 0.0), close_price)
+                    for code, (_, close_price) in date_data.items()
+                }
+            for index in range(len(dates) - 1):
+                current_data = processed_by_date[dates[index]]
+                next_data = by_date[dates[index + 1]]
+                common_codes = sorted(set(current_data) & set(next_data))
+                if len(common_codes) < 5:
+                    continue
+
+                ranked_codes = sorted(
+                    common_codes,
+                    key=lambda code: current_data[code][0] * direction,
+                    reverse=True,
+                )
+                chunks = np.array_split(ranked_codes, 5)
+                for group_number, group_codes in enumerate(chunks, start=1):
+                    returns = [
+                        next_data[code][1] / current_data[code][1] - 1
+                        for code in group_codes
+                        if current_data[code][1] > 0
+                    ]
+                    if returns:
+                        period_rows.append({
+                            'date': dates[index + 1],
+                            'group': group_number,
+                            'forward_return': float(np.mean(returns)),
+                            'count': len(returns),
+                        })
+
+            if period_rows:
+                grouped_frame = pd.DataFrame(period_rows)
+                grouped_returns[factor_name] = (
+                    grouped_frame.groupby('group', as_index=False)
+                    .agg(
+                        forward_return=('forward_return', 'mean'),
+                        observations=('count', 'sum'),
+                    )
+                    .sort_values('group')
+                    .reset_index(drop=True)
+                )
+        return grouped_returns
+
+    def _excluded_months(self, factor_name, current_date):
+        """计算因子最近一次被剔除后的持续月份。"""
+        events = [
+            event for event in self._factor_event_log
+            if event.get('factor') == factor_name
+        ]
+        if not events:
+            excluded_since = self._factor_excluded_since.get(factor_name)
+            if excluded_since is None:
+                return 0
+            return max(1, int((current_date - pd.to_datetime(excluded_since).date()).days / 30))
+
+        latest_event = events[-1]
+        if latest_event.get('event') != 'excluded':
+            return 0
+        excluded_date = pd.to_datetime(latest_event['date']).date()
+        return max(1, int((current_date - excluded_date).days / 30))
 
     def build_factor_diagnostics(self):
         """组装因子诊断结果，供回测输出
@@ -1497,7 +1608,7 @@ class MultiFactorStrategy(bt.Strategy):
                 excluded_factors: list 被剔除的因子及原因
         """
         import pandas as pd
-        from strategy.scoring import FACTOR_LABELS, compute_icir_weights
+        from strategy.scoring import FACTOR_DIRECTIONS, FACTOR_LABELS, compute_icir_weights
 
         rows = []
         if self._factor_ic_history:
@@ -1508,14 +1619,46 @@ class MultiFactorStrategy(bt.Strategy):
         else:
             w, excl, mode = ({}, {}, 'equal_weight_fallback')
 
-        for f, hist in self._factor_ic_history.items():
+        all_history_dates = [
+            pd.to_datetime(item[0]).date()
+            for observations in self._factor_history.values()
+            for item in observations
+        ]
+        if all_history_dates:
+            current_date = max(all_history_dates)
+        elif hasattr(self, 'data') and len(self.data):
+            current_date = self.data.datetime.date(0)
+        else:
+            current_date = pd.Timestamp.now().date()
+
+        factor_names = sorted(set(self._factor_ic_history) | set(self._factor_history))
+        for f in factor_names:
+            hist = self._factor_ic_history.get(f, [])
             arr = [x for x in hist if x is not None]
             m = float(np.mean(arr)) if arr else float('nan')
             s = float(np.std(arr, ddof=1)) if arr and len(arr) > 1 else float('nan')
-            icir = (m / s) if s and not np.isnan(s) and s != 0 else 0.0
-            hit = sum(1 for x in arr if x is not None and x > 0) / len(arr) if arr else 0.0
-            status = 'excluded' if f in excl else 'active'
+            direction = FACTOR_DIRECTIONS.get(f, 1)
+            adjusted = [value * direction for value in arr]
+            adjusted_mean = float(np.mean(adjusted)) if adjusted else float('nan')
+            adjusted_std = float(np.std(adjusted, ddof=1)) if len(adjusted) > 1 else float('nan')
+            icir = (
+                adjusted_mean / adjusted_std
+                if adjusted_std and not np.isnan(adjusted_std) and adjusted_std != 0
+                else 0.0
+            )
+            hit = (
+                sum(1 for value in adjusted if value > 0) / len(adjusted)
+                if adjusted else 0.0
+            )
+            status = 'excluded' if f in excl else ('active' if arr else 'insufficient_data')
             used_w = w.get(f, 0.0)
+            excluded_months = self._excluded_months(f, current_date) if status == 'excluded' else 0
+            snapshot_total = getattr(self, '_factor_snapshot_total', 0)
+            available_count = getattr(self, '_factor_available_counts', {}).get(f, 0)
+            missing_rate = (
+                1.0 - available_count / snapshot_total
+                if snapshot_total else None
+            )
             rows.append({
                 'factor': f,
                 'label': FACTOR_LABELS.get(f, f),
@@ -1525,22 +1668,31 @@ class MultiFactorStrategy(bt.Strategy):
                 'hit_rate_12m': hit,
                 'status': status,
                 'used_weight_mean': used_w,
-                'excluded_months': 0,
+                'excluded_months': excluded_months,
+                'missing_rate': missing_rate,
             })
         factor_stats = pd.DataFrame(rows)
         rolling_ic_series = pd.DataFrame(self._ic_rolling_rows) if self._ic_rolling_rows else pd.DataFrame()
         weight_history = pd.DataFrame(self._weight_history_rows) if self._weight_history_rows else pd.DataFrame()
+        grouped_returns = self._build_grouped_returns()
 
-        excluded_list = [{'factor': f, 'reason': r, 'months': 0} for f, r in excl.items()]
-        return {
+        excluded_list = [
+            {
+                'factor': factor_name,
+                'reason': reason,
+                'months': self._excluded_months(factor_name, current_date),
+            }
+            for factor_name, reason in excl.items()
+        ]
+        return FactorDiagnosticReport({
             'factor_stats': factor_stats,
             'rolling_ic_series': rolling_ic_series,
-            'grouped_returns': {},
+            'grouped_returns': grouped_returns,
             'weight_history': weight_history,
             'weight_mode': mode,
             'excluded_factors': excluded_list,
             'factor_event_log': pd.DataFrame(self._factor_event_log) if self._factor_event_log else pd.DataFrame(),
-        }
+        })
 
 
 def run_backtest(data_dict, initial_capital=1000000, commission_rate=0.0003,

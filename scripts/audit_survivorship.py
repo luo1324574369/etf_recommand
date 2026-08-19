@@ -46,6 +46,16 @@ def audit_survivorship(start_date: str, db_path: str) -> int:
         conn.close()
         return 2
 
+    columns = {
+        row['name']
+        for row in conn.execute("PRAGMA table_info(etf_info)").fetchall()
+    }
+    date_column = 'listed_date' if 'listed_date' in columns else 'list_date' if 'list_date' in columns else None
+    if date_column is None:
+        print(f"[ERROR] 数据库 {db_path} 的 etf_info 表缺少 listed_date/list_date 字段")
+        conn.close()
+        return 2
+
     late_listed = []
     fallback_used = []  # 记录使用 price 表近似上市日的 ETF
     missing_list_date = []
@@ -56,7 +66,7 @@ def audit_survivorship(start_date: str, db_path: str) -> int:
     for etf in ETF_UNIVERSE:
         code = etf['code']
         row = conn.execute(
-            "SELECT listed_date FROM etf_info WHERE code = ?", (code,)
+            f"SELECT {date_column} AS listed_date FROM etf_info WHERE code = ?", (code,)
         ).fetchone()
 
         # 数据库中无该 ETF 记录：视为不在本次审计范围内，跳过

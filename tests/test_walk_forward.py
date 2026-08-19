@@ -18,6 +18,7 @@ from strategy.walk_forward import (
     split_windows,
     calculate_robustness_score,
     _cagr_from_returns,
+    PRESET_STYLES,
 )
 
 
@@ -79,6 +80,12 @@ def test_cagr_from_returns():
     assert abs(cagr_neg - expected_neg) < 0.01
 
 
+def test_preset_selection_does_not_use_full_period_metrics():
+    """预设选择不能使用包含最终测试集的全周期指标。"""
+    assert PRESET_STYLES
+    assert all(not style['metric'].startswith('full_') for style in PRESET_STYLES)
+
+
 def test_generate_presets_returns_5():
     """测试生成3-7个差异化预设
 
@@ -100,8 +107,8 @@ def test_generate_presets_returns_5():
         })
     }
     param_ranges = {
-        'lookback_short': [20, 60],
-        'lookback_long': [120, 250],
+        'lookback_momentum': [20, 60],
+        'lookback_volatility': [40, 60],
         'top_n': [1, 3],
         'rebalance_freq': [10, 20],
     }
@@ -134,10 +141,72 @@ def test_generate_presets_returns_5():
         assert 'robustness_score' in m
         assert 'worst_sharpe' in m
         assert 'validation_windows' in m
-        assert 'full_annual_return' in m
-        assert 'full_sharpe_ratio' in m
-        assert 'full_max_drawdown' in m
-        assert 'full_num_trades' in m
+        assert 'selection_annual_return' in m
+        assert 'selection_sharpe_ratio' in m
+        assert 'selection_max_drawdown' in m
+        assert 'selection_num_trades' in m
+        assert m['participates_in_selection'] is True
+        assert m['data_window']['start'] == result['selection_window']['start']
+
+
+def test_short_selection_window_does_not_use_reserved_test_window(monkeypatch):
+    """留出测试集存在时，短选择区间也不能回退使用测试区间。"""
+    from strategy import walk_forward
+
+    calls = []
+
+    def fake_backtest(strategy_module, data_dict, params, start_date, end_date,
+                      extra_params=None, enable_attribution=False):
+        calls.append((start_date, end_date, enable_attribution))
+        return {
+            'annual_return': 1.0,
+            'sharpe_ratio': 1.0,
+            'max_drawdown': 1.0,
+            'num_trades': 1,
+            'total_return': 1.0,
+        }
+
+    monkeypatch.setattr(walk_forward, '_run_single_backtest', fake_backtest)
+    result = walk_forward.generate_walk_forward_presets(
+        {'ETF': pd.DataFrame()},
+        '2020-01-01',
+        '2021-12-31',
+        {'lookback_momentum': [20]},
+        strategy_module=object(),
+    )
+
+    assert result['test_window'] == {'start': '2020-12-31', 'end': '2021-12-31'}
+    assert ('2020-01-01', '2020-12-30', False) in calls
+    assert ('2020-01-01', '2021-12-31', False) not in calls
+
+
+def test_oos_failure_is_explicitly_reported(monkeypatch):
+    """留出测试集失败时，预设必须标记不可用而非静默缺字段。"""
+    from strategy import walk_forward
+
+    def fake_backtest(strategy_module, data_dict, params, start_date, end_date,
+                      extra_params=None, enable_attribution=False):
+        if start_date == '2020-12-31':
+            return None
+        return {
+            'annual_return': 1.0,
+            'sharpe_ratio': 1.0,
+            'max_drawdown': 1.0,
+            'num_trades': 1,
+            'total_return': 1.0,
+        }
+
+    monkeypatch.setattr(walk_forward, '_run_single_backtest', fake_backtest)
+    result = walk_forward.generate_walk_forward_presets(
+        {'ETF': pd.DataFrame()},
+        '2020-01-01',
+        '2021-12-31',
+        {'lookback_momentum': [20]},
+        strategy_module=object(),
+    )
+
+    assert result['presets'][0]['metrics']['oos_status'] == 'unavailable'
+    assert result['presets'][0]['metrics']['oos_evaluation_stage'] == 'test'
 
 
 if __name__ == '__main__':

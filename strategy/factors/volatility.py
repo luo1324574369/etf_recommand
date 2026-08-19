@@ -7,10 +7,11 @@ class VolatilityFactor(FactorBase):
         self.period = period
 
     def calculate(self, code, price_data, end_date) -> dict:
-        if len(price_data) < self.period:
+        filtered = [item for item in price_data if not end_date or item["trade_date"] <= end_date]
+        if len(filtered) < self.period:
             return {"volatility": 0, "is_high_vol": False}
 
-        recent = price_data[-self.period:]
+        recent = filtered[-self.period:]
         returns = []
         for i in range(1, len(recent)):
             prev = recent[i-1]["close"]

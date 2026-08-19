@@ -16,9 +16,13 @@ def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
         df.drop_duplicates('trade_date', inplace=True)
         
         if end_date:
-            df = df[df['trade_date'] <= end_date]
-        # 保留 start_date 之前 lookback_long 天的数据作为预热期
-        # 策略在 start_date 之后才开始交易
+            df = df[df['trade_date'] <= pd.to_datetime(end_date)]
+        if start_date:
+            start_timestamp = pd.to_datetime(start_date)
+            warmup = df[df['trade_date'] < start_timestamp].tail(lookback_long)
+            trading = df[df['trade_date'] >= start_timestamp]
+            df = pd.concat([warmup, trading], ignore_index=True)
+        # 只保留 start_date 之前的有限 warm-up 数据，策略在 start_date 之后交易。
         
         df.set_index('trade_date', inplace=True)
         bt_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -239,7 +243,10 @@ def run_backtest(
 
     # 将start_date转为date对象传给策略
     start_dt = pd.to_datetime(start_date).date() if start_date else None
-    strategy_kwargs = {k: v for k, v in kwargs.items() if k != 'enable_attribution'}
+    strategy_kwargs = {
+        k: v for k, v in kwargs.items()
+        if k not in {'enable_attribution', 'attribution_benchmark_type', 'csi300_source'}
+    }
     strategy_kwargs['start_date'] = start_dt
     cerebro.addstrategy(strategy_cls, **strategy_kwargs)
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
@@ -287,6 +294,7 @@ def run_backtest(
     win_rate = trade_metrics['win_rate']
     avg_win = trade_metrics['avg_win']
     avg_lost = trade_metrics['avg_lost']
+    closed_trade_count = trade_metrics['closed_trade_count']
     profit_factor = trade_metrics['profit_factor']
     avg_hold = trade_metrics['avg_hold_days']
     sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or 0
@@ -310,12 +318,19 @@ def run_backtest(
     # 归因（可选，默认关闭；失败不影响回测主体）
     attribution_result = None
     attribution_error = None
+    attribution_status = 'not_requested'
     if kwargs.get('enable_attribution', False):
         import logging
         logger = logging.getLogger(__name__)
         try:
             from strategy.attribution import run_attribution
             from config.settings import ETF_UNIVERSE
+
+            benchmark_type = kwargs.get('attribution_benchmark_type', 'csi300')
+            csi300_source = kwargs.get('csi300_source')
+            if benchmark_type == 'csi300' and csi300_source is None:
+                from data.sources.csi300_source import CSI300Source
+                csi300_source = CSI300Source()
 
             etf_codes = list(data_dict.keys())
             etf_to_sector = _build_etf_to_sector_map(ETF_UNIVERSE)
@@ -330,10 +345,13 @@ def run_backtest(
                 start_date=start_date,
                 end_date=end_date,
                 rebalance_dates=_extract_rebalance_dates(trade_list),
-                benchmark_type='equal_weight',
+                benchmark_type=benchmark_type,
+                csi300_source=csi300_source,
             )
+            attribution_status = 'available'
         except Exception as e:
             attribution_error = str(e)
+            attribution_status = 'unavailable'
             logger.warning(f"归因计算失败: {e}")
 
     # ===== Alpha 稳定性分析 =====
@@ -365,6 +383,7 @@ def run_backtest(
         'max_drawdown_days': drawdown_len,
         'annual_return': annual_return,
         'num_trades': num_trades,
+        'closed_trade_count': closed_trade_count,
         'win_rate': win_rate,
         'profit_factor': profit_factor,
         'avg_win': avg_win,
@@ -379,6 +398,7 @@ def run_backtest(
         'turnover_series': turnover_series,
         'attribution': attribution_result,
         'attribution_error': attribution_error,
+        'attribution_status': attribution_status,
         'alpha_stability': alpha_stability,
         'factor_diagnostics': factor_diagnostics,
         'market_regime_log': getattr(strat, '_regime_log', []),
@@ -477,18 +497,21 @@ def _compute_trade_metrics_from_log(trade_list, initial_capital, years):
     """
     num_trades = len(trade_list)
 
-    sell_records = [t for t in trade_list if t.get('direction') == '卖出']
-    win_sells = [t for t in sell_records if t.get('pnl', 0) > 0]
-    loss_sells = [t for t in sell_records if t.get('pnl', 0) < 0]
+    closed_trades = _build_closed_trades_from_fills(trade_list)
+    win_sells = [t for t in closed_trades if t['pnl'] > 0]
+    loss_sells = [t for t in closed_trades if t['pnl'] < 0]
 
-    win_rate = len(win_sells) / len(sell_records) * 100 if sell_records else 0
+    win_rate = len(win_sells) / len(closed_trades) * 100 if closed_trades else 0
     avg_win = sum(t['pnl'] for t in win_sells) / len(win_sells) if win_sells else 0
     avg_lost = abs(sum(t['pnl'] for t in loss_sells) / len(loss_sells)) if loss_sells else 0
     total_win_pnl = sum(t['pnl'] for t in win_sells)
     total_loss_pnl = abs(sum(t['pnl'] for t in loss_sells))
     profit_factor = total_win_pnl / total_loss_pnl if total_loss_pnl > 0 else 0
 
-    avg_hold_days = _compute_avg_hold_days_from_log(trade_list)
+    avg_hold_days = (
+        sum(t['hold_days'] for t in closed_trades) / len(closed_trades)
+        if closed_trades else 0
+    )
 
     # 换手率：仅统计非核心建仓的买入
     buy_records = [
@@ -519,6 +542,7 @@ def _compute_trade_metrics_from_log(trade_list, initial_capital, years):
 
     return {
         'num_trades': num_trades,
+        'closed_trade_count': len(closed_trades),
         'win_rate': win_rate,
         'profit_factor': profit_factor,
         'avg_win': avg_win,
@@ -528,6 +552,58 @@ def _compute_trade_metrics_from_log(trade_list, initial_capital, years):
         'turnover_annual_pct': float(turnover_annual_pct),
         'turnover_series': turnover_series,
     }
+
+
+def _build_closed_trades_from_fills(fill_log):
+    """按FIFO将成交回报配对为已闭合交易。"""
+    from collections import defaultdict, deque
+    from datetime import datetime
+
+    buy_queues = defaultdict(deque)
+    closed_trades = []
+    for fill in fill_log:
+        code = fill.get('code')
+        quantity = int(fill.get('quantity', 0) or 0)
+        if quantity <= 0:
+            continue
+        try:
+            fill_date = datetime.strptime(fill.get('date'), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            continue
+
+        fee_per_share = float(fill.get('fee', 0) or 0) / quantity
+        if fill.get('direction') == '买入':
+            buy_queues[code].append({
+                'date': fill_date,
+                'shares': quantity,
+                'price': float(fill.get('price', 0) or 0),
+                'fee_per_share': fee_per_share,
+            })
+            continue
+        if fill.get('direction') != '卖出':
+            continue
+
+        remaining = quantity
+        sell_price = float(fill.get('price', 0) or 0)
+        while remaining > 0 and buy_queues[code]:
+            buy = buy_queues[code][0]
+            matched = min(remaining, buy['shares'])
+            reported_pnl = fill.get('pnl')
+            if reported_pnl is not None:
+                pnl = float(reported_pnl) * matched / quantity
+            else:
+                pnl = (sell_price - buy['price']) * matched
+            closed_trades.append({
+                'code': code,
+                'pnl': pnl,
+                'hold_days': (fill_date - buy['date']).days,
+            })
+            remaining -= matched
+            buy['shares'] -= matched
+            if buy['shares'] == 0:
+                buy_queues[code].popleft()
+
+    return closed_trades
 
 
 def _compute_avg_hold_days_from_log(trade_list):

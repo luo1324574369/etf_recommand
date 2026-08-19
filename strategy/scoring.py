@@ -203,6 +203,33 @@ def zscore_normalize(
     return zscores
 
 
+def preprocess_factor_cross_section(
+    etf_factors: Dict[str, Dict[str, float]],
+    factor_names: List[str],
+    code_to_group: Dict[str, str] = None,
+) -> Dict[str, Dict[str, float]]:
+    """统一执行截面缩尾、分组标准化和方向调整。"""
+    if not etf_factors:
+        return {}
+
+    codes = list(etf_factors.keys())
+    groups = code_to_group or {code: "__all__" for code in codes}
+    result = {code: {} for code in codes}
+    for factor_name in factor_names:
+        values = pd.Series({code: etf_factors[code].get(factor_name) for code in codes}, dtype=float)
+        winsorized = winsorize_mad_3sigma(values)
+        normalized = group_zscore(codes, winsorized.to_dict(), groups)
+        direction = FACTOR_DIRECTIONS.get(factor_name, 1)
+        for code in codes:
+            normalized_value = normalized.get(code)
+            result[code][factor_name] = (
+                None
+                if normalized_value is None
+                else float(normalized_value * direction)
+            )
+    return result
+
+
 def equal_weight_score(
     zscores: Dict[str, Dict[str, float]],
     factor_names: List[str] = None,
@@ -218,7 +245,7 @@ def equal_weight_score(
 
     scores = {}
     for code, fs in zscores.items():
-        vals = [fs[f] for f in factor_names if f in fs]
+        vals = [fs[f] for f in factor_names if fs.get(f) is not None]
         scores[code] = float(np.mean(vals)) if vals else 0.0
 
     return scores
@@ -250,10 +277,13 @@ def icir_weighted_score(
     scores = {}
     for code, fs in zscores.items():
         weighted_sum = 0.0
+        available_weight = sum(
+            weights[f] for f in factor_names if fs.get(f) is not None
+        )
         for f in factor_names:
-            if f in fs:
+            if fs.get(f) is not None:
                 weighted_sum += fs[f] * weights[f]
-        scores[code] = float(weighted_sum)
+        scores[code] = float(weighted_sum / available_weight) if available_weight else 0.0
 
     return scores
 
@@ -279,10 +309,17 @@ def weighted_score(
     scores = {}
     for code, fs in zscores.items():
         weighted_sum = 0.0
+        available_weight = sum(
+            factor_weights.get(f, 0) for f in factor_names
+            if fs.get(f) is not None
+        )
         for f in factor_names:
-            if f in fs and f in factor_weights:
+            if fs.get(f) is not None and f in factor_weights:
                 weighted_sum += fs[f] * factor_weights[f]
-        scores[code] = float(weighted_sum / total_weight)
+        scores[code] = (
+            float(weighted_sum / available_weight)
+            if available_weight else 0.0
+        )
 
     return scores
 
@@ -451,7 +488,7 @@ def group_zscore(etf_codes, factor_values, code_to_group):
             zs = (vals - mean) / std
         for (c, _), z in zip(pairs, zs):
             if np.isnan(z):
-                out[c] = 0.0
+                out[c] = None
             else:
                 out[c] = float(z)
     # 处理降级部分 - 单组过小时按全局所有ETF的分布做zscore
@@ -464,10 +501,10 @@ def group_zscore(etf_codes, factor_values, code_to_group):
                 fb_vals = np.array([v for _, v in global_pairs], dtype=float)
                 zs = (fb_vals - mean) / std
                 for (c, v), z in zip(global_pairs, zs):
-                    out[c] = 0.0 if np.isnan(z) else float(z)
+                    out[c] = None if np.isnan(z) else float(z)
                 return out
         for c, v in global_pairs:
-            out[c] = 0.0
+            out[c] = None
     return out
 
 
@@ -586,7 +623,7 @@ def compute_icir_weights(ic_history, rolling_months=12,
     2. 阈值降低：min_icir_include 0.05 → 0.02（33ETF月度截面IC天然偏小）
     3. 指数衰减：half-life=6月，近期IC权重更高
     4. 贝叶斯收缩：ICIR向截面中位数收缩（κ=3），避免小样本极端值
-    5. 连续12月≤0剔除（与factor_monitor_lookback对齐，适应A股政策市牛熊快切）
+    5. 连续6月≤0剔除，避免短期失效因子持续稀释组合
     6. Fallback：全负时保留方向调整后ICIR最高的2个因子（原等权）
 
     Args:
@@ -610,20 +647,14 @@ def compute_icir_weights(ic_history, rolling_months=12,
     excluded = {}
     excluded_raw = set()
 
-    # ---- 准入校验：未在 FACTOR_LOGIC 登记的因子拒绝赋权 ----
-    for f in all_factors:
-        if f not in FACTOR_LOGIC:
-            excluded[f] = 'not_registered_in_FACTOR_LOGIC'
-            excluded_raw.add(f)
-
-    # 连续12月方向调整后IC≤0 判定（与multi_factor.py factor_monitor_lookback=12对齐）
+    # 连续6个月方向调整后IC≤0判定；该工具也支持外部诊断因子名称。
     for f, arr in trimmed.items():
         valid_arr = [v for v in arr if not np.isnan(v)]
-        if len(valid_arr) >= 12:
+        if len(valid_arr) >= 6:
             direction = FACTOR_DIRECTIONS.get(f, 1)
-            last12_adj = [v * direction for v in valid_arr[-12:]]
-            if all(x <= 0 for x in last12_adj):
-                excluded[f] = 'consecutive_12m_adj_ic_le_0'
+            last6_adj = [v * direction for v in valid_arr[-6:]]
+            if all(x <= 0 for x in last6_adj):
+                excluded[f] = 'consecutive_6m_ic_le_0'
                 excluded_raw.add(f)
 
     # 方向调整 + 指数衰减 + 贝叶斯收缩 计算ICIR
@@ -714,11 +745,15 @@ def compute_icir_weights(ic_history, rolling_months=12,
             for f, score in shrunk_icir.items():
                 weights[f] = score / total_pos
     elif total_pos <= 0:
-        # Fallback：保留方向调整后ICIR最高的2个因子（非等权）
+        # 全部无正信号时保留所有观测因子等权，避免组合权重总和为0。
         mode = 'equal_weight_fallback'
         ranked = sorted(adj_icir_scores.items(), key=lambda x: x[1], reverse=True)
-        for f, _ in ranked[:2]:
-            weights[f] = 0.5
+        fallback_factors = [f for f in all_factors if f not in excluded_raw]
+        if not fallback_factors and len(all_factors) > 1:
+            fallback_factors = all_factors
+        fallback_weight = 1.0 / len(fallback_factors) if fallback_factors else 0.0
+        for factor_name in fallback_factors:
+            weights[factor_name] = fallback_weight
     else:
         for f, score in shrunk_icir.items():
             weights[f] = score / total_pos

@@ -7,6 +7,8 @@ class SignalRepository:
         self.db = db
 
     def save_signal(self, signal_date, strategy_name, code, name=None, rank=None, score=None, reason=None, action=None) -> int:
+        if not signal_date:
+            raise ValueError("signal_date 不能为空")
         reason_str = json.dumps(reason, ensure_ascii=False) if isinstance(reason, dict) else reason
         cursor = self.db.execute(
             """
@@ -19,11 +21,25 @@ class SignalRepository:
         return cursor.lastrowid
 
     def batch_save_signals(self, signals: list[dict]) -> int:
-        count = 0
-        for signal in signals:
-            self.save_signal(**signal)
-            count += 1
-        return count
+        with self.db:
+            for signal in signals:
+                if not signal.get("signal_date"):
+                    raise ValueError("signal_date 不能为空")
+                reason = signal.get("reason")
+                reason_str = json.dumps(reason, ensure_ascii=False) if isinstance(reason, dict) else reason
+                self.db.execute(
+                    """
+                    INSERT INTO strategy_signal
+                        (signal_date, strategy_name, code, name, rank, score, reason, action)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        signal["signal_date"], signal["strategy_name"], signal["code"],
+                        signal.get("name"), signal.get("rank"), signal.get("score"),
+                        reason_str, signal.get("action"),
+                    ),
+                )
+        return len(signals)
 
     def get_latest_signals(self, strategy_name, limit=None) -> list[dict]:
         row = self.db.execute(

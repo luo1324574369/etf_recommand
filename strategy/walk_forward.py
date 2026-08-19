@@ -22,27 +22,27 @@ PRESET_STYLES = [
     {
         'key': 'high_return',
         'name': '🏆 收益优先型',
-        'metric': 'full_annual_return',
+        'metric': 'validation_annual_return',
         'sort_order': 'desc',
         'min_sharpe': 0.3,
     },
     {
         'key': 'balanced',
         'name': '⚖️ 均衡型',
-        'metric': 'full_sharpe_ratio',
+        'metric': 'validation_sharpe_ratio',
         'sort_order': 'desc',
     },
     {
         'key': 'low_drawdown',
         'name': '🛡️ 低回撤型',
-        'metric': 'full_max_drawdown',
+        'metric': 'validation_max_drawdown',
         'sort_order': 'asc',
         'min_return_benchmark_ratio': 0.8,
     },
     {
         'key': 'low_turnover',
         'name': '📊 低频交易型',
-        'metric': 'full_num_trades',
+        'metric': 'validation_num_trades',
         'sort_order': 'asc',
         'min_return': 0,
     },
@@ -172,19 +172,25 @@ _WORKER_STRATEGY_MODULE = None
 _WORKER_EXTRA_PARAMS = None
 _WORKER_WINDOWS = None
 _WORKER_START_DATE = None
-_WORKER_END_DATE = None
+_WORKER_SELECTION_END_DATE = None
+_WORKER_TEST_START_DATE = None
+_WORKER_TEST_END_DATE = None
 
 
-def _worker_init(data_dict, strategy_module, extra_params, windows, start_date, end_date):
+def _worker_init(data_dict, strategy_module, extra_params, windows, start_date,
+                 selection_end_date, test_start_date, test_end_date):
     """worker 进程初始化，设置模块级变量"""
     global _WORKER_DATA_DICT, _WORKER_STRATEGY_MODULE, _WORKER_EXTRA_PARAMS
-    global _WORKER_WINDOWS, _WORKER_START_DATE, _WORKER_END_DATE
+    global _WORKER_WINDOWS, _WORKER_START_DATE, _WORKER_SELECTION_END_DATE
+    global _WORKER_TEST_START_DATE, _WORKER_TEST_END_DATE
     _WORKER_DATA_DICT = data_dict
     _WORKER_STRATEGY_MODULE = strategy_module
     _WORKER_EXTRA_PARAMS = extra_params
     _WORKER_WINDOWS = windows
     _WORKER_START_DATE = start_date
-    _WORKER_END_DATE = end_date
+    _WORKER_SELECTION_END_DATE = selection_end_date
+    _WORKER_TEST_START_DATE = test_start_date
+    _WORKER_TEST_END_DATE = test_end_date
 
 
 def _worker_process_combo(combo_info):
@@ -210,15 +216,15 @@ def _worker_process_combo(combo_info):
         if metrics is not None:
             window_results.append(metrics)
 
-    # 跑全周期回测（不启用归因，归因延迟到最终预设以节省33%时间）
-    full_metrics = _run_single_backtest(
+    # 只跑选择区间回测；最终测试集在预设确定后单独运行。
+    selection_metrics = _run_single_backtest(
         _WORKER_STRATEGY_MODULE, _WORKER_DATA_DICT, params,
-        _WORKER_START_DATE, _WORKER_END_DATE,
+        _WORKER_START_DATE, _WORKER_SELECTION_END_DATE,
         extra_params=_WORKER_EXTRA_PARAMS,
         enable_attribution=False,
     )
 
-    if not window_results and full_metrics is None:
+    if not window_results and selection_metrics is None:
         return None
 
     # 窗口指标
@@ -239,23 +245,23 @@ def _worker_process_combo(combo_info):
         worst_sharpe = 0
         window_cagr = 0
 
-    # 全周期指标
-    if full_metrics is not None:
-        full_annual = full_metrics['annual_return']
-        full_sharpe = full_metrics['sharpe_ratio']
-        full_drawdown = full_metrics['max_drawdown']
-        full_trades = full_metrics['num_trades']
-        full_alloc = full_metrics.get('allocation_effect')
-        full_switch_win = full_metrics.get('switch_win_rate')
-        full_rolling_ir = full_metrics.get('rolling_ir')
+    # 选择区间指标
+    if selection_metrics is not None:
+        selection_annual = selection_metrics['annual_return']
+        selection_sharpe = selection_metrics['sharpe_ratio']
+        selection_drawdown = selection_metrics['max_drawdown']
+        selection_trades = selection_metrics['num_trades']
+        selection_alloc = selection_metrics.get('allocation_effect')
+        selection_switch_win = selection_metrics.get('switch_win_rate')
+        selection_rolling_ir = selection_metrics.get('rolling_ir')
     else:
-        full_annual = 0
-        full_sharpe = 0
-        full_drawdown = 0
-        full_trades = 0
-        full_alloc = None
-        full_switch_win = None
-        full_rolling_ir = None
+        selection_annual = 0
+        selection_sharpe = 0
+        selection_drawdown = 0
+        selection_trades = 0
+        selection_alloc = None
+        selection_switch_win = None
+        selection_rolling_ir = None
 
     return {
         'params': params.copy(),
@@ -268,13 +274,26 @@ def _worker_process_combo(combo_info):
             'robustness_score': robustness,
             'worst_sharpe': worst_sharpe,
             'validation_windows': len(window_results),
-            'full_annual_return': full_annual,
-            'full_sharpe_ratio': full_sharpe,
-            'full_max_drawdown': full_drawdown,
-            'full_num_trades': full_trades,
-            'allocation_effect': full_alloc,
-            'switch_win_rate': full_switch_win,
-            'rolling_ir': full_rolling_ir,
+            'validation_annual_return': (
+                sum(r['annual_return'] for r in window_results) / len(window_results)
+                if window_results else 0
+            ),
+            'validation_sharpe_ratio': avg_sharpe,
+            'validation_max_drawdown': avg_drawdown,
+            'validation_num_trades': avg_trades,
+            'evaluation_stage': 'validation',
+            'data_window': {
+                'start': _WORKER_START_DATE,
+                'end': _WORKER_SELECTION_END_DATE,
+            },
+            'participates_in_selection': True,
+            'selection_annual_return': selection_annual,
+            'selection_sharpe_ratio': selection_sharpe,
+            'selection_max_drawdown': selection_drawdown,
+            'selection_num_trades': selection_trades,
+            'allocation_effect': selection_alloc,
+            'switch_win_rate': selection_switch_win,
+            'rolling_ir': selection_rolling_ir,
         },
     }
 
@@ -320,7 +339,7 @@ def generate_walk_forward_presets(
         param_ranges: 参数范围字典，如 {'top_n': [1,2,3], 'rebalance_freq': [20,60]}
         max_combinations: 最大参数组合数限制，默认144
         progress_callback: 进度回调函数 (current, total, message)
-        strategy_module: 策略模块（需有 run_backtest 函数），默认 None 时使用 dual_momentum
+        strategy_module: 策略模块（需有 run_backtest 函数），默认 None 时使用 multi_factor
         extra_params: 额外回测参数（如 valuation_repo），会合并到每次回测的参数中
         min_full_annual_return: 全周期年化收益下限(%)，用于筛选预设（如跑赢基准）。
             None 时不筛选。若筛选后组合数不足5个，回退到不筛选。
@@ -350,22 +369,35 @@ def generate_walk_forward_presets(
         }
     """
     if strategy_module is None:
-        from strategy import dual_momentum as strategy_module
+        from strategy import multi_factor as strategy_module
 
     start_time = time.time()
 
-    # 1. 分割验证窗口（6个月窗口，月度调仓策略的业内标准）
-    windows = split_windows(start_date, end_date, val_months=6)
+    # 1. 保留最后12个月作为最终留出测试集，不参与参数选择。
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    proposed_test_start = end_dt - pd.DateOffset(months=12)
+    if proposed_test_start > start_dt:
+        test_start_date = proposed_test_start.strftime('%Y-%m-%d')
+        test_end_date = end_dt.strftime('%Y-%m-%d')
+        selection_end_date = (proposed_test_start - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+    else:
+        test_start_date = None
+        test_end_date = None
+        selection_end_date = end_dt.strftime('%Y-%m-%d')
+
+    # 2. 分割验证窗口（6个月窗口，最终测试集之外）
+    windows = split_windows(start_date, selection_end_date, val_months=6)
     if len(windows) < 3:
         # 数据不足3个窗口，使用全量数据做单次优化
         windows = [{
             'train_start': None,
             'train_end': start_date,
             'val_start': start_date,
-            'val_end': end_date,
+            'val_end': selection_end_date,
         }]
 
-    # 2. 生成参数组合
+    # 3. 生成参数组合
     param_names = list(param_ranges.keys())
     param_values = [param_ranges[name] for name in param_names]
     all_combinations = list(itertools.product(*param_values))
@@ -380,7 +412,7 @@ def generate_walk_forward_presets(
 
     total_steps = len(all_combinations)
 
-    # 3. 多进程并行：对每个参数组合在所有窗口验证 + 全周期回测
+    # 4. 多进程并行：对每个参数组合只使用验证区间
     combo_infos = [(combo, param_names) for combo in all_combinations]
 
     # 判断 CPU 核数，并行跑（充分利用全部物理核）
@@ -397,7 +429,8 @@ def generate_walk_forward_presets(
         with ctx.Pool(
             processes=n_workers,
             initializer=_worker_init,
-            initargs=(data_dict, strategy_module, extra_params, windows, start_date, end_date),
+            initargs=(data_dict, strategy_module, extra_params, windows, start_date,
+                      selection_end_date, test_start_date, test_end_date),
         ) as pool:
             if progress_callback:
                 # 带进度回调的 imap_unordered
@@ -411,7 +444,8 @@ def generate_walk_forward_presets(
                         all_results.append(result)
     else:
         # 串行回退（单核或单组合）
-        _worker_init(data_dict, strategy_module, extra_params, windows, start_date, end_date)
+        _worker_init(data_dict, strategy_module, extra_params, windows, start_date,
+                     selection_end_date, test_start_date, test_end_date)
         for i, combo_info in enumerate(combo_infos, 1):
             result = _worker_process_combo(combo_info)
             if result is not None:
@@ -429,14 +463,14 @@ def generate_walk_forward_presets(
             'elapsed_time': elapsed_time,
         }
 
-    # 4. 动态选出3-7个差异化预设（按效果差异化去重）
-    # 基准收益筛选：若设置了 min_full_annual_return，先过滤掉未跑赢基准的组合
+    # 5. 动态选出3-7个差异化预设（按参数组合去重）
+    # 基准收益筛选使用验证区间，不能读取最终测试集。
     benchmark_filtered_results = all_results
     benchmark_applied = False
     if min_full_annual_return is not None:
         benchmark_filtered_results = [
             r for r in all_results
-            if r['metrics'].get('full_annual_return', 0) > min_full_annual_return
+            if r['metrics'].get('validation_annual_return', 0) > min_full_annual_return
         ]
         benchmark_applied = True
         if len(benchmark_filtered_results) < 3:
@@ -448,12 +482,12 @@ def generate_walk_forward_presets(
     # max_allowed_drawdown是负数（基准最大回撤），策略回撤比它更小（更接近0或更大的负数更小）才算通过
     # 例子：max_allowed_drawdown=-44.75，策略回撤-39 → 通过（-39 > -44.75，回撤更小）
     #       max_allowed_drawdown=-44.75，策略回撤-47 → 不通过（-47 < -44.75，回撤更大）
-    # 注意：full_max_drawdown是正数（backtrader用正数表示回撤幅度），需转换为负数比较
+    # 注意：validation_max_drawdown是正数（backtrader用正数表示回撤幅度），需转换为负数比较
     drawdown_filtered = benchmark_filtered_results
     if max_allowed_drawdown is not None:
         drawdown_filtered = [
             r for r in benchmark_filtered_results
-            if -r['metrics'].get('full_max_drawdown', 0) >= max_allowed_drawdown
+            if -r['metrics'].get('validation_max_drawdown', 0) >= max_allowed_drawdown
         ]
         if len(drawdown_filtered) < 3:
             # 回退：不使用回撤筛选
@@ -467,7 +501,7 @@ def generate_walk_forward_presets(
 
     # 去重：按回测指标（年化+夏普+回撤）去重，而非参数字符串
     # 因为不同参数可能产生相同回测结果（如drawdown_threshold=0不触发止损）
-    used_metrics_keys = set()
+    used_param_keys = set()
     presets = []
 
     for style in PRESET_STYLES:
@@ -489,34 +523,31 @@ def generate_walk_forward_presets(
         if style.get('min_sharpe') is not None:
             min_s = style['min_sharpe']
             filtered = [r for r in filtered
-                       if r['metrics'].get('full_sharpe_ratio', 0) >= min_s]
+                       if r['metrics'].get('validation_sharpe_ratio', 0) >= min_s]
             if not filtered:
                 filtered = sorted_results
         if style.get('min_return_benchmark_ratio') is not None and min_full_annual_return is not None:
             min_r = min_full_annual_return * style['min_return_benchmark_ratio']
             filtered = [r for r in filtered
-                       if r['metrics'].get('full_annual_return', 0) > min_r]
+                       if r['metrics'].get('validation_annual_return', 0) > min_r]
             if not filtered:
                 filtered = sorted_results
         if style.get('min_return') is not None:
             min_r = style['min_return']
             filtered = [r for r in filtered
-                       if r['metrics'].get('full_annual_return', 0) > min_r]
+                       if r['metrics'].get('validation_annual_return', 0) > min_r]
             if not filtered:
                 filtered = sorted_results
 
-        # 选择指标未被使用过的最优组合（按回测指标去重）
+        # 选择参数未被使用过的最优组合
         for result in filtered:
-            m = result['metrics']
-            metrics_key = (
-                round(m.get('full_annual_return', 0), 4),
-                round(m.get('full_sharpe_ratio', 0), 4),
-                round(m.get('full_max_drawdown', 0), 4),
-                round(m.get('full_num_trades', 0), 0),
+            param_key = tuple(
+                (name, repr(result['params'].get(name)))
+                for name in param_names
             )
-            if metrics_key in used_metrics_keys:
+            if param_key in used_param_keys:
                 continue
-            used_metrics_keys.add(metrics_key)
+            used_param_keys.add(param_key)
             presets.append({
                 'key': style['key'],
                 'name': style['name'],
@@ -525,13 +556,56 @@ def generate_walk_forward_presets(
             })
             break
 
-    # 对最终选出的预设单独跑归因（只跑N次而非648次，大幅节省时间）
+    # 最终测试集只在预设确定后运行，结果不参与选择。
+    if presets and test_start_date and test_end_date:
+        for preset in presets:
+            oos_metrics = _run_single_backtest(
+                strategy_module, data_dict, preset['params'],
+                test_start_date, test_end_date,
+                extra_params=extra_params,
+                enable_attribution=False,
+            )
+            if oos_metrics is not None:
+                preset['metrics'].update({
+                    'oos_annual_return': oos_metrics['annual_return'],
+                    'oos_sharpe_ratio': oos_metrics['sharpe_ratio'],
+                    'oos_max_drawdown': oos_metrics['max_drawdown'],
+                    'oos_num_trades': oos_metrics['num_trades'],
+                    'oos_total_return': oos_metrics['total_return'],
+                    'oos_evaluation_stage': 'test',
+                    'oos_status': 'available',
+                    'oos_data_window': {
+                        'start': test_start_date,
+                        'end': test_end_date,
+                    },
+                    'oos_participates_in_selection': False,
+                })
+            else:
+                preset['metrics'].update({
+                    'oos_evaluation_stage': 'test',
+                    'oos_status': 'unavailable',
+                    'oos_data_window': {
+                        'start': test_start_date,
+                        'end': test_end_date,
+                    },
+                    'oos_participates_in_selection': False,
+                })
+    elif presets:
+        for preset in presets:
+            preset['metrics'].update({
+                'oos_evaluation_stage': 'not_applicable',
+                'oos_status': 'not_applicable',
+                'oos_data_window': None,
+                'oos_participates_in_selection': False,
+            })
+
+    # 对最终选出的预设单独跑归因（只跑N次而非全部组合）
     if presets and extra_params is not None:
         for preset in presets:
             try:
                 attr_metrics = _run_single_backtest(
                     strategy_module, data_dict, preset['params'],
-                    start_date, end_date,
+                    start_date, selection_end_date,
                     extra_params=extra_params,
                     enable_attribution=True,
                 )
@@ -547,6 +621,11 @@ def generate_walk_forward_presets(
     return {
         'presets': presets,
         'windows': windows,
+        'selection_window': {'start': start_date, 'end': selection_end_date},
+        'test_window': (
+            {'start': test_start_date, 'end': test_end_date}
+            if test_start_date else None
+        ),
         'total_combinations': len(all_combinations),
         'elapsed_time': elapsed_time,
         'benchmark_applied': benchmark_applied,

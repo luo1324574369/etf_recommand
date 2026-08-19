@@ -3,7 +3,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 import pytest
-from strategy.scoring import winsorize_mad_3sigma, group_zscore, reversal_20d
+from strategy.scoring import (
+    winsorize_mad_3sigma,
+    group_zscore,
+    preprocess_factor_cross_section,
+    reversal_20d,
+)
+from strategy.factors.volatility import VolatilityFactor
 
 
 def test_winsorize_mad_3sigma_basic():
@@ -53,6 +59,37 @@ def test_group_zscore_fallback_when_group_too_small():
     np.testing.assert_almost_equal(out['X1'], expected_x1, decimal=5)
 
 
+def test_preprocess_factor_cross_section_applies_direction_and_groups():
+    """统一预处理应同时应用分组标准化和因子方向。"""
+    factors = {
+        "A": {"pe_percentile": 10.0},
+        "B": {"pe_percentile": 20.0},
+        "C": {"pe_percentile": 30.0},
+        "D": {"pe_percentile": 40.0},
+    }
+    result = preprocess_factor_cross_section(
+        factors,
+        ["pe_percentile"],
+        {"A": "group1", "B": "group1", "C": "group2", "D": "group2"},
+    )
+
+    assert result["A"]["pe_percentile"] > result["B"]["pe_percentile"]
+    assert result["C"]["pe_percentile"] > result["D"]["pe_percentile"]
+
+
+def test_preprocess_factor_cross_section_preserves_missing_values():
+    """缺失因子不应被标准化成中性伪值。"""
+    factors = {
+        "A": {"pe_percentile": 10.0},
+        "B": {"pe_percentile": None},
+        "C": {"pe_percentile": 30.0},
+    }
+
+    result = preprocess_factor_cross_section(factors, ["pe_percentile"])
+
+    assert result["B"]["pe_percentile"] is None
+
+
 def test_reversal_20d_direction():
     """跌10% → reversal值为正（direction=+1下得分越高越好）"""
     # 21个K线，第0天100 → 第20天90（跌10%）
@@ -61,3 +98,20 @@ def test_reversal_20d_direction():
     assert r is not None
     assert r > 0  # 跌越多反转因子越大
     np.testing.assert_almost_equal(r, -(90.0/100.0 - 1))
+
+
+def test_volatility_respects_end_date():
+    """波动率只能使用 end_date 当日及之前的价格。"""
+    prices = []
+    for i in range(70):
+        prices.append({
+            "trade_date": (pd.Timestamp("2025-01-01") + pd.Timedelta(days=i)).strftime("%Y-%m-%d"),
+            "close": 100.0 if i < 60 else 100.0 + (i - 59) * 10.0,
+        })
+
+    factor = VolatilityFactor(period=60)
+    before_future = factor.calculate("ETF", prices, "2025-03-01")
+    with_future = factor.calculate("ETF", prices, "2025-03-10")
+
+    assert before_future["volatility"] == 0
+    assert with_future["volatility"] > before_future["volatility"]

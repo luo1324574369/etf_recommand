@@ -136,6 +136,15 @@ class CSI300Source:
                 "CREATE INDEX IF NOT EXISTS idx_csi300_date "
                 "ON csi300_constituents(trade_date)"
             )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS csi300_sector_returns (
+                    period_start TEXT NOT NULL,
+                    period_end TEXT NOT NULL,
+                    sector TEXT NOT NULL,
+                    return_value REAL NOT NULL,
+                    PRIMARY KEY (period_start, period_end, sector)
+                )
+            """)
             conn.commit()
         finally:
             conn.close()
@@ -158,6 +167,13 @@ class CSI300Source:
         cached = self._fetch_from_cache(date)
         if cached is not None:
             return cached
+
+        today = pd.Timestamp.now().strftime('%Y%m%d')
+        if str(date).replace('-', '') < today:
+            raise RuntimeError(
+                f"沪深300历史成分快照缺失: trade_date={date}. "
+                "禁止使用最新成分替代历史成分，请先导入历史快照。"
+            )
 
         # AkShare 获取成分股+权重
         try:
@@ -191,6 +207,59 @@ class CSI300Source:
 
         self._write_to_cache(cons_df[['trade_date', 'code', 'weight', 'sw_industry']])
         return self._fetch_from_cache(date)
+
+    def fetch_index_prices(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取沪深300指数历史收盘价，失败时严格报错。"""
+        try:
+            import akshare as ak
+            prices = ak.index_zh_a_hist(
+                symbol=self.INDEX_CODE,
+                period="daily",
+                start_date=str(start_date).replace('-', ''),
+                end_date=str(end_date).replace('-', ''),
+                adjust="",
+            )
+        except Exception as exc:
+            raise RuntimeError(f"沪深300指数历史价格获取失败: {exc}") from exc
+
+        if prices is None or prices.empty:
+            raise RuntimeError(
+                f"沪深300指数历史价格为空: {start_date} ~ {end_date}"
+            )
+
+        date_column = '日期' if '日期' in prices.columns else 'date'
+        close_column = '收盘' if '收盘' in prices.columns else 'close'
+        if date_column not in prices.columns or close_column not in prices.columns:
+            raise RuntimeError("沪深300指数历史价格缺少日期或收盘价字段")
+        result = prices[[date_column, close_column]].rename(
+            columns={date_column: 'date', close_column: 'close'}
+        )
+        result['date'] = pd.to_datetime(result['date']).dt.strftime('%Y-%m-%d')
+        result['close'] = pd.to_numeric(result['close'], errors='coerce')
+        result = result.dropna().sort_values('date').reset_index(drop=True)
+        if result.empty:
+            raise RuntimeError("沪深300指数历史价格清洗后为空")
+        return result
+
+    def fetch_sector_returns(self, start_date: str, end_date: str) -> Dict[str, float]:
+        """读取与期间匹配的历史行业收益快照，不用当前成分替代。"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            rows = conn.execute(
+                """
+                SELECT sector, return_value
+                FROM csi300_sector_returns
+                WHERE period_start = ? AND period_end = ?
+                """,
+                (str(start_date), str(end_date)),
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            raise RuntimeError(
+                f"沪深300历史行业收益快照缺失: {start_date} ~ {end_date}"
+            )
+        return {str(sector): float(value) for sector, value in rows}
 
     def _fetch_stock_industries(self) -> Dict[str, str]:
         """通过 Tushare stock_basic 批量获取所有股票行业（仅需120积分）

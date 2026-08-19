@@ -57,6 +57,38 @@ def test_multi_factor_basic():
         assert '多因子' in all_reasons
 
 
+def test_factor_diagnostics_contains_grouped_returns():
+    """诊断应输出按因子分五组的后续收益。"""
+    from strategy import multi_factor
+
+    strategy = object.__new__(multi_factor.MultiFactorStrategy)
+    strategy._factor_ic_history = {}
+    strategy._factor_excluded_since = {}
+    strategy._factor_event_log = []
+    strategy._ic_rolling_rows = []
+    strategy._weight_history_rows = []
+    strategy._factor_history = {
+        "momentum_120d": [
+            ("2025-01-01", "A", 1.0, 100.0),
+            ("2025-01-01", "B", 2.0, 100.0),
+            ("2025-01-01", "C", 3.0, 100.0),
+            ("2025-01-01", "D", 4.0, 100.0),
+            ("2025-01-01", "E", 5.0, 100.0),
+            ("2025-02-01", "A", 1.0, 101.0),
+            ("2025-02-01", "B", 2.0, 102.0),
+            ("2025-02-01", "C", 3.0, 103.0),
+            ("2025-02-01", "D", 4.0, 104.0),
+            ("2025-02-01", "E", 5.0, 105.0),
+        ]
+    }
+
+    report = strategy.build_factor_diagnostics()
+
+    grouped = report["grouped_returns"]["momentum_120d"]
+    assert set(grouped["group"]) == {1, 2, 3, 4, 5}
+    assert len(grouped) == 5
+
+
 def test_multi_factor_style_constraint():
     """风格分散约束生效：33只ETF全池，max_per_sector=1"""
     from strategy import multi_factor
@@ -176,6 +208,13 @@ class TestTurnoverTracking(unittest.TestCase):
             # 每条记录应包含必要字段
             for col in ['date', 'buy_amount', 'total_value', 'turnover_pct']:
                 self.assertIn(col, result['turnover_series'].columns)
+
+    def test_completed_orders_are_recorded_as_fills(self):
+        """Broker完成订单后，成交账本必须保留对应的成交记录。"""
+        result = self._run_min_backtest()
+        self.assertGreater(len(result['trade_list']), 0)
+        self.assertEqual(result['num_trades'], len(result['trade_list']))
+        self.assertTrue(all(fill.get('order_id') for fill in result['trade_list']))
 
     def _run_min_backtest(self):
         from strategy.backtest_utils import run_backtest

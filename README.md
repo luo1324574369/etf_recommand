@@ -13,15 +13,18 @@
 - **Plotly** - 净值曲线等图表绘制
 - **pandas** - 数据处理和分析库
 
-## 项目结构（五层分层架构）
+## 项目结构（四层分层架构）
 
 ```
 etf_recommand/
 ├── presentation/            # 表现层（Streamlit 页面）
-│   └── streamlit_app.py   # Streamlit 量化策略页面（推荐列表/回测/净值曲线）
+│   ├── streamlit_app.py   # Streamlit 量化策略页面（推荐列表/回测/净值曲线）
+│   ├── app.py              # 历史 Flask 入口兼容层
+│   └── cli/run_strategy.py # service 层信号运行入口
 │
 ├── service/                # 服务层（业务逻辑编排）
 │   ├── strategy_service.py # 策略运行、信号查询
+│   ├── application_service.py # 统一应用编排与因子快照
 │   ├── portfolio_service.py # 账户、买卖、持仓盈亏计算
 │   └── data_service.py    # ETF 详情、价格、因子计算、数据更新
 │
@@ -94,7 +97,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 | 因子说明 | 因子方向、标准化方法、加权方式说明 |
 | 回测结果 | 多因子轮动策略绩效指标（动量+估值+低波） |
 | 净值曲线 | Plotly 交互式净值走势图（策略 vs 沪深300基准） |
-| 因子分析 | RankIC/ICIR/分层回测有效性检验（侧边栏按钮触发） |
+| 因子诊断 | RankIC/ICIR、滚动 IC、五组分层收益和实际权重历史 |
 
 **使用流程：**
 
@@ -102,7 +105,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 2. 设置日期范围
 3. 选择参数预设（5 个 Walk-Forward 优化预设之一，或自定义）
 4. 点「运行回测」查看绩效指标、净值曲线、交易明细
-5. 点「🔬 因子分析」检验因子有效性
+5. 在回测结果中查看唯一的「因子诊断面板」
 
 ### 参数预设优化（CLI）
 
@@ -133,7 +136,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  表现层 presentation/   Streamlit 页面                  │
-│    推荐列表、因子说明、回测结果、净值曲线、因子分析      │
+│    推荐列表、因子说明、回测结果、净值曲线、因子诊断      │
 ├─────────────────────────────────────────────────────────┤
 │  服务层 service/        业务逻辑编排                    │
 │    StrategyService / PortfolioService / DataService    │
@@ -151,7 +154,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 
 | 层级                | 职责                       | 依赖方向                   |
 | ------------------- | -------------------------- | -------------------------- |
-| presentation 表现层 | Streamlit 页面 + 交互      | 只依赖 service / strategy 层 |
+| presentation 表现层 | Streamlit 页面 + 交互      | 通过 service 获取数据和诊断 |
 | service 服务层      | 业务逻辑编排、接口封装     | 依赖 strategy + data 层    |
 | strategy 策略层     | 多因子评分/回测/WF优化引擎  | 只依赖 data 层（价格数据） |
 | data 数据层         | 数据获取 + 存储            | 无上层依赖                 |

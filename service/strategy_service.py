@@ -1,4 +1,5 @@
 from config.settings import STRATEGY_CONFIG, DEFAULT_STRATEGY
+import pandas as pd
 from data.storage.etf_repo import ETFRepository
 from data.storage.price_repo import PriceRepository
 from data.storage.signal_repo import SignalRepository
@@ -103,6 +104,12 @@ class StrategyService:
     def run_strategy(self, strategy_name: str = DEFAULT_STRATEGY, signal_date: str = None):
         if strategy_name not in STRATEGY_CONFIG:
             raise ValueError(f"Strategy '{strategy_name}' not found in STRATEGY_CONFIG")
+        if not signal_date:
+            raise ValueError("signal_date 不能为空")
+        try:
+            signal_date = pd.to_datetime(signal_date).strftime('%Y-%m-%d')
+        except (TypeError, ValueError) as exc:
+            raise ValueError("signal_date 必须是有效日期") from exc
 
         config = STRATEGY_CONFIG[strategy_name]
 

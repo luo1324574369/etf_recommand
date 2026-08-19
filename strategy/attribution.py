@@ -87,6 +87,56 @@ def compute_equal_weight_benchmark(
     return result
 
 
+def compute_csi300_benchmark(csi300_source, start_date: str, end_date: str) -> pd.DataFrame:
+    """构建 CSI300 净值，数据缺失时严格失败。"""
+    if csi300_source is None or not hasattr(csi300_source, 'fetch_index_prices'):
+        raise RuntimeError("CSI300 基准缺少历史指数价格接口")
+    prices = csi300_source.fetch_index_prices(start_date, end_date)
+    if prices is None or prices.empty:
+        raise RuntimeError("CSI300 基准历史指数价格为空")
+    required = {'date', 'close'}
+    if not required.issubset(prices.columns):
+        raise RuntimeError("CSI300 基准历史价格缺少 date/close 字段")
+    benchmark = prices[['date', 'close']].copy()
+    benchmark['date'] = pd.to_datetime(benchmark['date']).dt.strftime('%Y-%m-%d')
+    benchmark['close'] = pd.to_numeric(benchmark['close'], errors='coerce')
+    benchmark = benchmark.dropna().sort_values('date')
+    if benchmark.empty or (benchmark['close'] <= 0).any():
+        raise RuntimeError("CSI300 基准历史价格无有效收盘价")
+    benchmark['nav'] = benchmark['close'] / benchmark['close'].iloc[0]
+    return benchmark[['date', 'nav']].reset_index(drop=True)
+
+
+def _compute_csi300_sector_weights(csi300_source, date: str) -> Dict[str, float]:
+    if not hasattr(csi300_source, 'fetch_constituents'):
+        raise RuntimeError("CSI300 基准缺少历史成分接口")
+    snapshot = csi300_source.fetch_constituents(str(date).replace('-', ''))
+    if snapshot is None or snapshot.empty:
+        raise RuntimeError(f"CSI300 历史成分为空: {date}")
+    if not {'weight', 'sw_industry'}.issubset(snapshot.columns):
+        raise RuntimeError("CSI300 历史成分缺少 weight/sw_industry 字段")
+    snapshot = snapshot.dropna(subset=['weight', 'sw_industry'])
+    if snapshot.empty:
+        raise RuntimeError(f"CSI300 历史行业权重为空: {date}")
+    weights = snapshot.groupby('sw_industry')['weight'].sum()
+    total = float(weights.sum())
+    if total <= 0:
+        raise RuntimeError(f"CSI300 历史行业权重无效: {date}")
+    return {str(sector): float(weight / total) for sector, weight in weights.items()}
+
+
+def _compute_csi300_sector_returns(csi300_source, start_date: str, end_date: str) -> Dict[str, float]:
+    method = getattr(csi300_source, 'fetch_sector_returns', None)
+    if method is None:
+        raise RuntimeError(
+            "CSI300 基准缺少历史行业收益接口，禁止用 ETF 赛道收益替代"
+        )
+    returns = method(start_date, end_date)
+    if not returns:
+        raise RuntimeError(f"CSI300 历史行业收益为空: {start_date} ~ {end_date}")
+    return {str(sector): float(value) for sector, value in returns.items()}
+
+
 def _calc_single_period_bf(
     strategy_weights: Dict[str, float],
     benchmark_weights: Dict[str, float],
@@ -390,7 +440,7 @@ def run_attribution(
     elif benchmark_type == 'csi300':
         if csi300_source is None:
             raise ValueError("csi300 基准需要 csi300_source 参数")
-        benchmark_nav = pd.DataFrame()
+        benchmark_nav = compute_csi300_benchmark(csi300_source, start_date, end_date)
     else:
         raise ValueError(f"不支持的基准类型: {benchmark_type}")
 
@@ -413,11 +463,18 @@ def run_attribution(
                 etf_codes, etf_to_sector
             )
         else:
-            benchmark_sector_weights = {}
+            benchmark_sector_weights = _compute_csi300_sector_weights(
+                csi300_source, period_start
+            )
 
-        sector_returns = _compute_sector_returns(
-            etf_codes, etf_to_sector, valuation_repo, period_start, period_end
-        )
+        if benchmark_type == 'equal_weight':
+            sector_returns = _compute_sector_returns(
+                etf_codes, etf_to_sector, valuation_repo, period_start, period_end
+            )
+        else:
+            sector_returns = _compute_csi300_sector_returns(
+                csi300_source, period_start, period_end
+            )
 
         etf_returns = {}
         for code in curr_weights.keys():
@@ -575,6 +632,5 @@ def _get_period_return(nav_df: pd.DataFrame, start: str, end: str) -> float:
     if first_nav <= 0:
         return 0.0
     return (last_nav / first_nav - 1)
-
 
 

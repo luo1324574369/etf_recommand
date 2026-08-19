@@ -317,6 +317,29 @@ class TestRunAttribution(unittest.TestCase):
         self.assertEqual(result.allocation_effect, 0.0)
         self.assertEqual(result.selection_effect, 0.0)
 
+    def test_csi300_attribution_rejects_empty_benchmark(self):
+        """CSI300 基准数据为空时必须显式失败。"""
+        from strategy.attribution import run_attribution
+
+        class EmptyCSI300Source:
+            def fetch_index_prices(self, start_date, end_date):
+                return pd.DataFrame(columns=["date", "close"])
+
+        scn = self._build_simple_scenario()
+        with self.assertRaises(RuntimeError):
+            run_attribution(
+                trade_log=scn['trade_log'],
+                strategy_nav=scn['strategy_nav'],
+                etf_codes=scn['etf_codes'],
+                valuation_repo=scn['repo'],
+                etf_to_sector=scn['etf_to_sector'],
+                start_date=scn['start_date'],
+                end_date=scn['end_date'],
+                rebalance_dates=scn['rebalance_dates'],
+                benchmark_type='csi300',
+                csi300_source=EmptyCSI300Source(),
+            )
+
 
 if __name__ == '__main__':
     unittest.main()

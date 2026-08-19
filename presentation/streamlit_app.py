@@ -8,26 +8,17 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
-from data.sources.hybrid_source import HybridDataSource, ETF_INDEX_MAP
-from data.storage.db import init_db, get_db
-from data.storage.price_repo import PriceRepository
-from data.storage.etf_repo import ETFRepository
-from data.storage.valuation_repo import ValuationRepo
-from strategy.scoring import (
-    compute_all_factors,
-    zscore_normalize,
-    compute_factor_history,
+from service.application_service import (
+    ApplicationService,
     FACTOR_DIRECTIONS,
     FACTOR_LABELS,
-    DEFAULT_FACTORS,
+    PRIMARY_BENCHMARK,
+    DEFAULT_BACKTEST_CONSTRAINTS,
 )
-from service.data_service import ensure_data_ready
-from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS, TUSHARE_TOKEN
-from strategy.benchmark import PRIMARY_BENCHMARK
-from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
+from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
 
 INITIAL_CAPITAL = 1000000
-db_path = DB_PATH
+app_service = ApplicationService(DB_PATH)
 
 REBALANCE_FREQ_OPTIONS = {
     "5日（周线）": 5,
@@ -56,39 +47,17 @@ st.set_page_config(page_title="ETF量化策略平台", layout="wide")
 
 st.title("📈 ETF量化策略平台")
 
-init_db(db_path)
-data_source = HybridDataSource(tushare_token=TUSHARE_TOKEN)
-price_repo = PriceRepository(get_db(db_path))
-etf_repo = ETFRepository(get_db(db_path))
-valuation_repo = ValuationRepo(db_path)
-
-
 def run_backtest_for_result(selected_codes, start_date, end_date, params, constraints_dict,
-                           enable_attribution=False):
-    data_dict = {}
-    for code in selected_codes:
-        prices = price_repo.get_daily_price(code)
-        if prices:
-            df = pd.DataFrame(prices)
-            data_dict[code] = df
-
-    full_params = {**params, 'constraints': constraints_dict}
-    full_params['valuation_repo'] = valuation_repo
-    full_params['enable_attribution'] = enable_attribution
-
-    # 构建code->sector映射，供赛道惩罚/行业暴露/持仓限制使用
-    code_to_sector = {item["code"]: item["sector"] for item in ETF_UNIVERSE}
-    full_params['code_to_sector'] = code_to_sector
-
-    from strategy import multi_factor
-    result = multi_factor.run_backtest(
-        data_dict,
-        initial_capital=INITIAL_CAPITAL,
-        start_date=start_date.strftime("%Y-%m-%d"),
-        end_date=end_date.strftime("%Y-%m-%d"),
-        **full_params,
+                           enable_attribution=False, attribution_benchmark_type='csi300'):
+    return app_service.run_backtest(
+        selected_codes,
+        start_date,
+        end_date,
+        params,
+        constraints_dict,
+        enable_attribution=enable_attribution,
+        attribution_benchmark_type=attribution_benchmark_type,
     )
-    return result
 
 
 def build_trade_table(trade_list):
@@ -109,7 +78,7 @@ def build_trade_table(trade_list):
         code = t.get('code', '')
         name = name_map.get(code, '')
         if not name:
-            etf_info = etf_repo.get_etf(code)
+            etf_info = app_service.get_etf(code)
             name = etf_info.get('name', '') if etf_info else ''
         direction = t.get('direction', '')
         if direction == '买入':
@@ -339,7 +308,7 @@ def _render_alpha_stability_section(result, primary_benchmark):
 
 
 def _render_factor_diagnostics_section(result):
-    """渲染因子诊断面板：4指标卡 + 因子统计表 + 滚动IC曲线 + 分层占位 + 权重演变面积图"""
+    """渲染因子诊断面板：统计、滚动IC、分层收益和权重演变。"""
     import numpy as np
     fd = result.get('factor_diagnostics') if result else None
     if not fd:
@@ -364,7 +333,7 @@ def _render_factor_diagnostics_section(result):
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("有效因子", f"{active_n} / {total_n}")
-        c2.metric("组合 ICIR 均值", f"{icir_mean:.3f}")
+        c2.metric("因子 ICIR 均值", f"{icir_mean:.3f}")
         if excluded_factors:
             label = ", ".join(f"{x.get('factor', '?')}" for x in excluded_factors[:3])
             if len(excluded_factors) > 3:
@@ -380,7 +349,7 @@ def _render_factor_diagnostics_section(result):
 
         # 因子统计表
         if not factor_stats.empty:
-            show_cols = ['label', 'rank_ic_mean', 'icir', 'hit_rate_12m', 'status', 'used_weight_mean', 'excluded_months']
+            show_cols = ['label', 'rank_ic_mean', 'icir', 'hit_rate_12m', 'status', 'used_weight_mean', 'excluded_months', 'missing_rate']
             show_cols = [c for c in show_cols if c in factor_stats.columns]
             display_df = factor_stats[show_cols].copy()
 
@@ -403,6 +372,8 @@ def _render_factor_diagnostics_section(result):
             for col in ['used_weight_mean']:
                 if col in display_df:
                     format_map[col] = '{:.2%}'
+            if 'missing_rate' in display_df:
+                format_map['missing_rate'] = '{:.1%}'
 
             try:
                 styled = display_df.style.apply(_paint_row, axis=1)
@@ -437,7 +408,7 @@ def _render_factor_diagnostics_section(result):
         else:
             st.info("暂无滚动 IC 数据（预热阶段不足或回测周期过短）")
 
-        # 分层收益（占位）
+        # 分层收益
         grouped = fd.get('grouped_returns') or {}
         if grouped:
             st.markdown("#### 分层收益单调性（按因子值分5组，组1=暴露最大）")
@@ -451,7 +422,7 @@ def _render_factor_diagnostics_section(result):
                             st.dataframe(df_g, use_container_width=True, hide_index=True)
         else:
             with st.expander("分层收益单调性", expanded=False):
-                st.info("本轮回测暂未输出分层收益表。可在 `_warmup_ic_history` 按月按因子分5组统计后补入 `grouped_returns`。")
+                st.info("数据不足以形成五组分层收益（至少需要两个截面且每个截面有五只ETF）。")
 
         # 权重演变 area chart
         wh = fd.get('weight_history')
@@ -486,36 +457,12 @@ def _status_label(status: str) -> str:
 
 
 def compute_factor_snapshot(selected_codes):
-    etf_factors = {}
-    etf_names = {}
-    active_factors = []
-
-    for code in selected_codes:
-        prices = price_repo.get_daily_price(code)
-        if len(prices) < 60:
-            continue
-
-        pe_pct = valuation_repo.get_pe_percentile(code)
-        factors = compute_all_factors(code, prices, pe_percentile=pe_pct)
-
-        if factors:
-            etf_factors[code] = factors
-            etf_info = etf_repo.get_etf(code)
-            etf_names[code] = etf_info.get("name", "") if etf_info else ""
-            for f in factors.keys():
-                if f not in active_factors:
-                    active_factors.append(f)
-
-    if not etf_factors:
-        return {}, {}, [], {}
-
-    zscores = zscore_normalize(etf_factors, active_factors)
-    return etf_factors, zscores, active_factors, etf_names
+    return app_service.compute_factor_snapshot(selected_codes)
 
 
 @st.dialog("ETF详情", width="large")
 def show_etf_detail(code):
-    etf_info = etf_repo.get_etf(code)
+    etf_info = app_service.get_etf(code)
     name = etf_info.get('name', '') if etf_info else ''
     st.subheader(f"{code} · {name}")
 
@@ -572,14 +519,18 @@ def show_etf_detail(code):
         selected_factor = factor_map.get(selected_factor_label)
 
         if selected_factor:
-            prices = price_repo.get_daily_price(code)
             if selected_factor in ['pe_percentile', 'pb_percentile']:
-                pe_history = valuation_repo.get_pe_history(code)
-                pb_history = valuation_repo.get_pb_history(code) if hasattr(valuation_repo, 'get_pb_history') else None
+                pe_history = app_service.get_pe_history(code)
+                pb_history = app_service.get_pb_history(code)
             else:
                 pe_history = None
                 pb_history = None
-            hist_df = compute_factor_history(code, prices, [selected_factor], pe_history=pe_history, pb_history=pb_history)
+            hist_df = app_service.compute_factor_history(
+                code,
+                [selected_factor],
+                pe_history=pe_history,
+                pb_history=pb_history,
+            )
             if not hist_df.empty and selected_factor in hist_df.columns:
                 fig = px.line(
                     hist_df,
@@ -772,6 +723,12 @@ with st.sidebar:
         value=False,
         help="归因结果基于默认约束标定，自定义约束下结果仅作参考。"
     )
+    attribution_benchmark_type = st.selectbox(
+        "归因基准",
+        options=['csi300', 'equal_weight'],
+        format_func=lambda value: '沪深300（需历史基准快照）' if value == 'csi300' else 'ETF池等权',
+        disabled=not enable_attribution,
+    )
     st.session_state['enable_attribution'] = enable_attribution
     run_clicked = st.button("🧪 运行回测", type="primary", use_container_width=True)
 
@@ -788,14 +745,10 @@ if run_clicked:
             def on_data_progress(msg):
                 progress_placeholder.text(msg)
 
-            data_result = ensure_data_ready(
+            data_result = app_service.ensure_data_ready(
                 selected_codes,
                 start_date.strftime("%Y-%m-%d"),
                 end_date.strftime("%Y-%m-%d"),
-                data_source,
-                etf_repo,
-                price_repo,
-                valuation_repo,
                 on_progress=on_data_progress,
             )
 
@@ -827,6 +780,7 @@ if run_clicked:
                         params,
                         constraints_dict,
                         enable_attribution=enable_attribution,
+                        attribution_benchmark_type=attribution_benchmark_type,
                     )
                 except RuntimeError as bt_err:
                     result = None
@@ -1049,11 +1003,13 @@ if result:
                 st.markdown("##### 分ETF换仓明细")
                 st.dataframe(attribution.etf_switch_breakdown, use_container_width=True, hide_index=True)
 
-        st.caption(f"基准类型：{attribution.benchmark_type}（ETF池等权组合）")
+        benchmark_label = '沪深300' if attribution.benchmark_type == 'csi300' else 'ETF池等权组合'
+        st.caption(f"基准类型：{benchmark_label}")
     else:
         attr_err = result.get('attribution_error')
-        if attr_err:
-            st.warning(f"归因计算失败: {attr_err}")
+        attr_status = result.get('attribution_status')
+        if attr_status == 'unavailable' or attr_err:
+            st.warning(f"归因不可用: {attr_err or '基准数据不足'}")
         else:
             st.info("归因结果未生成。请确保回测时已启用归因计算。")
 
@@ -1216,7 +1172,7 @@ if result:
 
     st.markdown("---")
     st.markdown("### 🔍 因子校验结果")
-    val_results = valuation_repo.list_validation_results(factor_name="pe_cross_check")
+    val_results = app_service.list_validation_results(factor_name="pe_cross_check")
     if val_results:
         val_rows = []
         name_map = {e['code']: e['name'] for e in ETF_UNIVERSE}
@@ -1224,7 +1180,7 @@ if result:
             code = v['etf_code']
             name = name_map.get(code, '')
             if not name:
-                etf_info = etf_repo.get_etf(code)
+                etf_info = app_service.get_etf(code)
                 name = etf_info.get('name', '') if etf_info else ''
             metrics = v.get('metrics', [])
             metric_dict = {m['name']: m for m in metrics}
@@ -1270,12 +1226,16 @@ if result:
 
     detail_codes = st.session_state.get('selected_codes_saved', selected_codes)
     if detail_codes:
+        detail_name_map = {
+            code: (app_service.get_etf(code) or {}).get('name', '')
+            for code in detail_codes
+        }
         col_select, col_btn = st.columns([3, 1])
         with col_select:
             detail_code = st.selectbox(
                 "选择ETF查看详情",
                 detail_codes,
-                format_func=lambda x: f"{x} - {etf_repo.get_etf(x).get('name', '') if etf_repo.get_etf(x) else ''}",
+                format_func=lambda x: f"{x} - {detail_name_map.get(x, '')}",
                 key="detail_code_selector",
             )
         with col_btn:

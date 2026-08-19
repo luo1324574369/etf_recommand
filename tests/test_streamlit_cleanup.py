@@ -41,6 +41,15 @@ def test_streamlit_app_has_single_factor_diagnostics_source():
     assert len(calls) == 1
 
 
+def test_streamlit_factor_snapshot_uses_canonical_preprocessing():
+    """因子详情快照必须复用策略的统一截面预处理。"""
+    presentation_src = Path('presentation/streamlit_app.py').read_text(encoding='utf-8')
+    service_src = Path('service/application_service.py').read_text(encoding='utf-8')
+    assert 'compute_factor_snapshot' in presentation_src
+    assert 'preprocess_factor_cross_section' in service_src
+    assert 'zscore_normalize' not in presentation_src
+
+
 def test_settings_no_dual_momentum_preset():
     """settings.py 中 PARAM_PRESETS 不含双动量轮动键"""
     from config.settings import PARAM_PRESETS

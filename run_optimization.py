@@ -134,11 +134,11 @@ def main():
               f"top_n={params.get('top_n')}, "
               f"rebalance_freq={params.get('rebalance_freq')}, "
               f"drawdown_threshold={params.get('drawdown_threshold')}")
-        print(f"  --- 全周期指标 ---")
-        print(f"  年化收益: {m.get('full_annual_return', 0):.2f}%")
-        print(f"  夏普比率: {m.get('full_sharpe_ratio', 0):.2f}")
-        print(f"  最大回撤: {m.get('full_max_drawdown', 0):.2f}%")
-        print(f"  交易次数: {m.get('full_num_trades', 0)}")
+        print(f"  --- 选择区间指标 ---")
+        print(f"  选择区间年化收益: {m.get('selection_annual_return', 0):.2f}%")
+        print(f"  选择区间夏普比率: {m.get('selection_sharpe_ratio', 0):.2f}")
+        print(f"  选择区间最大回撤: {m.get('selection_max_drawdown', 0):.2f}%")
+        print(f"  选择区间交易次数: {m.get('selection_num_trades', 0)}")
         print(f"  --- 窗口验证指标 ---")
         print(f"  窗口CAGR: {m.get('cagr', 0):.2f}%")
         print(f"  平均夏普: {m.get('avg_sharpe_ratio', 0):.2f}")
@@ -158,9 +158,9 @@ def main():
         params = p['params']
         param_str = f"lm={params.get('lookback_momentum')},n={params.get('top_n')},f={params.get('rebalance_freq')},dd={params.get('drawdown_threshold')}"
         print(f"{p['name']:<22} "
-              f"{m.get('full_annual_return', 0):>8.2f} "
-              f"{m.get('full_sharpe_ratio', 0):>6.2f} "
-              f"{m.get('full_max_drawdown', 0):>8.2f} "
+              f"{m.get('selection_annual_return', 0):>8.2f} "
+              f"{m.get('selection_sharpe_ratio', 0):>6.2f} "
+              f"{m.get('selection_max_drawdown', 0):>8.2f} "
               f"{m.get('cagr', 0):>8.2f} "
               f"{m.get('robustness_score', 0):>8.2f} "
               f"{param_str}")

@@ -236,6 +236,37 @@ def test_execute_sell_all():
     os.unlink(db_path)
 
 
+def test_execute_buy_rolls_back_when_cash_is_insufficient():
+    """余额不足时买入必须回滚交易、持仓和现金。"""
+    db_fd, db_path = tempfile.mkstemp()
+    init_db(db_path)
+    conn = get_db(db_path)
+    repo = PortfolioRepository(conn)
+
+    repo.create_account(initial_capital=1000.0)
+
+    try:
+        repo.execute_buy(
+            code="510300",
+            quantity=1000,
+            price=4.12,
+            fee=5.0,
+            trade_date="2026-07-01",
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("余额不足时应拒绝买入")
+
+    assert repo.list_trades() == []
+    assert repo.get_holding("510300") is None
+    assert repo.get_account()["cash"] == 1000.0
+
+    conn.close()
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
 if __name__ == "__main__":
     test_create_account()
     test_get_account()
