@@ -373,6 +373,15 @@ def run_backtest(
     elif hasattr(strat, 'factor_diagnostics') and strat.factor_diagnostics:
         factor_diagnostics = strat.factor_diagnostics
 
+    factor_health = []
+    if factor_diagnostics is not None:
+        try:
+            from strategy.factor_lifecycle import health_reports_from_factor_stats
+            factor_health = health_reports_from_factor_stats(factor_diagnostics.get('factor_stats'))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"factor health build failed: {e}")
+
     return {
         'final_value': cerebro.broker.getvalue(),
         'total_return': (cerebro.broker.getvalue() - initial_capital) / initial_capital * 100,
@@ -401,6 +410,7 @@ def run_backtest(
         'attribution_status': attribution_status,
         'alpha_stability': alpha_stability,
         'factor_diagnostics': factor_diagnostics,
+        'factor_health': factor_health,
         'market_regime_log': getattr(strat, '_regime_log', []),
     }
 

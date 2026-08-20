@@ -262,6 +262,41 @@ class HybridDataSource:
         return _retry(_fetch)
 
     def get_daily_price(self, code: str, start_date: str, end_date: str) -> list[dict]:
+        if self._tushare:
+            primary = self._get_tushare_daily_price(code, start_date, end_date)
+            secondary = self._get_akshare_daily_price(code, start_date, end_date)
+            from data.quality import compare_price_sources
+
+            issues = compare_price_sources({code: primary}, {code: secondary})
+            if issues:
+                raise ValueError(f"{code} 两个行情源校验失败: {[issue.to_dict() for issue in issues[:5]]}")
+            return primary
+        return self._get_akshare_daily_price(code, start_date, end_date)
+
+    def _get_tushare_daily_price(self, code: str, start_date: str, end_date: str) -> list[dict]:
+        ts_code = f"{code}.SH" if code.startswith(("5", "6", "9")) else f"{code}.SZ"
+        frame = self._tushare.fund_daily(
+            ts_code=ts_code,
+            start_date=start_date.replace("-", ""),
+            end_date=end_date.replace("-", ""),
+        )
+        if frame is None or frame.empty:
+            return []
+        result = []
+        for _, row in frame.sort_values("trade_date").iterrows():
+            trade_date = str(row["trade_date"])
+            result.append({
+                "trade_date": f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}",
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row.get("vol", 0)),
+                "amount": float(row.get("amount", 0)),
+            })
+        return result
+
+    def _get_akshare_daily_price(self, code: str, start_date: str, end_date: str) -> list[dict]:
         def _to_sina_symbol(code: str) -> str:
             if code.startswith("5") or code.startswith("6") or code.startswith("9"):
                 return f"sh{code}"
@@ -888,4 +923,3 @@ class HybridDataSource:
                 result[code] = val_records
 
         return result
-

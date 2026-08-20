@@ -40,6 +40,9 @@ config/settings.py.bak
 # Docs (auto-generated, don't track changes)
 docs/superpowers/
 
+# Generated run reports
+reports/
+
 # Local config
 *.local
 .env

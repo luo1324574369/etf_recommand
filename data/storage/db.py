@@ -164,6 +164,20 @@ def init_db(db_path) -> None:
         """)
 
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_data_snapshot (
+                snapshot_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                as_of_date TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                records_json TEXT NOT NULL,
+                report_json TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
+        conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_validation_etf_factor
             ON validation_result (etf_code, factor_name)
         """)

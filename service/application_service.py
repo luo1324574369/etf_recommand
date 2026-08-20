@@ -1,6 +1,9 @@
 """应用编排服务，隔离 presentation 与数据存储实现。"""
 
 from pathlib import Path
+from datetime import datetime, timezone
+import subprocess
+from uuid import uuid4
 
 import pandas as pd
 
@@ -10,23 +13,38 @@ from data.storage.db import get_db, init_db
 from data.storage.etf_repo import ETFRepository
 from data.storage.price_repo import PriceRepository
 from data.storage.valuation_repo import ValuationRepo
+from data.storage.market_data_repo import MarketDataRepository
 from service.data_service import ensure_data_ready
 from strategy.benchmark import PRIMARY_BENCHMARK
 from strategy.constraints import DEFAULT_BACKTEST_CONSTRAINTS
 from strategy.scoring import FACTOR_DIRECTIONS, FACTOR_LABELS
 from strategy.diagnostics import FactorSnapshot
 from service.dto import BacktestResult
+from data.contracts import MarketDataSnapshot, DataQualityReport, ValidationIssue
+from data.quality import validate_price_records
+from service.reporting import ReportArtifact, RunManifest
+
+
+class DataQualityBlockedError(RuntimeError):
+    def __init__(self, report_paths, report):
+        self.report_paths = report_paths
+        self.report = report
+        path_text = ", ".join(str(path) for path in report_paths.values())
+        super().__init__(f"数据质量阻断，报告已归档: {path_text}")
 
 
 class ApplicationService:
-    def __init__(self, db_path=DB_PATH, tushare_token=""):
+    def __init__(self, db_path=DB_PATH, tushare_token="", report_root=None):
         self.db_path = Path(db_path)
         init_db(self.db_path)
         self._db = get_db(self.db_path)
         self._etf_repo = ETFRepository(self._db)
         self._price_repo = PriceRepository(self._db)
         self._valuation_repo = ValuationRepo(self.db_path)
+        self._market_data_repo = MarketDataRepository(self._db)
         self._data_source = HybridDataSource(tushare_token=tushare_token)
+        self._report_root = Path(report_root) if report_root else Path(__file__).resolve().parent.parent / "reports"
+        self._validated_source_records = {}
 
     def get_daily_price(self, code, start_date=None, end_date=None):
         return self._price_repo.get_daily_price(code, start_date, end_date)
@@ -118,11 +136,96 @@ class ApplicationService:
             on_progress=on_progress,
         )
 
+    def validate_backtest_data(self, selected_codes, start_date, end_date):
+        self._validated_source_records = {}
+        if self._data_source._tushare:
+            records_by_code = {}
+            source_issues = []
+            for code in selected_codes:
+                try:
+                    records_by_code[code] = self._data_source.get_daily_price(code, start_date, end_date)
+                except Exception as error:
+                    records_by_code[code] = []
+                    source_issues.append(ValidationIssue(
+                        rule="source_fetch",
+                        code=code,
+                        message=f"主数据源获取失败: {error}",
+                    ))
+            source_name = "tushare_primary_akshare_cross_checked"
+        else:
+            records_by_code = {
+                code: self.get_daily_price(code, start_date, end_date)
+                for code in selected_codes
+            }
+            source_issues = []
+            source_name = "local_db"
+        snapshot = MarketDataSnapshot.from_records(
+            records_by_code,
+            source=source_name,
+            as_of_date=end_date,
+        )
+        report = validate_price_records(
+            records_by_code,
+            expected_dates=None,
+            source_name=source_name,
+            as_of_date=end_date,
+        )
+        if source_issues:
+            report = DataQualityReport.blocked(
+                snapshot.snapshot_id,
+                list(report.issues) + source_issues,
+            )
+        if report.status == "passed" and self._data_source._tushare:
+            self._validated_source_records = records_by_code
+        self._market_data_repo.save_snapshot(snapshot, report)
+        return report
+
+    def get_market_snapshot(self, snapshot_id):
+        return self._market_data_repo.get_snapshot(snapshot_id)
+
+    def archive_backtest_report(self, result, params, data_report):
+        run_date = datetime.now(timezone.utc).date().isoformat()
+        run_id = f"{run_date}-{uuid4().hex[:10]}"
+        try:
+            git_revision = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=Path(__file__).resolve().parent.parent,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            git_revision = "unknown"
+        manifest = RunManifest.from_result(
+            run_id=run_id,
+            status=data_report.status,
+            params=params,
+            data_quality=data_report.to_dict(),
+            git_revision=git_revision,
+        )
+        return ReportArtifact.write(self._report_root / run_date, manifest, result)
+
     def run_backtest(self, selected_codes, start_date, end_date, params, constraints,
                      enable_attribution=False, attribution_benchmark_type='csi300'):
+        data_report = self.validate_backtest_data(
+            selected_codes,
+            pd.to_datetime(start_date).strftime("%Y-%m-%d"),
+            pd.to_datetime(end_date).strftime("%Y-%m-%d"),
+        )
+        if data_report.status == "blocked":
+            report_paths = self.archive_backtest_report({}, params, data_report)
+            raise DataQualityBlockedError(report_paths, data_report)
         data_dict = {}
         for code in selected_codes:
             prices = self.get_daily_price(code)
+            source_prices = self._validated_source_records.get(code)
+            if source_prices:
+                merged_prices = {
+                    row["trade_date"]: row
+                    for row in prices
+                    if row.get("trade_date") < pd.to_datetime(start_date).strftime("%Y-%m-%d")
+                }
+                merged_prices.update({row["trade_date"]: row for row in source_prices})
+                prices = [merged_prices[key] for key in sorted(merged_prices)]
             if prices:
                 data_dict[code] = pd.DataFrame(prices)
 
@@ -142,6 +245,14 @@ class ApplicationService:
             end_date=pd.to_datetime(end_date).strftime("%Y-%m-%d"),
             **full_params,
         )
+        report_paths = self.archive_backtest_report(
+            result,
+            {**params, "constraints": constraints},
+            data_report,
+        )
+        result["data_quality"] = data_report.to_dict()
+        result["report_status"] = data_report.status
+        result["report_paths"] = {key: str(path) for key, path in report_paths.items()}
         return BacktestResult(result)
 
     def run_strategy(self, strategy_name, signal_date):

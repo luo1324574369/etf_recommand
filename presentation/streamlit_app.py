@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+from pathlib import Path
 
 from service.application_service import (
     ApplicationService,
@@ -382,6 +383,20 @@ def _render_factor_diagnostics_section(result):
                 st.dataframe(styled, use_container_width=True, hide_index=True)
             except Exception:
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+        factor_health = result.get('factor_health') or []
+        if factor_health:
+            st.markdown("#### 因子生命周期状态")
+            health_rows = []
+            for health in factor_health:
+                health_values = health if isinstance(health, dict) else None
+                health_rows.append({
+                    '因子': health.get('factor_name', '-') if health_values is not None else health.factor_name,
+                    '状态': health.get('status', '-') if health_values is not None else health.status,
+                    '观察窗口(月)': health.get('window_months', 0) if health_values is not None else health.window_months,
+                    '失效信号': (', '.join(health.get('failed_metrics', ())) if health_values is not None else ', '.join(health.failed_metrics)) or '无',
+                })
+            st.dataframe(pd.DataFrame(health_rows), use_container_width=True, hide_index=True)
 
         # 滚动 IC 曲线
         rolling_ic = fd.get('rolling_ic_series')
@@ -794,6 +809,30 @@ if run_clicked:
 result = st.session_state.get('result')
 if result:
     st.markdown("### 📊 回测概览")
+
+    data_quality = result.get('data_quality', {})
+    if data_quality.get('status') == 'passed':
+        st.success(f"✅ 数据质量通过（快照 {data_quality.get('snapshot_id', '-') }）")
+
+    report_paths = result.get('report_paths', {})
+    if report_paths:
+        st.markdown("#### 📄 运行报告")
+        report_columns = st.columns(3)
+        report_labels = {
+            'html': '下载 HTML 报告',
+            'markdown': '下载 Markdown 报告',
+            'data': '下载 JSON 事实数据',
+        }
+        for column, report_type in zip(report_columns, ('html', 'markdown', 'data')):
+            report_path = Path(report_paths[report_type]) if report_paths.get(report_type) else None
+            if report_path and report_path.exists():
+                with column:
+                    st.download_button(
+                        report_labels[report_type],
+                        data=report_path.read_bytes(),
+                        file_name=report_path.name,
+                        key=f"download_{report_type}_{result.get('report_status', 'run')}",
+                    )
 
     trade_list = result.get('trade_list', [])
     nav_df = result.get('nav_df', pd.DataFrame())
