@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from datetime import datetime, timezone
+import json
 import subprocess
 from uuid import uuid4
 
@@ -31,6 +32,25 @@ class DataQualityBlockedError(RuntimeError):
         self.report = report
         path_text = ", ".join(str(path) for path in report_paths.values())
         super().__init__(f"数据质量阻断，报告已归档: {path_text}")
+
+
+def _compare_run_facts(left, right):
+    if left is None or right is None:
+        return None
+    left_result = left.get("result", {})
+    right_result = right.get("result", {})
+    metrics = ("final_value", "total_return", "annual_return", "drawdown", "sharpe")
+    comparison = {}
+    for metric in metrics:
+        left_value = left_result.get(metric)
+        right_value = right_result.get(metric)
+        if isinstance(left_value, (int, float)) and isinstance(right_value, (int, float)):
+            comparison[metric] = {
+                "current": left_value,
+                "reference": right_value,
+                "difference": left_value - right_value,
+            }
+    return comparison
 
 
 class ApplicationService:
@@ -72,7 +92,7 @@ class ApplicationService:
         etf_names = {}
         active_factors = []
         for code in selected_codes:
-            prices = self.get_daily_price(code)
+            prices = self._price_repo.get_signal_price(code)
             if len(prices) < 60:
                 continue
             factors = compute_all_factors(
@@ -115,7 +135,7 @@ class ApplicationService:
     def compute_factor_history(self, code, factor_names, pe_history=None, pb_history=None):
         from strategy.scoring import compute_factor_history
 
-        prices = self.get_daily_price(code)
+        prices = self._price_repo.get_signal_price(code)
         return compute_factor_history(
             code,
             prices,
@@ -182,6 +202,65 @@ class ApplicationService:
 
     def get_market_snapshot(self, snapshot_id):
         return self._market_data_repo.get_snapshot(snapshot_id)
+
+    def build_factor_health_report(self, as_of_date):
+        """从截止日期前最新的正式运行报告生成因子健康状态。"""
+        from strategy.factor_lifecycle import health_reports_from_factor_stats
+
+        cutoff = pd.to_datetime(as_of_date).date()
+        latest_payload = None
+        latest_created_at = None
+        for path in self._report_root.rglob("report-data.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                created_at = payload.get("manifest", {}).get("created_at", "")
+                created_date = pd.to_datetime(created_at).date()
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            if created_date > cutoff:
+                continue
+            if latest_created_at is None or created_at > latest_created_at:
+                latest_created_at = created_at
+                latest_payload = payload
+        if not latest_payload:
+            return []
+        diagnostics = latest_payload.get("result", {}).get("factor_diagnostics") or {}
+        factor_stats = diagnostics.get("factor_stats")
+        if not factor_stats:
+            return []
+        return health_reports_from_factor_stats(pd.DataFrame(factor_stats))
+
+    def list_factor_candidates(self):
+        from service.factor_governance_service import FactorGovernanceService
+        from strategy.factor_registry import FactorRegistry
+
+        governance_root = self._report_root / "factor-governance"
+        service = FactorGovernanceService(
+            governance_root / "candidates.json",
+            FactorRegistry(governance_root / "registry.json"),
+        )
+        return service.list_candidates()
+
+    def compare_runs(self, current_run_id, previous_run_id=None, shadow_run_id=None):
+        """读取归档运行事实，供面板或报告层展示历史对比。"""
+        def load_run(run_id):
+            if not run_id:
+                return None
+            matches = list(self._report_root.rglob(f"{run_id}/report-data.json"))
+            if not matches:
+                raise KeyError(f"run not found: {run_id}")
+            return json.loads(matches[0].read_text(encoding="utf-8"))
+
+        current = load_run(current_run_id)
+        previous = load_run(previous_run_id)
+        shadow = load_run(shadow_run_id)
+        return {
+            "current": current,
+            "previous": previous,
+            "shadow": shadow,
+            "current_vs_previous": _compare_run_facts(current, previous),
+            "current_vs_shadow": _compare_run_facts(current, shadow),
+        }
 
     def archive_backtest_report(self, result, params, data_report):
         run_date = datetime.now(timezone.utc).date().isoformat()

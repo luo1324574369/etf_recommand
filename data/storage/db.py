@@ -36,11 +36,18 @@ def init_db(db_path) -> None:
                 high REAL,
                 low REAL,
                 close REAL NOT NULL,
+                adj_factor REAL NOT NULL DEFAULT 1.0,
+                signal_open REAL,
+                signal_high REAL,
+                signal_low REAL,
+                signal_close REAL,
                 volume INTEGER,
                 amount REAL,
                 PRIMARY KEY (code, trade_date)
             )
         """)
+
+        _ensure_price_columns(conn)
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_price_trade_date
@@ -185,3 +192,33 @@ def init_db(db_path) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_price_columns(conn: sqlite3.Connection) -> None:
+    """为已有数据库补齐复权字段，并回填历史记录的默认信号价格。"""
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(etf_daily_price)").fetchall()
+    }
+    additions = {
+        "adj_factor": "REAL NOT NULL DEFAULT 1.0",
+        "signal_open": "REAL",
+        "signal_high": "REAL",
+        "signal_low": "REAL",
+        "signal_close": "REAL",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE etf_daily_price ADD COLUMN {name} {definition}")
+    conn.execute("""
+        UPDATE etf_daily_price
+        SET adj_factor = COALESCE(adj_factor, 1.0),
+            signal_open = COALESCE(signal_open, open * COALESCE(adj_factor, 1.0)),
+            signal_high = COALESCE(signal_high, high * COALESCE(adj_factor, 1.0)),
+            signal_low = COALESCE(signal_low, low * COALESCE(adj_factor, 1.0)),
+            signal_close = COALESCE(signal_close, close * COALESCE(adj_factor, 1.0))
+        WHERE signal_close IS NULL
+           OR signal_open IS NULL
+           OR signal_high IS NULL
+           OR signal_low IS NULL
+    """)

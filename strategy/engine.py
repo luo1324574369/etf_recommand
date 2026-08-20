@@ -3,6 +3,13 @@ from strategy.filters.base import FilterBase
 from strategy.factors.trend import TrendFactor
 
 
+def _get_price_data(price_repo, code, end_date, adjusted=False):
+    try:
+        return price_repo.get_daily_price(code, end_date=end_date, adjusted=adjusted)
+    except TypeError:
+        return price_repo.get_daily_price(code, end_date=end_date)
+
+
 class StrategyEngine:
 
     def __init__(self, factors, filters, top_n=5, score_weights=None, exit_rules=None):
@@ -59,7 +66,7 @@ class StrategyEngine:
 
         all_factor_values = {}
         for code in etf_codes:
-            price_data = price_repo.get_daily_price(code, end_date=end_date)
+            price_data = _get_price_data(price_repo, code, end_date, adjusted=True)
             factor_values = self._calculate_factors(code, price_data, end_date)
             all_factor_values[code] = factor_values
 
@@ -130,11 +137,12 @@ class StrategyEngine:
                 market_down = True
 
         for code, holding_info in holdings.items():
-            price_data = price_repo.get_daily_price(code, end_date=current_date)
-            if not price_data:
+            price_data = _get_price_data(price_repo, code, current_date, adjusted=True)
+            raw_price_data = _get_price_data(price_repo, code, current_date)
+            if not price_data or not raw_price_data:
                 continue
 
-            current_price = price_data[-1]["close"]
+            current_price = raw_price_data[-1]["close"]
             cost_basis = holding_info.get("cost_basis", 0)
 
             reasons = []

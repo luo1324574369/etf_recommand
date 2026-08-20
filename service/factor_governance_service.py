@@ -67,6 +67,9 @@ class FactorGovernanceService:
         except KeyError as error:
             raise KeyError(f"candidate not found: {candidate_id}") from error
 
+    def list_candidates(self) -> list[FactorCandidate]:
+        return list(self._candidates.values())
+
     def record_oos(self, candidate_id: str, months: int, passed: bool) -> FactorCandidate:
         candidate = self.get_candidate(candidate_id)
         if months not in {12, 24}:

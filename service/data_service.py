@@ -32,7 +32,7 @@ class DataService:
         return list(reversed(all_prices[-days:]))
 
     def calculate_factors(self, code: str, as_of_date: str = None):
-        all_prices = self.price_repo.get_daily_price(code)
+        all_prices = self.price_repo.get_signal_price(code)
         if not all_prices:
             return {"momentum": None, "trend": None, "volume": None}
 

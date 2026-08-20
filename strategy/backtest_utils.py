@@ -7,6 +7,16 @@ import pandas as pd
 from typing import Dict, Any
 
 
+class SignalAwarePandasData(bt.feeds.PandasData):
+    lines = ('signal_open', 'signal_high', 'signal_low', 'signal_close')
+    params = (
+        ('signal_open', -1),
+        ('signal_high', -1),
+        ('signal_low', -1),
+        ('signal_close', -1),
+    )
+
+
 def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
                   start_date=None, end_date=None, lookback_long=120):
     for code, df in data_dict.items():
@@ -25,10 +35,26 @@ def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
         # 只保留 start_date 之前的有限 warm-up 数据，策略在 start_date 之后交易。
         
         df.set_index('trade_date', inplace=True)
-        bt_cols = ['open', 'high', 'low', 'close', 'volume']
+        for raw_name, signal_name in (
+            ('open', 'signal_open'),
+            ('high', 'signal_high'),
+            ('low', 'signal_low'),
+            ('close', 'signal_close'),
+        ):
+            if signal_name not in df.columns:
+                factor = pd.to_numeric(
+                    df['adj_factor'] if 'adj_factor' in df.columns else pd.Series(1.0, index=df.index),
+                    errors='coerce',
+                ).fillna(1.0)
+                factor = factor.where(factor > 0, 1.0)
+                df[signal_name] = pd.to_numeric(df[raw_name], errors='coerce') * factor
+        bt_cols = [
+            'open', 'high', 'low', 'close', 'volume',
+            'signal_open', 'signal_high', 'signal_low', 'signal_close',
+        ]
         df = df[[c for c in bt_cols if c in df.columns]]
         df.dropna(inplace=True)
-        data = bt.feeds.PandasData(dataname=df, name=code)
+        data = SignalAwarePandasData(dataname=df, name=code)
         cerebro.adddata(data)
 
 

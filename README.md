@@ -112,6 +112,7 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 
 - 回测前校验交易日、重复记录、OHLC 关系、非负值和数据源差异。
 - 价格源差异超过 1% 或成交量差异超过 10% 时阻断运行。
+- 行情同时保存原始 OHLC 和 `adj_factor` 生成的信号价格：因子计算使用复权收盘价，模拟成交、手续费和持仓估值使用原始价格。
 - 报告自动归档到 `reports/YYYY-MM-DD/<run_id>/`，包含代码版本、数据快照、参数、交易事实和因子状态。
 - `report-data.json` 是供 AI 阅读的结构化事实；AI 只能据此生成带触发条件和风险边界的条件化建议。
 
@@ -120,6 +121,23 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 - 每月监控 RankIC、ICIR、分层收益、成本后收益和组合边际贡献。
 - 候选因子必须完成 12 个月 OOS 初筛、24 个月 OOS 确认、人工批准和 1–3 个月影子运行。
 - 正式新增或替换只在季度窗口执行，所有版本支持回滚。
+
+月度监控使用按因子分组的观测 JSON 生成替换候选和观察名单：
+
+```bash
+.venv/bin/python -m presentation.cli.factor_lifecycle monthly-monitor \
+  --observations observations.json --as-of-date 2026-01-31 --output reports/factors/2026-01
+```
+
+候选因子仍需经过沙箱试运行、12/24 个月 OOS、人工审批和影子运行；完成后在季度窗口发布：
+
+```bash
+.venv/bin/python -m presentation.cli.factor_lifecycle quarterly-publish \
+  --candidates factors/candidates.json --registry factors/registry.json \
+  --candidate-id candidate-xxx --publish-date 2026-04-01
+```
+
+AI 生成因子可通过 `service.factor_sandbox.FactorSandbox` 在独立进程中执行。沙箱限制导入和文件访问，输入文件只读，带源码哈希和超时；沙箱不会写入正式因子注册表。
 
 ### 参数预设优化（CLI）
 

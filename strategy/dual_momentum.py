@@ -21,9 +21,10 @@ class DualMomentumStrategy(bt.Strategy):
         self.prev_positions = {}
         self.inds = {}
         for d in self.datas:
+            signal_close = getattr(d, 'signal_close', d.close)
             self.inds[d] = {
-                'short_ret': bt.indicators.RateOfChange(d.close, period=self.p.lookback_short),
-                'long_ret': bt.indicators.RateOfChange(d.close, period=self.p.lookback_long),
+                'short_ret': bt.indicators.RateOfChange(signal_close, period=self.p.lookback_short),
+                'long_ret': bt.indicators.RateOfChange(signal_close, period=self.p.lookback_long),
             }
         if self.p.constraints is None:
             self.constraints = StrategyConstraints()

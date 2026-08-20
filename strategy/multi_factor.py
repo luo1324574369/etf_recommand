@@ -132,10 +132,11 @@ class MultiFactorStrategy(bt.Strategy):
         self.cumulative_pnl = 0.0
         self.inds = {}
         for d in self.datas:
+            signal_close = getattr(d, 'signal_close', d.close)
             self.inds[d] = {
-                'momentum': bt.indicators.RateOfChange(d.close, period=self.p.lookback_momentum),
-                'volatility': bt.indicators.StdDev(d.close, period=self.p.lookback_volatility),
-                'liquidity': bt.indicators.SumN(d.close * d.volume * 100, period=20) / 20,  # volume单位是手，*100转为股
+                'momentum': bt.indicators.RateOfChange(signal_close, period=self.p.lookback_momentum),
+                'volatility': bt.indicators.StdDev(signal_close, period=self.p.lookback_volatility),
+                'liquidity': bt.indicators.SumN(signal_close * d.volume * 100, period=20) / 20,  # volume单位是手，*100转为股
             }
         if self.p.constraints is None:
             self.constraints = StrategyConstraints(
@@ -177,21 +178,23 @@ class MultiFactorStrategy(bt.Strategy):
         self._regime_ma = {}
         if self.p.market_regime_switch:
             for d in self.datas:
-                self._regime_ma[d] = bt.indicators.SimpleMovingAverage(d.close, period=self.p.regime_ma_period)
+                signal_close = getattr(d, 'signal_close', d.close)
+                self._regime_ma[d] = bt.indicators.SimpleMovingAverage(signal_close, period=self.p.regime_ma_period)
             benchmark_d = None
             for d in self.datas:
                 if d._name == self.p.benchmark_code:
                     benchmark_d = d
                     break
             if benchmark_d is not None:
+                benchmark_signal_close = getattr(benchmark_d, 'signal_close', benchmark_d.close)
                 self._benchmark_data = benchmark_d
                 self._regime_macd_benchmark = bt.indicators.MACDHisto(
-                    benchmark_d.close,
+                    benchmark_signal_close,
                     period_me1=self.p.regime_macd_fast,
                     period_me2=self.p.regime_macd_slow,
                     period_signal=self.p.regime_macd_signal,
                 )
-                benchmark_amount = benchmark_d.close * benchmark_d.volume * 100
+                benchmark_amount = benchmark_signal_close * benchmark_d.volume * 100
                 self._regime_vol_ma_benchmark = bt.indicators.SimpleMovingAverage(
                     benchmark_amount, period=self.p.regime_vol_ma_period
                 )
@@ -265,7 +268,7 @@ class MultiFactorStrategy(bt.Strategy):
             n = d.buflen()
             if n is None or n < 20:
                 continue
-            close_arr = d.close.array
+            close_arr = getattr(d, 'signal_close', d.close).array
             open_arr = d.open.array
             high_arr = d.high.array
             low_arr = d.low.array
@@ -328,7 +331,7 @@ class MultiFactorStrategy(bt.Strategy):
             n = d.buflen()
             if n is None or n < 60:
                 continue
-            close_arr = d.close.array
+            close_arr = getattr(d, 'signal_close', d.close).array
             open_arr = d.open.array
             high_arr = d.high.array
             low_arr = d.low.array
@@ -775,9 +778,10 @@ class MultiFactorStrategy(bt.Strategy):
         ma_value = self._regime_ma.get(benchmark_d)
         if ma_value is None or ma_value[0] is None:
             return 'neutral'
-        if benchmark_d.close[0] is None:
+        benchmark_signal_close = getattr(benchmark_d, 'signal_close', benchmark_d.close)
+        if benchmark_signal_close[0] is None:
             return 'neutral'
-        if benchmark_d.close[0] > ma_value[0]:
+        if benchmark_signal_close[0] > ma_value[0]:
             return 'bull'
         return 'bear'
 
@@ -800,9 +804,12 @@ class MultiFactorStrategy(bt.Strategy):
         benchmark_d = self._benchmark_data
         if benchmark_d is None:
             benchmark_d = self._find_data_by_name(self.p.benchmark_code)
-        if benchmark_d is None or benchmark_d.close[0] is None or benchmark_d.volume[0] is None:
+        if benchmark_d is None or benchmark_d.volume[0] is None:
             return 'neutral'
-        current_amount = benchmark_d.close[0] * benchmark_d.volume[0] * 100
+        benchmark_signal_close = getattr(benchmark_d, 'signal_close', benchmark_d.close)
+        if benchmark_signal_close[0] is None:
+            return 'neutral'
+        current_amount = benchmark_signal_close[0] * benchmark_d.volume[0] * 100
         if vol_ma <= 0:
             return 'neutral'
         if current_amount / vol_ma >= self.p.regime_vol_ratio_threshold:
@@ -904,8 +911,9 @@ class MultiFactorStrategy(bt.Strategy):
                 close_price = self._price_history[code][-1]['close']
             else:
                 d = self._find_data_by_name(code)
-                if d is not None and d.close[0] is not None:
-                    close_price = float(d.close[0])
+                signal_close = getattr(d, 'signal_close', d.close) if d is not None else None
+                if signal_close is not None and signal_close[0] is not None:
+                    close_price = float(signal_close[0])
 
             for factor_name, value in factors.items():
                 if factor_name not in self._factor_history:
@@ -1227,7 +1235,8 @@ class MultiFactorStrategy(bt.Strategy):
                 if code in scores:
                     # 获取最近 lookback_momentum + 1 天的收盘价
                     n = min(len(d), self.p.lookback_momentum + 1)
-                    closes = [d.close[-i] for i in range(n)][::-1]
+                    signal_close = getattr(d, 'signal_close', d.close)
+                    closes = [signal_close[-i] for i in range(n)][::-1]
                     current_data[code] = pd.DataFrame({'close': closes})
             try:
                 sector_mom = _compute_sector_momentum(
@@ -1252,7 +1261,8 @@ class MultiFactorStrategy(bt.Strategy):
         # start() 已预加载完整历史，这里只追加新 bar（通过日期去重避免重复）
         for d in self.datas:
             code = d._name
-            if d.close[0] is None or np.isnan(d.close[0]) or d.close[0] <= 0:
+            signal_close = getattr(d, 'signal_close', d.close)
+            if signal_close[0] is None or np.isnan(signal_close[0]) or signal_close[0] <= 0:
                 continue
             try:
                 date_str = d.datetime.date(0).isoformat()
@@ -1267,7 +1277,7 @@ class MultiFactorStrategy(bt.Strategy):
                 'open': float(d.open[0]),
                 'high': float(d.high[0]),
                 'low': float(d.low[0]),
-                'close': float(d.close[0]),
+                'close': float(signal_close[0]),
                 'volume': float(d.volume[0]),
                 'amount': float(amount),
             })

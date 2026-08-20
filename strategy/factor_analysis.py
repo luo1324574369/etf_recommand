@@ -484,7 +484,10 @@ def analyze_all_etfs(
     dy_history_by_code = {}  # {code: {trade_date: dividend_yield}}
 
     for code in etf_codes:
-        prices = price_repo.get_daily_price(code)
+        if hasattr(price_repo, "get_signal_price"):
+            prices = price_repo.get_signal_price(code)
+        else:
+            prices = price_repo.get_daily_price(code)
         if not prices or len(prices) < 120:
             continue
 
