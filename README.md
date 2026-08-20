@@ -137,7 +137,18 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
   --candidate-id candidate-xxx --publish-date 2026-04-01
 ```
 
-AI 生成因子可通过 `service.factor_sandbox.FactorSandbox` 在独立进程中执行。沙箱限制导入和文件访问，输入文件只读，带源码哈希和超时；沙箱不会写入正式因子注册表。
+系统不部署或调用 AI。每次回测生成的 `report-data.json` 是静态事实报告，可由用户自行交给外部 AI 分析；系统只负责提供数据质量、历史对比、因子健康和治理状态，不自动生成交易建议。
+
+因子治理的人工操作命令：
+
+```bash
+.venv/bin/python -m presentation.cli.factor_lifecycle record-oos \
+  --candidates factors/candidates.json --registry factors/registry.json \
+  --candidate-id candidate-xxx --months 12 --passed
+.venv/bin/python -m presentation.cli.factor_lifecycle approve \
+  --candidates factors/candidates.json --registry factors/registry.json \
+  --candidate-id candidate-xxx --approver user
+```
 
 ### 参数预设优化（CLI）
 

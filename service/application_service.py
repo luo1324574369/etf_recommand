@@ -39,7 +39,10 @@ def _compare_run_facts(left, right):
         return None
     left_result = left.get("result", {})
     right_result = right.get("result", {})
-    metrics = ("final_value", "total_return", "annual_return", "drawdown", "sharpe")
+    metrics = (
+        "final_value", "total_return", "annual_return", "drawdown", "max_drawdown",
+        "sharpe", "sharpe_ratio",
+    )
     comparison = {}
     for metric in metrics:
         left_value = left_result.get(metric)
@@ -65,6 +68,7 @@ class ApplicationService:
         self._data_source = HybridDataSource(tushare_token=tushare_token)
         self._report_root = Path(report_root) if report_root else Path(__file__).resolve().parent.parent / "reports"
         self._validated_source_records = {}
+        self._last_report_context = {}
 
     def get_daily_price(self, code, start_date=None, end_date=None):
         return self._price_repo.get_daily_price(code, start_date, end_date)
@@ -277,11 +281,88 @@ class ApplicationService:
         manifest = RunManifest.from_result(
             run_id=run_id,
             status=data_report.status,
-            params=params,
+            params={
+                **params,
+                "price_policy": "signal_adjusted_execution_raw",
+                "report_mode": "static_ai_ready_external_analysis",
+            },
             data_quality=data_report.to_dict(),
             git_revision=git_revision,
         )
-        return ReportArtifact.write(self._report_root / run_date, manifest, result)
+        report_result = dict(result)
+        report_context = self._build_report_context(report_result)
+        report_result["historical_comparison"] = report_context
+        report_result["factor_candidates"] = [
+            candidate.to_dict() for candidate in self.list_factor_candidates()
+        ]
+        self._last_report_context = {
+            "historical_comparison": report_context,
+            "factor_candidates": report_result["factor_candidates"],
+        }
+        return ReportArtifact.write(self._report_root / run_date, manifest, report_result)
+
+    def _build_report_context(self, current_result):
+        previous = None
+        previous_created_at = ""
+        for path in self._report_root.rglob("report-data.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                created_at = payload.get("manifest", {}).get("created_at", "")
+            except (OSError, TypeError, json.JSONDecodeError):
+                continue
+            if created_at > previous_created_at:
+                previous_created_at = created_at
+                previous = payload
+        current = {"result": current_result}
+        shadow_candidates = [
+            candidate.to_dict()
+            for candidate in self.list_factor_candidates()
+            if candidate.stage in {"shadow", "publishable"}
+        ]
+        current_metrics = {
+            key: current_result.get(key)
+            for key in ("total_return", "annual_return", "max_drawdown", "sharpe_ratio")
+            if isinstance(current_result.get(key), (int, float))
+        }
+        shadow_comparisons = []
+        for candidate in shadow_candidates:
+            shadow_metrics = candidate.get("shadow_metrics") or {}
+            differences = {
+                key: {
+                    "current": current_metrics[key],
+                    "shadow": shadow_metrics[key],
+                    "difference": current_metrics[key] - shadow_metrics[key],
+                }
+                for key in current_metrics
+                if isinstance(shadow_metrics.get(key), (int, float))
+            }
+            shadow_comparisons.append({
+                "candidate_id": candidate["candidate_id"],
+                "metrics": shadow_metrics,
+                "comparison": differences,
+            })
+        return {
+            "previous_run_id": previous.get("run_id") if previous else None,
+            "current_vs_previous": _compare_run_facts(current, previous),
+            "previous_summary": self._run_summary(previous),
+            "shadow_candidates": shadow_candidates,
+            "current_vs_shadow": shadow_comparisons,
+        }
+
+    @staticmethod
+    def _run_summary(payload):
+        if not payload:
+            return None
+        result = payload.get("result", {})
+        return {
+            "run_id": payload.get("run_id"),
+            "status": payload.get("status"),
+            "final_value": result.get("final_value"),
+            "total_return": result.get("total_return"),
+            "annual_return": result.get("annual_return"),
+            "max_drawdown": result.get("max_drawdown"),
+            "sharpe_ratio": result.get("sharpe_ratio"),
+        }
 
     def run_backtest(self, selected_codes, start_date, end_date, params, constraints,
                      enable_attribution=False, attribution_benchmark_type='csi300'):
@@ -332,6 +413,7 @@ class ApplicationService:
         result["data_quality"] = data_report.to_dict()
         result["report_status"] = data_report.status
         result["report_paths"] = {key: str(path) for key, path in report_paths.items()}
+        result.update(self._last_report_context)
         return BacktestResult(result)
 
     def run_strategy(self, strategy_name, signal_date):

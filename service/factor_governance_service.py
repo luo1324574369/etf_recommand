@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 import json
 from pathlib import Path
@@ -21,6 +21,7 @@ class FactorCandidate:
     oos_24_passed: bool = False
     approved_by: str | None = None
     shadow_metrics: dict | None = None
+    evidence: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         value = asdict(self)
@@ -38,6 +39,7 @@ class FactorCandidate:
             oos_24_passed=bool(value.get("oos_24_passed", False)),
             approved_by=value.get("approved_by"),
             shadow_metrics=value.get("shadow_metrics"),
+            evidence=dict(value.get("evidence") or {}),
         )
 
 
@@ -48,7 +50,12 @@ class FactorGovernanceService:
         self._candidates: dict[str, FactorCandidate] = {}
         self._load()
 
-    def submit_candidate(self, definition: FactorDefinition, score: float) -> FactorCandidate:
+    def submit_candidate(
+        self,
+        definition: FactorDefinition,
+        score: float,
+        evidence: dict | None = None,
+    ) -> FactorCandidate:
         if score <= 0:
             raise ValueError("candidate score must be positive")
         self.registry.register(definition)
@@ -56,6 +63,7 @@ class FactorGovernanceService:
             candidate_id=f"candidate-{uuid4().hex[:12]}",
             definition=definition,
             score=score,
+            evidence=dict(evidence or {}),
         )
         self._candidates[candidate.candidate_id] = candidate
         self._save()

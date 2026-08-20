@@ -817,13 +817,14 @@ if result:
     report_paths = result.get('report_paths', {})
     if report_paths:
         st.markdown("#### 📄 运行报告")
-        report_columns = st.columns(3)
+        report_columns = st.columns(4)
         report_labels = {
             'html': '下载 HTML 报告',
             'markdown': '下载 Markdown 报告',
             'data': '下载 JSON 事实数据',
+            'manifest': '下载运行清单',
         }
-        for column, report_type in zip(report_columns, ('html', 'markdown', 'data')):
+        for column, report_type in zip(report_columns, ('html', 'markdown', 'data', 'manifest')):
             report_path = Path(report_paths[report_type]) if report_paths.get(report_type) else None
             if report_path and report_path.exists():
                 with column:
@@ -833,6 +834,39 @@ if result:
                         file_name=report_path.name,
                         key=f"download_{report_type}_{result.get('report_status', 'run')}",
                     )
+
+    with st.expander("🧭 历史运行与因子治理", expanded=False):
+        history = result.get('historical_comparison') or {}
+        previous_summary = history.get('previous_summary')
+        if previous_summary:
+            st.markdown(f"**上次运行：** `{previous_summary.get('run_id', '-')}`")
+            comparison = history.get('current_vs_previous') or {}
+            if comparison:
+                rows = []
+                for metric, values in comparison.items():
+                    rows.append({
+                        '指标': metric,
+                        '当前': values.get('current'),
+                        '上次运行': values.get('reference'),
+                        '差值': values.get('difference'),
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("暂无上次正式运行报告，首次运行只展示基准对比。")
+
+        shadow_candidates = history.get('shadow_candidates') or []
+        if shadow_candidates:
+            st.markdown("**影子运行候选**")
+            st.dataframe(pd.DataFrame(shadow_candidates), use_container_width=True, hide_index=True)
+        shadow_comparisons = history.get('current_vs_shadow') or []
+        if shadow_comparisons:
+            st.markdown("**当前策略 vs 影子候选**")
+            st.json(shadow_comparisons)
+        factor_candidates = result.get('factor_candidates') or []
+        if factor_candidates:
+            st.markdown("**因子候选状态**")
+            st.dataframe(pd.DataFrame(factor_candidates), use_container_width=True, hide_index=True)
+        st.caption("系统不调用 AI。下载 JSON 后由你自行交给 AI 或人工分析；候选因子不会自动进入正式策略。")
 
     trade_list = result.get('trade_list', [])
     nav_df = result.get('nav_df', pd.DataFrame())

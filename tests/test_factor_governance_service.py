@@ -39,3 +39,30 @@ def test_candidate_requires_oos_approval_and_shadow_before_publish(tmp_path):
 
     assert published.status == "active"
     assert service.get_candidate(candidate.candidate_id).stage == "active"
+
+
+def test_candidate_persists_evidence_for_static_review(tmp_path):
+    from service.factor_governance_service import FactorGovernanceService
+    from strategy.factor_registry import FactorDefinition, FactorRegistry
+
+    service = FactorGovernanceService(
+        tmp_path / "candidates.json",
+        FactorRegistry(tmp_path / "factors.json"),
+    )
+    candidate = service.submit_candidate(
+        FactorDefinition(
+            name="ai_value",
+            version="1.0.0",
+            direction=-1,
+            dependencies=("pe",),
+            source="ai_generated",
+        ),
+        score=0.7,
+        evidence={"source_hash": "sha256:abc", "evaluator_version": "static-v1"},
+    )
+
+    reloaded = FactorGovernanceService(
+        tmp_path / "candidates.json",
+        FactorRegistry(tmp_path / "factors.json"),
+    ).get_candidate(candidate.candidate_id)
+    assert reloaded.evidence["source_hash"] == "sha256:abc"

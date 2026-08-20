@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 import html
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ class RunManifest:
     status: str
     params: dict[str, Any]
     data_quality: dict[str, Any]
+    params_hash: str
     git_revision: str
     created_at: str
 
@@ -55,6 +57,9 @@ class RunManifest:
             status=status,
             params=_json_payload(params),
             data_quality=_json_payload(data_quality),
+            params_hash=hashlib.sha256(
+                json.dumps(_json_payload(params), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
             git_revision=git_revision,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -69,11 +74,24 @@ class ReportArtifact:
         output_directory = Path(output_root) / manifest.run_id
         output_directory.mkdir(parents=True, exist_ok=True)
         normalized_result = _json_payload(result)
+        ai_analysis_contract = {
+            "model_invocation": "external_manual",
+            "system_does_not_call_ai": True,
+            "input_artifact": "report-data.json",
+            "facts_only": True,
+            "required_review": [
+                "数据质量和复权口径",
+                "当前策略与历史/影子运行对比",
+                "因子健康和候选状态",
+                "风险、触发条件和失效条件",
+            ],
+        }
         data_payload = {
             "run_id": manifest.run_id,
             "status": manifest.status,
             "manifest": manifest.to_dict(),
             "result": normalized_result,
+            "ai_analysis_contract": ai_analysis_contract,
         }
 
         manifest_path = output_directory / "run-manifest.json"
@@ -132,6 +150,21 @@ def _render_markdown(manifest: RunManifest, result: dict[str, Any]) -> str:
         "## 运行事实",
         "",
         json.dumps(result, ensure_ascii=False, indent=2),
+        "",
+        "## 运行对比",
+        "",
+        json.dumps(result.get("historical_comparison", {}), ensure_ascii=False, indent=2),
+        "",
+        "## 因子治理",
+        "",
+        json.dumps({
+            "health": result.get("factor_health", []),
+            "candidates": result.get("factor_candidates", []),
+        }, ensure_ascii=False, indent=2),
+        "",
+        "## AI 静态分析说明",
+        "",
+        "系统不会调用或部署 AI。请将 `report-data.json` 交给外部 AI 或人工分析；分析只能基于报告事实，并输出依据、触发条件、风险和失效条件。",
         "",
         "## 风险与条件",
         "",
