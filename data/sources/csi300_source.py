@@ -212,13 +212,18 @@ class CSI300Source:
         """获取沪深300指数历史收盘价，失败时严格报错。"""
         try:
             import akshare as ak
-            prices = ak.index_zh_a_hist(
-                symbol=self.INDEX_CODE,
-                period="daily",
-                start_date=str(start_date).replace('-', ''),
-                end_date=str(end_date).replace('-', ''),
-                adjust="",
-            )
+            request = {
+                "symbol": self.INDEX_CODE,
+                "period": "daily",
+                "start_date": str(start_date).replace('-', ''),
+                "end_date": str(end_date).replace('-', ''),
+            }
+            try:
+                prices = ak.index_zh_a_hist(**request, adjust="")
+            except TypeError as exc:
+                if "adjust" not in str(exc):
+                    raise
+                prices = ak.index_zh_a_hist(**request)
         except Exception as exc:
             raise RuntimeError(f"沪深300指数历史价格获取失败: {exc}") from exc
 

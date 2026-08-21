@@ -341,5 +341,32 @@ class TestRunAttribution(unittest.TestCase):
             )
 
 
+class TestCSI300Source(unittest.TestCase):
+    """CSI300 AkShare 接口兼容性测试"""
+
+    def test_fetch_index_prices_retries_without_adjust_for_old_akshare(self):
+        from data.sources.csi300_source import CSI300Source
+
+        calls = []
+        prices = pd.DataFrame({
+            '日期': ['2024-01-02', '2024-01-03'],
+            '收盘': [3500.0, 3510.0],
+        })
+
+        def fake_index_history(**kwargs):
+            calls.append(kwargs)
+            if 'adjust' in kwargs:
+                raise TypeError("index_zh_a_hist() got an unexpected keyword argument 'adjust'")
+            return prices
+
+        with patch('akshare.index_zh_a_hist', side_effect=fake_index_history):
+            source = CSI300Source(db_path=':memory:')
+            result = source.fetch_index_prices('2024-01-01', '2024-01-05')
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(calls[0].get('adjust'), '')
+        self.assertNotIn('adjust', calls[1])
+
+
 if __name__ == '__main__':
     unittest.main()
