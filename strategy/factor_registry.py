@@ -57,6 +57,13 @@ class FactorRegistry:
         except KeyError as error:
             raise KeyError(f"factor version not found: {name}@{version}") from error
 
+    def list_versions(self, name: str) -> list[FactorDefinition]:
+        return [
+            definition
+            for (factor_name, _), definition in sorted(self._definitions.items())
+            if factor_name == name
+        ]
+
     def request_approval(self, name: str, version: str) -> FactorDefinition:
         definition = self.get(name, version)
         updated = replace(definition, status="approved")

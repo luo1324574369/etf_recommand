@@ -162,12 +162,15 @@ class ApplicationService:
 
     def validate_backtest_data(self, selected_codes, start_date, end_date):
         self._validated_source_records = {}
+        requested_start = pd.to_datetime(start_date).strftime("%Y-%m-%d")
+        requested_end = pd.to_datetime(end_date).strftime("%Y-%m-%d")
+        fetch_end = (pd.to_datetime(end_date) + pd.Timedelta(days=7)).strftime("%Y-%m-%d")
         if self._data_source._tushare:
             records_by_code = {}
             source_issues = []
             for code in selected_codes:
                 try:
-                    records_by_code[code] = self._data_source.get_daily_price(code, start_date, end_date)
+                    records_by_code[code] = self._data_source.get_daily_price(code, requested_start, fetch_end)
                 except Exception as error:
                     records_by_code[code] = []
                     source_issues.append(ValidationIssue(
@@ -178,31 +181,70 @@ class ApplicationService:
             source_name = "tushare_primary_akshare_cross_checked"
         else:
             records_by_code = {
-                code: self.get_daily_price(code, start_date, end_date)
+                code: self.get_daily_price(code, requested_start, fetch_end)
                 for code in selected_codes
             }
             source_issues = []
             source_name = "local_db"
+        expected_dates = self._expected_trade_dates(
+            selected_codes,
+            requested_start,
+            requested_end,
+            records_by_code=records_by_code,
+        )
         snapshot = MarketDataSnapshot.from_records(
             records_by_code,
             source=source_name,
-            as_of_date=end_date,
+            as_of_date=requested_end,
+            start_date=requested_start,
+            end_date=requested_end,
+            expected_dates=expected_dates,
+            data_version="local-db-v2" if source_name == "local_db" else "tushare-akshare-v2",
         )
         report = validate_price_records(
             records_by_code,
-            expected_dates=None,
+            expected_dates=expected_dates,
             source_name=source_name,
-            as_of_date=end_date,
+            as_of_date=requested_end,
+            start_date=requested_start,
+            end_date=requested_end,
+            data_version="local-db-v2" if source_name == "local_db" else "tushare-akshare-v2",
+            require_adjustment=True,
+            require_next_open=True,
         )
         if source_issues:
             report = DataQualityReport.blocked(
                 snapshot.snapshot_id,
                 list(report.issues) + source_issues,
+                snapshot,
             )
         if report.status == "passed" and self._data_source._tushare:
             self._validated_source_records = records_by_code
         self._market_data_repo.save_snapshot(snapshot, report)
         return report
+
+    def _expected_trade_dates(self, selected_codes, start_date, end_date, records_by_code=None):
+        observed = set()
+        if records_by_code:
+            observed.update(
+                str(row["trade_date"])
+                for rows in records_by_code.values()
+                for row in rows
+                if row.get("trade_date") and start_date <= str(row["trade_date"]) <= end_date
+            )
+        if selected_codes:
+            rows = self._db.execute(
+                "SELECT DISTINCT trade_date FROM etf_daily_price "
+                "WHERE trade_date BETWEEN ? AND ? ORDER BY trade_date",
+                [start_date, end_date],
+            ).fetchall()
+            observed.update(str(row[0]) for row in rows)
+        if not observed:
+            return [date.strftime("%Y-%m-%d") for date in pd.bdate_range(start_date, end_date)]
+        expected = set(observed)
+        expected.add(start_date)
+        expected.add(end_date)
+        return sorted(expected)
 
     def get_market_snapshot(self, snapshot_id):
         return self._market_data_repo.get_snapshot(snapshot_id)
@@ -221,7 +263,7 @@ class ApplicationService:
                 created_date = pd.to_datetime(created_at).date()
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
-            if created_date > cutoff:
+            if created_date > cutoff or payload.get("status") != "passed":
                 continue
             if latest_created_at is None or created_at > latest_created_at:
                 latest_created_at = created_at
@@ -245,17 +287,31 @@ class ApplicationService:
         )
         return service.list_candidates()
 
+    def rollback_factor(self, factor_name, target_version, operator, reason):
+        from service.factor_governance_service import FactorGovernanceService
+        from strategy.factor_registry import FactorRegistry
+
+        governance_root = self._report_root / "factor-governance"
+        service = FactorGovernanceService(
+            governance_root / "candidates.json",
+            FactorRegistry(governance_root / "registry.json"),
+        )
+        return service.rollback_factor(factor_name, target_version, operator, reason)
+
     def compare_runs(self, current_run_id, previous_run_id=None, shadow_run_id=None):
         """读取归档运行事实，供面板或报告层展示历史对比。"""
-        def load_run(run_id):
+        def load_run(run_id, allow_blocked=False):
             if not run_id:
                 return None
             matches = list(self._report_root.rglob(f"{run_id}/report-data.json"))
             if not matches:
                 raise KeyError(f"run not found: {run_id}")
-            return json.loads(matches[0].read_text(encoding="utf-8"))
+            payload = json.loads(matches[0].read_text(encoding="utf-8"))
+            if not allow_blocked and payload.get("status") != "passed":
+                return None
+            return payload
 
-        current = load_run(current_run_id)
+        current = load_run(current_run_id, allow_blocked=True)
         previous = load_run(previous_run_id)
         shadow = load_run(shadow_run_id)
         return {
@@ -288,6 +344,12 @@ class ApplicationService:
             },
             data_quality=data_report.to_dict(),
             git_revision=git_revision,
+            evaluation_stage=params.get("evaluation_stage", "backtest"),
+            data_range={
+                "start_date": params.get("start_date"),
+                "end_date": params.get("end_date"),
+            },
+            parameter_selection=bool(params.get("parameter_selection", False)),
         )
         report_result = dict(result)
         report_context = self._build_report_context(report_result)
@@ -310,6 +372,8 @@ class ApplicationService:
                 created_at = payload.get("manifest", {}).get("created_at", "")
             except (OSError, TypeError, json.JSONDecodeError):
                 continue
+            if payload.get("status") != "passed":
+                continue
             if created_at > previous_created_at:
                 previous_created_at = created_at
                 previous = payload
@@ -327,6 +391,11 @@ class ApplicationService:
         shadow_comparisons = []
         for candidate in shadow_candidates:
             shadow_metrics = candidate.get("shadow_metrics") or {}
+            actual_shadow = (
+                shadow_metrics.get("source") == "formal_backtest"
+                and bool(shadow_metrics.get("run_id"))
+                and shadow_metrics.get("status", "passed") == "passed"
+            )
             differences = {
                 key: {
                     "current": current_metrics[key],
@@ -334,11 +403,13 @@ class ApplicationService:
                     "difference": current_metrics[key] - shadow_metrics[key],
                 }
                 for key in current_metrics
-                if isinstance(shadow_metrics.get(key), (int, float))
+                if actual_shadow and isinstance(shadow_metrics.get(key), (int, float))
             }
             shadow_comparisons.append({
                 "candidate_id": candidate["candidate_id"],
-                "metrics": shadow_metrics,
+                "metrics": shadow_metrics if actual_shadow else {},
+                "comparison_available": actual_shadow,
+                "unavailable_reason": None if actual_shadow else "候选指标不是正式影子净值运行证据",
                 "comparison": differences,
             })
         return {
@@ -407,7 +478,13 @@ class ApplicationService:
         )
         report_paths = self.archive_backtest_report(
             result,
-            {**params, "constraints": constraints},
+            {
+                **params,
+                "constraints": constraints,
+                "start_date": pd.to_datetime(start_date).strftime("%Y-%m-%d"),
+                "end_date": pd.to_datetime(end_date).strftime("%Y-%m-%d"),
+                "evaluation_stage": params.get("evaluation_stage", "backtest"),
+            },
             data_report,
         )
         result["data_quality"] = data_report.to_dict()

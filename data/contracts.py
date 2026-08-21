@@ -32,6 +32,13 @@ class MarketDataSnapshot:
     fetched_at: str
     records_by_code: dict[str, list[dict[str, Any]]]
     content_hash: str
+    start_date: str | None = None
+    end_date: str | None = None
+    data_version: str = "unknown"
+    record_count: int = 0
+    observed_dates: tuple[str, ...] = field(default_factory=tuple)
+    missing_dates: tuple[str, ...] = field(default_factory=tuple)
+    duplicate_records: tuple[str, ...] = field(default_factory=tuple)
 
     @classmethod
     def from_records(
@@ -40,12 +47,35 @@ class MarketDataSnapshot:
         source: str,
         as_of_date: str,
         fetched_at: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        expected_dates: list[str] | tuple[str, ...] | None = None,
+        data_version: str = "unknown",
     ) -> "MarketDataSnapshot":
         canonical = _canonical_records(records_by_code)
+        observed_dates = sorted({
+            str(row.get("trade_date"))
+            for rows in canonical.values()
+            for row in rows
+            if row.get("trade_date")
+        })
+        expected_date_set = set(expected_dates or ())
+        duplicate_records = sorted({
+            f"{code}:{row.get('trade_date')}"
+            for code, rows in canonical.items()
+            for row in rows
+            if row.get("trade_date") and sum(
+                1 for candidate in rows if candidate.get("trade_date") == row.get("trade_date")
+            ) > 1
+        })
         payload = {
             "as_of_date": as_of_date,
             "records": canonical,
             "source": source,
+            "start_date": start_date,
+            "end_date": end_date,
+            "expected_dates": sorted(expected_date_set),
+            "data_version": data_version,
         }
         content_hash = hashlib.sha256(
             json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -57,6 +87,13 @@ class MarketDataSnapshot:
             fetched_at=fetched_at or _now_iso(),
             records_by_code=canonical,
             content_hash=content_hash,
+            start_date=start_date or (observed_dates[0] if observed_dates else None),
+            end_date=end_date or (observed_dates[-1] if observed_dates else None),
+            data_version=data_version,
+            record_count=sum(len(rows) for rows in canonical.values()),
+            observed_dates=tuple(observed_dates),
+            missing_dates=tuple(sorted(expected_date_set - set(observed_dates))),
+            duplicate_records=tuple(duplicate_records),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +104,13 @@ class MarketDataSnapshot:
             "fetched_at": self.fetched_at,
             "records_by_code": self.records_by_code,
             "content_hash": self.content_hash,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "data_version": self.data_version,
+            "record_count": self.record_count,
+            "observed_dates": list(self.observed_dates),
+            "missing_dates": list(self.missing_dates),
+            "duplicate_records": list(self.duplicate_records),
         }
 
 
@@ -96,18 +140,31 @@ class DataQualityReport:
     status: Literal["passed", "blocked"]
     issues: tuple[ValidationIssue, ...] = field(default_factory=tuple)
     checked_at: str = field(default_factory=_now_iso)
+    snapshot_metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def passed(cls, snapshot_id: str) -> "DataQualityReport":
-        return cls(snapshot_id=snapshot_id, status="passed")
+    def passed(
+        cls, snapshot_id: str, snapshot: MarketDataSnapshot | None = None
+    ) -> "DataQualityReport":
+        return cls(
+            snapshot_id=snapshot_id,
+            status="passed",
+            snapshot_metadata=_snapshot_metadata(snapshot),
+        )
 
     @classmethod
     def blocked(
         cls,
         snapshot_id: str,
         issues: list[ValidationIssue] | tuple[ValidationIssue, ...],
+        snapshot: MarketDataSnapshot | None = None,
     ) -> "DataQualityReport":
-        return cls(snapshot_id=snapshot_id, status="blocked", issues=tuple(issues))
+        return cls(
+            snapshot_id=snapshot_id,
+            status="blocked",
+            issues=tuple(issues),
+            snapshot_metadata=_snapshot_metadata(snapshot),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,4 +172,21 @@ class DataQualityReport:
             "status": self.status,
             "issues": [issue.to_dict() for issue in self.issues],
             "checked_at": self.checked_at,
+            "snapshot_metadata": self.snapshot_metadata,
         }
+
+
+def _snapshot_metadata(snapshot: MarketDataSnapshot | None) -> dict[str, Any]:
+    if snapshot is None:
+        return {}
+    return {
+        "source": snapshot.source,
+        "start_date": snapshot.start_date,
+        "end_date": snapshot.end_date,
+        "data_version": snapshot.data_version,
+        "record_count": snapshot.record_count,
+        "observed_dates": list(snapshot.observed_dates),
+        "missing_dates": list(snapshot.missing_dates),
+        "duplicate_records": list(snapshot.duplicate_records),
+        "content_hash": snapshot.content_hash,
+    }

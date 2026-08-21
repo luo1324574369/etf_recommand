@@ -12,7 +12,7 @@ class PriceRepository:
 
         rows = []
         for item in data:
-            factor = self._normalise_adj_factor(item.get("adj_factor"))
+            factor, adjustment_status = self._resolve_adjustment(item)
             raw_open = item.get("open")
             raw_high = item.get("high")
             raw_low = item.get("low")
@@ -29,6 +29,8 @@ class PriceRepository:
                 item.get("signal_high", raw_high * factor if raw_high is not None else None),
                 item.get("signal_low", raw_low * factor if raw_low is not None else None),
                 item.get("signal_close", raw_close * factor),
+                adjustment_status,
+                item.get("adjustment_source"),
                 item.get("volume"),
                 item.get("amount"),
             ))
@@ -38,8 +40,9 @@ class PriceRepository:
             """
             INSERT OR IGNORE INTO etf_daily_price
                 (code, trade_date, open, high, low, close, adj_factor,
-                 signal_open, signal_high, signal_low, signal_close, volume, amount)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 signal_open, signal_high, signal_low, signal_close,
+                 adjustment_status, adjustment_source, volume, amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -53,6 +56,18 @@ class PriceRepository:
         except (TypeError, ValueError):
             factor = 1.0
         return factor if factor > 0 else 1.0
+
+    @classmethod
+    def _resolve_adjustment(cls, item: dict) -> tuple[float, str]:
+        if "adj_factor" not in item or item.get("adj_factor") is None:
+            return 1.0, "unavailable"
+        try:
+            factor = float(item["adj_factor"])
+        except (TypeError, ValueError):
+            return 1.0, "invalid"
+        if factor <= 0:
+            return 1.0, "invalid"
+        return factor, str(item.get("adjustment_status") or "provided")
 
     def batch_insert(self, prices_by_code: dict[str, list[dict]]) -> int:
         total = 0
@@ -92,7 +107,7 @@ class PriceRepository:
         signal_row["raw_close"] = signal_row.get("close")
         for raw_name in ("open", "high", "low", "close"):
             signal_name = f"signal_{raw_name}"
-            if signal_row.get(signal_name) is not None:
+            if signal_row.get("adjustment_status") == "provided" and signal_row.get(signal_name) is not None:
                 signal_row[raw_name] = signal_row[signal_name]
         return signal_row
 

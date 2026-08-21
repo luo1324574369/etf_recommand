@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 import html
 import hashlib
@@ -42,6 +42,9 @@ class RunManifest:
     params_hash: str
     git_revision: str
     created_at: str
+    evaluation_stage: str = "backtest"
+    data_range: dict[str, Any] = field(default_factory=dict)
+    parameter_selection: bool = False
 
     @classmethod
     def from_result(
@@ -51,17 +54,31 @@ class RunManifest:
         params: dict[str, Any],
         data_quality: dict[str, Any],
         git_revision: str,
+        evaluation_stage: str | None = None,
+        data_range: dict[str, Any] | None = None,
+        parameter_selection: bool | None = None,
     ) -> "RunManifest":
+        normalized_params = _json_payload(params)
         return cls(
             run_id=run_id,
             status=status,
-            params=_json_payload(params),
+            params=normalized_params,
             data_quality=_json_payload(data_quality),
             params_hash=hashlib.sha256(
-                json.dumps(_json_payload(params), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                json.dumps(normalized_params, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest(),
             git_revision=git_revision,
             created_at=datetime.now(timezone.utc).isoformat(),
+            evaluation_stage=evaluation_stage or str(normalized_params.get("evaluation_stage", "backtest")),
+            data_range=data_range or {
+                key: normalized_params.get(key)
+                for key in ("start_date", "end_date")
+                if normalized_params.get(key) is not None
+            },
+            parameter_selection=bool(
+                normalized_params.get("parameter_selection", False)
+                if parameter_selection is None else parameter_selection
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:

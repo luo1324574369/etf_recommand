@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
@@ -62,3 +64,12 @@ def test_existing_factor_diagnostics_produce_health_reports():
 
     assert reports[0].factor_name == "value"
     assert reports[0].status == "failure_candidate"
+
+
+def test_health_monitor_keeps_12_and_24_month_windows():
+    from strategy.factor_lifecycle import FactorHealthMonitor
+
+    report = FactorHealthMonitor().evaluate("momentum", _observations())
+
+    assert set(report.window_metrics) == {12, 24}
+    assert report.window_metrics[12]["ic"] == pytest.approx(0.04)

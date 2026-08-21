@@ -32,6 +32,7 @@ def main():
     oos.add_argument("--candidate-id", required=True)
     oos.add_argument("--months", type=int, choices=(12, 24), required=True)
     oos.add_argument("--passed", action="store_true")
+    oos.add_argument("--evidence", help="OOS 证据 JSON 文件")
 
     approve = subparsers.add_parser("approve", help="人工批准候选因子")
     approve.add_argument("--candidates", required=True)
@@ -52,6 +53,14 @@ def main():
     complete_shadow.add_argument("--candidate-id", required=True)
     complete_shadow.add_argument("--metrics", required=True, help="影子指标 JSON 文件")
 
+    rollback = subparsers.add_parser("rollback", help="回滚到已审批或历史激活的因子版本")
+    rollback.add_argument("--candidates", required=True)
+    rollback.add_argument("--registry", required=True)
+    rollback.add_argument("--factor-name", required=True)
+    rollback.add_argument("--target-version", required=True)
+    rollback.add_argument("--operator", required=True)
+    rollback.add_argument("--reason", required=True)
+
     args = parser.parse_args()
     if args.command == "monthly-monitor":
         report = MonthlyFactorMonitor().evaluate(
@@ -67,7 +76,8 @@ def main():
         FactorRegistry(Path(args.registry)),
     )
     if args.command == "record-oos":
-        candidate = service.record_oos(args.candidate_id, args.months, args.passed)
+        evidence = json.loads(Path(args.evidence).read_text(encoding="utf-8")) if args.evidence else None
+        candidate = service.record_oos(args.candidate_id, args.months, args.passed, evidence)
         print(f"OOS 状态已记录: {candidate.candidate_id} -> {candidate.stage}")
     elif args.command == "approve":
         candidate = service.approve_candidate(args.candidate_id, args.approver)
@@ -79,6 +89,14 @@ def main():
         metrics = json.loads(Path(args.metrics).read_text(encoding="utf-8"))
         candidate = service.complete_shadow_run(args.candidate_id, metrics)
         print(f"影子运行已完成: {candidate.candidate_id} -> {candidate.stage}")
+    elif args.command == "rollback":
+        definition = service.rollback_factor(
+            args.factor_name,
+            args.target_version,
+            operator=args.operator,
+            reason=args.reason,
+        )
+        print(f"因子已回滚: {definition.name}@{definition.version}")
     else:
         published = service.publish_quarterly(args.candidate_id, args.publish_date)
         print(f"因子已发布: {published.name}@{published.version}")

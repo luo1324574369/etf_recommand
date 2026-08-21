@@ -60,7 +60,9 @@ class AkshareDataSource(DataSourceBase):
                         "high": float(row["high"]),
                         "low": float(row["low"]),
                         "close": float(row["close"]),
-                        "adj_factor": float(row["adj_factor"]) if pd.notna(row.get("adj_factor")) else 1.0,
+                        "adj_factor": float(row["adj_factor"]) if pd.notna(row.get("adj_factor")) else None,
+                        "adjustment_status": "provided" if pd.notna(row.get("adj_factor")) else "unavailable",
+                        "adjustment_source": "akshare",
                         "volume": int(row["volume"]),
                         "amount": float(row["amount"]),
                     }

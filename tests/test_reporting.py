@@ -28,6 +28,9 @@ def test_report_archive_contains_machine_readable_and_human_files(tmp_path):
         "run-manifest.json", "report-data.json", "report.md", "report.html",
     }
     assert json.loads(paths["data"].read_text(encoding="utf-8"))["status"] == "passed"
+    manifest_payload = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    assert manifest_payload["evaluation_stage"] == "backtest"
+    assert manifest_payload["parameter_selection"] is False
     assert "数据可信度" in paths["markdown"].read_text(encoding="utf-8")
     assert "ETF 模拟交易运行报告" in paths["html"].read_text(encoding="utf-8")
 
@@ -71,6 +74,35 @@ def test_report_contains_static_ai_analysis_contract_and_history_comparison(tmp_
     assert payload["ai_analysis_contract"]["model_invocation"] == "external_manual"
     assert "运行对比" in paths["markdown"].read_text(encoding="utf-8")
     assert "因子治理" in paths["markdown"].read_text(encoding="utf-8")
+
+
+def test_shadow_metadata_is_not_presented_as_formal_comparison(tmp_path):
+    from service.application_service import ApplicationService
+    from data.contracts import DataQualityReport
+
+    service = ApplicationService(tmp_path / "app.db", report_root=tmp_path / "reports")
+    try:
+        candidate_path = tmp_path / "reports" / "factor-governance" / "candidates.json"
+        candidate_path.parent.mkdir(parents=True)
+        candidate_path.write_text(json.dumps([{
+            "candidate_id": "candidate-1",
+            "definition": {
+                "name": "value", "version": "1.0.0", "direction": -1,
+                "dependencies": [], "source": "plugin",
+            },
+            "score": 1,
+            "stage": "shadow",
+            "shadow_metrics": {"total_return": 0.2},
+        }]), encoding="utf-8")
+        paths = service.archive_backtest_report(
+            {"total_return": 0.1}, {}, DataQualityReport.passed("snap")
+        )
+        payload = json.loads(paths["data"].read_text(encoding="utf-8"))
+        comparison = payload["result"]["historical_comparison"]["current_vs_shadow"][0]
+        assert comparison["comparison_available"] is False
+        assert comparison["comparison"] == {}
+    finally:
+        service.close()
 
 
 def test_application_archive_adds_previous_run_context(tmp_path):

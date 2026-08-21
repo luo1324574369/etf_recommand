@@ -866,6 +866,32 @@ if result:
         if factor_candidates:
             st.markdown("**因子候选状态**")
             st.dataframe(pd.DataFrame(factor_candidates), use_container_width=True, hide_index=True)
+            active_candidates = [item for item in factor_candidates if item.get('stage') == 'active']
+            if active_candidates:
+                st.markdown("**人工回滚正式因子**")
+                active = active_candidates[0]
+                rollback_col1, rollback_col2 = st.columns(2)
+                with rollback_col1:
+                    rollback_factor_name = st.text_input(
+                        "因子名称", value=active['definition']['name'], key='rollback_factor_name'
+                    )
+                    rollback_target_version = st.text_input(
+                        "目标历史版本", key='rollback_target_version'
+                    )
+                    rollback_operator = st.text_input("操作人", key='rollback_operator')
+                with rollback_col2:
+                    rollback_reason = st.text_area("回滚原因", key='rollback_reason')
+                if st.button("执行回滚", key='rollback_factor_button'):
+                    try:
+                        definition = app_service.rollback_factor(
+                            rollback_factor_name,
+                            rollback_target_version,
+                            rollback_operator,
+                            rollback_reason,
+                        )
+                        st.success(f"已回滚到 {definition.name}@{definition.version}")
+                    except (KeyError, ValueError) as error:
+                        st.error(str(error))
         st.caption("系统不调用 AI。下载 JSON 后由你自行交给 AI 或人工分析；候选因子不会自动进入正式策略。")
 
     trade_list = result.get('trade_list', [])

@@ -55,9 +55,9 @@ def test_application_service_saves_passed_snapshot_even_when_end_date_has_no_bar
     report = service.validate_backtest_data(["510300"], "2025-01-02", "2025-01-03")
     snapshot = service.get_market_snapshot(report.snapshot_id)
 
-    assert report.status == "passed"
+    assert report.status == "blocked"
     assert snapshot["snapshot_id"] == report.snapshot_id
-    assert snapshot["status"] == "passed"
+    assert snapshot["status"] == "blocked"
     service.close()
 
 
@@ -100,8 +100,20 @@ def test_configured_tushare_data_is_used_for_quality_gate(tmp_path, monkeypatch)
         "high": 4.2,
         "low": 3.9,
         "close": 4.1,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
         "volume": 110,
         "amount": 451,
+    }, {
+        "trade_date": "2025-01-06",
+        "open": 4.1,
+        "high": 4.3,
+        "low": 4.0,
+        "close": 4.2,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 120,
+        "amount": 504,
     }]
     service._data_source._tushare = object()
     monkeypatch.setattr(service._data_source, "get_daily_price", lambda *args: source_rows)

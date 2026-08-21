@@ -42,12 +42,13 @@ def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
             ('close', 'signal_close'),
         ):
             if signal_name not in df.columns:
-                factor = pd.to_numeric(
-                    df['adj_factor'] if 'adj_factor' in df.columns else pd.Series(1.0, index=df.index),
-                    errors='coerce',
-                ).fillna(1.0)
-                factor = factor.where(factor > 0, 1.0)
-                df[signal_name] = pd.to_numeric(df[raw_name], errors='coerce') * factor
+                raw_values = pd.to_numeric(df[raw_name], errors='coerce')
+                if 'adj_factor' in df.columns:
+                    factor = pd.to_numeric(df['adj_factor'], errors='coerce')
+                    valid_factor = factor.notna() & (factor > 0)
+                    df[signal_name] = raw_values.where(~valid_factor, raw_values * factor)
+                else:
+                    df[signal_name] = raw_values
         bt_cols = [
             'open', 'high', 'low', 'close', 'volume',
             'signal_open', 'signal_high', 'signal_low', 'signal_close',

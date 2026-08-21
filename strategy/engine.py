@@ -1,6 +1,11 @@
+"""旧信号策略引擎，仅用于兼容迁移，不属于正式回测运行时。"""
+
 from strategy.factors.base import FactorBase
 from strategy.filters.base import FilterBase
 from strategy.factors.trend import TrendFactor
+
+
+LEGACY_COMPATIBILITY_ONLY = True
 
 
 def _get_price_data(price_repo, code, end_date, adjusted=False):

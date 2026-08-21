@@ -41,6 +41,8 @@ def init_db(db_path) -> None:
                 signal_high REAL,
                 signal_low REAL,
                 signal_close REAL,
+                adjustment_status TEXT NOT NULL DEFAULT 'unavailable',
+                adjustment_source TEXT,
                 volume INTEGER,
                 amount REAL,
                 PRIMARY KEY (code, trade_date)
@@ -206,6 +208,8 @@ def _ensure_price_columns(conn: sqlite3.Connection) -> None:
         "signal_high": "REAL",
         "signal_low": "REAL",
         "signal_close": "REAL",
+        "adjustment_status": "TEXT NOT NULL DEFAULT 'unavailable'",
+        "adjustment_source": "TEXT",
     }
     for name, definition in additions.items():
         if name not in columns:

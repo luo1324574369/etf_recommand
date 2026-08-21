@@ -1,3 +1,5 @@
+"""旧信号服务兼容层；正式回测必须通过 ApplicationService 调用 multi_factor。"""
+
 from config.settings import STRATEGY_CONFIG, DEFAULT_STRATEGY
 import pandas as pd
 from data.storage.etf_repo import ETFRepository

@@ -32,6 +32,12 @@ def validate_price_records(
     expected_dates: list[str] | tuple[str, ...] | None,
     source_name: str,
     as_of_date: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    data_version: str = "unknown",
+    require_adjustment: bool = False,
+    require_next_open: bool = False,
+    max_daily_jump: float = 0.30,
 ) -> DataQualityReport:
     expected_dates = expected_dates or []
     observed_dates = [
@@ -44,6 +50,10 @@ def validate_price_records(
         records_by_code,
         source=source_name,
         as_of_date=as_of_date or max(expected_dates or observed_dates or ["unknown"]),
+        start_date=start_date,
+        end_date=end_date,
+        expected_dates=expected_dates,
+        data_version=data_version,
     )
     expected_date_set = set(expected_dates)
     issues: list[ValidationIssue] = []
@@ -79,6 +89,9 @@ def validate_price_records(
                 expected=sorted(expected_date_set),
             ))
 
+        previous_close = None
+        previous_date = None
+
         for row in rows:
             trade_date = str(row.get("trade_date", ""))
             values = {field: _number(row.get(field)) for field in PRICE_FIELDS}
@@ -92,6 +105,19 @@ def validate_price_records(
                 ))
                 continue
 
+            adjustment_status = str(row.get("adjustment_status", "provided" if row.get("adj_factor") is not None else "unavailable"))
+            if require_adjustment and adjustment_status != "provided":
+                issues.append(ValidationIssue(
+                    rule="missing_adjustment_factor",
+                    code=code,
+                    message=f"{code} {trade_date} 缺少可信复权因子",
+                    actual={
+                        "adjustment_status": adjustment_status,
+                        "adjustment_source": row.get("adjustment_source"),
+                    },
+                    expected="adjustment_status=provided",
+                ))
+
             if any(value is None for value in values.values()):
                 issues.append(ValidationIssue(
                     rule="invalid_price_value",
@@ -104,6 +130,22 @@ def validate_price_records(
 
             non_negative_fields = [field for field, value in values.items() if value is not None and value < 0]
             volume = _number(row.get("volume"))
+            if volume is None:
+                issues.append(ValidationIssue(
+                    rule="missing_volume",
+                    code=code,
+                    message=f"{code} {trade_date} 缺少成交量",
+                    actual=row.get("volume"),
+                    expected="有限且大于 0 的成交量",
+                ))
+            elif volume == 0:
+                issues.append(ValidationIssue(
+                    rule="zero_volume",
+                    code=code,
+                    message=f"{code} {trade_date} 无成交，疑似停牌或行情不完整",
+                    actual=volume,
+                    expected="> 0",
+                ))
             if non_negative_fields or (volume is not None and volume < 0):
                 issues.append(ValidationIssue(
                     rule="negative_market_value",
@@ -126,10 +168,39 @@ def validate_price_records(
                         expected="low <= open/close <= high",
                     ))
 
+            if previous_close is not None and previous_close > 0:
+                jump = abs(values["close"] / previous_close - 1)
+                if jump > max_daily_jump:
+                    issues.append(ValidationIssue(
+                        rule="abnormal_price_jump",
+                        code=code,
+                        message=f"{code} {trade_date} 相对前一交易日价格跳变异常",
+                        actual={"from_date": previous_date, "jump": jump},
+                        expected={"max_daily_jump": max_daily_jump},
+                    ))
+            previous_close = values["close"]
+            previous_date = trade_date
+
+        if require_next_open and end_date:
+            future_rows = [
+                row for row in rows
+                if str(row.get("trade_date", "")) > str(end_date)
+            ]
+            next_row = min(future_rows, key=lambda row: str(row.get("trade_date", "")), default=None)
+            next_open = _number(next_row.get("open")) if next_row else None
+            if next_open is None or next_open <= 0:
+                issues.append(ValidationIssue(
+                    rule="missing_next_open",
+                    code=code,
+                    message=f"{code} 缺少回测结束日之后的有效次日开盘价",
+                    actual=next_row.get("open") if next_row else None,
+                    expected="end_date 之后第一条记录的 open > 0",
+                ))
+
     return (
-        DataQualityReport.passed(snapshot.snapshot_id)
+        DataQualityReport.passed(snapshot.snapshot_id, snapshot)
         if not issues
-        else DataQualityReport.blocked(snapshot.snapshot_id, issues)
+        else DataQualityReport.blocked(snapshot.snapshot_id, issues, snapshot)
     )
 
 

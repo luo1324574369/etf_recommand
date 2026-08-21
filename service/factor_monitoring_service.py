@@ -27,6 +27,10 @@ class MonthlyFactorReport:
                     "window_months": report.window_months,
                     "metrics": report.metrics,
                     "failed_metrics": list(report.failed_metrics),
+                    "window_metrics": {
+                        str(window): metrics
+                        for window, metrics in report.window_metrics.items()
+                    },
                 }
                 for report in self.reports
             ],

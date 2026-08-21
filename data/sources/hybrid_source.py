@@ -282,16 +282,37 @@ class HybridDataSource:
         )
         if frame is None or frame.empty:
             return []
+        adjustment_factors = {}
+        if "adj_factor" not in frame.columns and hasattr(self._tushare, "fund_adj"):
+            try:
+                adjustment_frame = self._tushare.fund_adj(
+                    ts_code=ts_code,
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
+                if adjustment_frame is not None and not adjustment_frame.empty:
+                    adjustment_factors = {
+                        str(row["trade_date"]): row.get("adj_factor")
+                        for _, row in adjustment_frame.iterrows()
+                    }
+            except Exception:
+                adjustment_factors = {}
         result = []
         for _, row in frame.sort_values("trade_date").iterrows():
             trade_date = str(row["trade_date"])
+            factor = row.get("adj_factor")
+            if pd.isna(factor):
+                factor = adjustment_factors.get(trade_date)
+            adjustment_status = "provided" if pd.notna(factor) else "unavailable"
             result.append({
                 "trade_date": f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}",
                 "open": float(row["open"]),
                 "high": float(row["high"]),
                 "low": float(row["low"]),
                 "close": float(row["close"]),
-                "adj_factor": float(row["adj_factor"]) if pd.notna(row.get("adj_factor")) else 1.0,
+                "adj_factor": float(factor) if pd.notna(factor) else None,
+                "adjustment_status": adjustment_status,
+                "adjustment_source": "tushare_fund_adj" if adjustment_status == "provided" else "unavailable",
                 "volume": int(row.get("vol", 0)),
                 "amount": float(row.get("amount", 0)),
             })
@@ -320,7 +341,9 @@ class HybridDataSource:
                     "high": float(row["high"]),
                     "low": float(row["low"]),
                     "close": float(row["close"]),
-                    "adj_factor": float(row["adj_factor"]) if pd.notna(row.get("adj_factor")) else 1.0,
+                    "adj_factor": float(row["adj_factor"]) if pd.notna(row.get("adj_factor")) else None,
+                    "adjustment_status": "provided" if pd.notna(row.get("adj_factor")) else "unavailable",
+                    "adjustment_source": "akshare",
                     "volume": int(row["volume"]),
                     "amount": float(row["amount"]),
                 })
