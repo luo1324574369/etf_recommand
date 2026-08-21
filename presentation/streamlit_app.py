@@ -16,10 +16,10 @@ from service.application_service import (
     PRIMARY_BENCHMARK,
     DEFAULT_BACKTEST_CONSTRAINTS,
 )
-from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS
+from config.settings import ETF_UNIVERSE, DB_PATH, PARAM_PRESETS, TUSHARE_TOKEN
 
 INITIAL_CAPITAL = 1000000
-app_service = ApplicationService(DB_PATH)
+app_service = ApplicationService(DB_PATH, tushare_token=TUSHARE_TOKEN)
 
 REBALANCE_FREQ_OPTIONS = {
     "5日（周线）": 5,

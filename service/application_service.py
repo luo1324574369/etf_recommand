@@ -164,13 +164,14 @@ class ApplicationService:
         self._validated_source_records = {}
         requested_start = pd.to_datetime(start_date).strftime("%Y-%m-%d")
         requested_end = pd.to_datetime(end_date).strftime("%Y-%m-%d")
+        fetch_start = (pd.to_datetime(start_date) - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
         fetch_end = (pd.to_datetime(end_date) + pd.Timedelta(days=7)).strftime("%Y-%m-%d")
         if self._data_source._tushare:
             records_by_code = {}
             source_issues = []
             for code in selected_codes:
                 try:
-                    records_by_code[code] = self._data_source.get_daily_price(code, requested_start, fetch_end)
+                    records_by_code[code] = self._data_source.get_daily_price(code, fetch_start, fetch_end)
                 except Exception as error:
                     records_by_code[code] = []
                     source_issues.append(ValidationIssue(
@@ -241,10 +242,7 @@ class ApplicationService:
             observed.update(str(row[0]) for row in rows)
         if not observed:
             return [date.strftime("%Y-%m-%d") for date in pd.bdate_range(start_date, end_date)]
-        expected = set(observed)
-        expected.add(start_date)
-        expected.add(end_date)
-        return sorted(expected)
+        return sorted(observed)
 
     def get_market_snapshot(self, snapshot_id):
         return self._market_data_repo.get_snapshot(snapshot_id)

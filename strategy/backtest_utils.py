@@ -19,6 +19,7 @@ class SignalAwarePandasData(bt.feeds.PandasData):
 
 def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
                   start_date=None, end_date=None, lookback_long=120):
+    prepared_rows = 0
     for code, df in data_dict.items():
         df = df.copy()
         df['trade_date'] = pd.to_datetime(df['trade_date'])
@@ -41,22 +42,30 @@ def _prepare_data(cerebro: bt.Cerebro, data_dict: Dict[str, pd.DataFrame],
             ('low', 'signal_low'),
             ('close', 'signal_close'),
         ):
-            if signal_name not in df.columns:
-                raw_values = pd.to_numeric(df[raw_name], errors='coerce')
-                if 'adj_factor' in df.columns:
-                    factor = pd.to_numeric(df['adj_factor'], errors='coerce')
-                    valid_factor = factor.notna() & (factor > 0)
-                    df[signal_name] = raw_values.where(~valid_factor, raw_values * factor)
-                else:
-                    df[signal_name] = raw_values
+            raw_values = pd.to_numeric(df[raw_name], errors='coerce')
+            if 'adj_factor' in df.columns:
+                factor = pd.to_numeric(df['adj_factor'], errors='coerce')
+                valid_factor = factor.notna() & (factor > 0)
+                calculated_signal = raw_values.where(~valid_factor, raw_values * factor)
+            else:
+                calculated_signal = raw_values
+            if signal_name in df.columns:
+                existing_signal = pd.to_numeric(df[signal_name], errors='coerce')
+                df[signal_name] = existing_signal.where(existing_signal.notna(), calculated_signal)
+            else:
+                df[signal_name] = calculated_signal
         bt_cols = [
             'open', 'high', 'low', 'close', 'volume',
             'signal_open', 'signal_high', 'signal_low', 'signal_close',
         ]
         df = df[[c for c in bt_cols if c in df.columns]]
         df.dropna(inplace=True)
+        if df.empty:
+            continue
+        prepared_rows += len(df)
         data = SignalAwarePandasData(dataname=df, name=code)
         cerebro.adddata(data)
+    return prepared_rows
 
 
 def compute_alpha_stability(nav_df, benchmark_navs, primary_benchmark='沪深300'):
@@ -266,7 +275,9 @@ def run_backtest(
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(initial_capital)
     cerebro.broker.setcommission(commission=commission_rate)
-    _prepare_data(cerebro, data_dict, start_date, end_date, kwargs.get('lookback_long', 120))
+    prepared_rows = _prepare_data(cerebro, data_dict, start_date, end_date, kwargs.get('lookback_long', 120))
+    if prepared_rows == 0:
+        raise ValueError("回测区间没有可用行情数据，请检查日期范围、行情字段和数据源")
 
     # 将start_date转为date对象传给策略
     start_dt = pd.to_datetime(start_date).date() if start_date else None
@@ -488,7 +499,9 @@ def get_nav_curve(
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(initial_capital)
     cerebro.broker.setcommission(commission=commission_rate)
-    _prepare_data(cerebro, data_dict, start_date, end_date, kwargs.get('lookback_long', 120))
+    prepared_rows = _prepare_data(cerebro, data_dict, start_date, end_date, kwargs.get('lookback_long', 120))
+    if prepared_rows == 0:
+        return pd.DataFrame(columns=['date', 'nav'])
 
     start_dt = pd.to_datetime(start_date).date() if start_date else None
     strategy_kwargs = {k: v for k, v in kwargs.items() if k != 'enable_attribution'}

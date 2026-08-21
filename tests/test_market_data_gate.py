@@ -124,3 +124,32 @@ def test_configured_tushare_data_is_used_for_quality_gate(tmp_path, monkeypatch)
     assert service._validated_source_records["510300"] == source_rows
     assert service.get_market_snapshot(report.snapshot_id)["source"] == "tushare_primary_akshare_cross_checked"
     service.close()
+
+
+def test_holiday_end_date_is_not_treated_as_missing_trade_date(tmp_path):
+    service = _make_service(tmp_path, [{
+        "trade_date": "2025-04-30",
+        "open": 3.9,
+        "high": 4.1,
+        "low": 3.8,
+        "close": 4.0,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 100,
+        "amount": 400,
+    }, {
+        "trade_date": "2025-05-06",
+        "open": 4.0,
+        "high": 4.2,
+        "low": 3.9,
+        "close": 4.1,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 110,
+        "amount": 451,
+    }])
+
+    report = service.validate_backtest_data(["510300"], "2025-04-30", "2025-05-01")
+
+    assert not any(issue.rule == "missing_trade_date" for issue in report.issues)
+    service.close()

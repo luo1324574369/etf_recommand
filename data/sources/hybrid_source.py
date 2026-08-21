@@ -268,8 +268,9 @@ class HybridDataSource:
             from data.quality import compare_price_sources
 
             issues = compare_price_sources({code: primary}, {code: secondary})
-            if issues:
-                raise ValueError(f"{code} 两个行情源校验失败: {[issue.to_dict() for issue in issues[:5]]}")
+            blocking_issues = [issue for issue in issues if issue.severity == "error"]
+            if blocking_issues:
+                raise ValueError(f"{code} 两个行情源校验失败: {[issue.to_dict() for issue in blocking_issues[:5]]}")
             return primary
         return self._get_akshare_daily_price(code, start_date, end_date)
 
@@ -313,8 +314,8 @@ class HybridDataSource:
                 "adj_factor": float(factor) if pd.notna(factor) else None,
                 "adjustment_status": adjustment_status,
                 "adjustment_source": "tushare_fund_adj" if adjustment_status == "provided" else "unavailable",
-                "volume": int(row.get("vol", 0)),
-                "amount": float(row.get("amount", 0)),
+                "volume": int(row.get("vol", 0)) * 100,
+                "amount": float(row.get("amount", 0)) * 1000,
             })
         return result
 

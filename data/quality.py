@@ -168,8 +168,13 @@ def validate_price_records(
                         expected="low <= open/close <= high",
                     ))
 
+            jump_close = values["close"]
+            if adjustment_status == "provided":
+                adjustment_factor = _number(row.get("adj_factor"))
+                if adjustment_factor is not None and adjustment_factor > 0:
+                    jump_close *= adjustment_factor
             if previous_close is not None and previous_close > 0:
-                jump = abs(values["close"] / previous_close - 1)
+                jump = abs(jump_close / previous_close - 1)
                 if jump > max_daily_jump:
                     issues.append(ValidationIssue(
                         rule="abnormal_price_jump",
@@ -178,7 +183,7 @@ def validate_price_records(
                         actual={"from_date": previous_date, "jump": jump},
                         expected={"max_daily_jump": max_daily_jump},
                     ))
-            previous_close = values["close"]
+            previous_close = jump_close
             previous_date = trade_date
 
         if require_next_open and end_date:
@@ -245,6 +250,16 @@ def compare_price_sources(
             primary_volume = _number(row.get("volume"))
             secondary_volume = _number(other.get("volume"))
             if primary_volume is not None and secondary_volume is not None:
+                if (primary_volume == 0) != (secondary_volume == 0):
+                    issues.append(ValidationIssue(
+                        rule="cross_source_volume_missing",
+                        code=code,
+                        message=f"{code} {trade_date} 次数据源缺少成交量，未用于差异阻断",
+                        actual={"primary": primary_volume, "secondary": secondary_volume},
+                        expected="次数据源成交量应为有效正数",
+                        severity="warning",
+                    ))
+                    continue
                 volume_difference = _relative_difference(primary_volume, secondary_volume)
                 if volume_difference > volume_tolerance:
                     issues.append(ValidationIssue(

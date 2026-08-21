@@ -92,3 +92,23 @@ def test_adjustment_is_required_when_signal_prices_are_used():
 
     assert report.status == "blocked"
     assert any(issue.rule == "missing_adjustment_factor" for issue in report.issues)
+
+
+def test_adjusted_price_jump_is_not_blocked_for_corporate_action():
+    from data.quality import validate_price_records
+
+    report = validate_price_records(
+        {"510300": [
+            {"trade_date": "2025-01-02", "open": 10, "high": 10.2,
+             "low": 9.8, "close": 10, "adj_factor": 1.0,
+             "adjustment_status": "provided", "volume": 100},
+            {"trade_date": "2025-01-03", "open": 5, "high": 5.1,
+             "low": 4.9, "close": 5, "adj_factor": 2.0,
+             "adjustment_status": "provided", "volume": 100},
+        ]},
+        expected_dates=["2025-01-02", "2025-01-03"],
+        source_name="tushare",
+        require_adjustment=True,
+    )
+
+    assert not any(issue.rule == "abnormal_price_jump" for issue in report.issues)

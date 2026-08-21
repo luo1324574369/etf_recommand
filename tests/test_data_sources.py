@@ -11,7 +11,7 @@ class _FakeTushare:
         assert kwargs["ts_code"] == "510300.SH"
         return pd.DataFrame([{
             "trade_date": "20250102", "open": 3.9, "high": 4.1,
-            "low": 3.8, "close": 4.0, "vol": 100, "amount": 400,
+            "low": 3.8, "close": 4.0, "vol": 1, "amount": 0.4,
         }])
 
 
@@ -31,3 +31,5 @@ def test_tushare_is_primary_and_akshare_is_cross_checked(monkeypatch):
     rows = source.get_daily_price("510300", "2025-01-01", "2025-01-03")
 
     assert rows[0]["close"] == 4.0
+    assert rows[0]["volume"] == 100
+    assert rows[0]["amount"] == 400
