@@ -13,6 +13,7 @@
 - 正式回测：`service/application_service.py`
 - 候选生成：`scripts/build_autopilot_candidates.py`
 - 候选评分与发布：`scripts/run_autopilot.py`
+- 自主诊断：`service/autopilot_diagnostics.py`（归因、因子边际贡献、行业/风格暴露、决策树）
 - 版本配置：`config/strategy_versions/active-config.json`
 - 回测报告：`reports/YYYY-MM-DD/<run-id>/`
 - 自主优化报告：`reports/autopilot/YYYY-MM-DD/<run-id>/`
@@ -25,6 +26,7 @@
 3. 从报告目录读取 `report.html`、`report.md` 和 `report-data.json`。`report-data.json` 是供 Codex 或人工分析的事实数据，不是交易指令。
 4. 需要自主优化时，先用 `build_autopilot_candidates.py` 生成候选，再使用 `$etf-autopilot` 或 `run_autopilot.py` 重新验证。
 5. 只有候选通过完整验证才发布；通过后立即发布，不设置冷却期。发布必须写入版本证据并保留回滚目标。
+6. 自主优化报告必须阅读 `operation-log.jsonl`、`autopilot-manifest.json` 和 `next-plan.json`，最终说明回测区间、诊断依据、候选淘汰原因和下一步计划。
 
 ## 安全约束
 

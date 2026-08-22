@@ -36,6 +36,7 @@ class AttributionResult:
     # 元信息
     benchmark_type: str                # 基准类型: 'equal_weight' / 'csi300'
     total_periods: int                 # 总期数
+    benchmark_fallback_reason: str | None = None
 
 
 def compute_equal_weight_benchmark(
@@ -395,6 +396,7 @@ def run_attribution(
     rebalance_dates: List[str] = None,
     benchmark_type: str = 'equal_weight',
     csi300_source=None,
+    benchmark_etf_codes: List[str] | None = None,
 ) -> AttributionResult:
     """运行归因分析（BF双分项 + 换仓/持有拆解）
 
@@ -415,6 +417,10 @@ def run_attribution(
     """
     if rebalance_dates is None:
         rebalance_dates = _extract_rebalance_dates(trade_log)
+
+    proxy_codes = list(benchmark_etf_codes or ['510300'])
+    effective_benchmark_type = benchmark_type
+    benchmark_fallback_reason = None
 
     if not rebalance_dates:
         return AttributionResult(
@@ -437,10 +443,31 @@ def run_attribution(
         benchmark_nav = compute_equal_weight_benchmark(
             etf_codes, valuation_repo, start_date, end_date
         )
+    elif benchmark_type == '510300_proxy':
+        benchmark_nav = compute_equal_weight_benchmark(
+            proxy_codes, valuation_repo, start_date, end_date
+        )
+        effective_benchmark_type = '510300_proxy'
+        if benchmark_nav.empty:
+            raise RuntimeError(f"本地代理 {proxy_codes} 无有效历史价格")
     elif benchmark_type == 'csi300':
-        if csi300_source is None:
-            raise ValueError("csi300 基准需要 csi300_source 参数")
-        benchmark_nav = compute_csi300_benchmark(csi300_source, start_date, end_date)
+        csi_error = RuntimeError("CSI300 基准未配置数据源")
+        if csi300_source is not None:
+            try:
+                benchmark_nav = compute_csi300_benchmark(csi300_source, start_date, end_date)
+                csi_error = None
+            except RuntimeError as error:
+                csi_error = error
+        if csi_error is not None:
+            benchmark_nav = compute_equal_weight_benchmark(
+                proxy_codes, valuation_repo, start_date, end_date
+            )
+            if benchmark_nav.empty:
+                raise RuntimeError(
+                    f"沪深300基准不可用，且本地代理 {proxy_codes} 无有效历史价格: {csi_error}"
+                ) from csi_error
+            effective_benchmark_type = '510300_proxy'
+            benchmark_fallback_reason = str(csi_error)
     else:
         raise ValueError(f"不支持的基准类型: {benchmark_type}")
 
@@ -458,23 +485,57 @@ def run_attribution(
             prev_weights = curr_weights
             continue
 
-        if benchmark_type == 'equal_weight':
+        if effective_benchmark_type in {'equal_weight', '510300_proxy'}:
+            benchmark_pool = etf_codes if effective_benchmark_type == 'equal_weight' else proxy_codes
             benchmark_sector_weights = _compute_equal_weight_benchmark_sector_weights(
-                etf_codes, etf_to_sector
+                benchmark_pool, etf_to_sector
             )
         else:
-            benchmark_sector_weights = _compute_csi300_sector_weights(
-                csi300_source, period_start
-            )
+            try:
+                benchmark_sector_weights = _compute_csi300_sector_weights(
+                    csi300_source, period_start
+                )
+            except RuntimeError as error:
+                proxy_result = run_attribution(
+                    trade_log=trade_log,
+                    strategy_nav=strategy_nav,
+                    etf_codes=etf_codes,
+                    valuation_repo=valuation_repo,
+                    etf_to_sector=etf_to_sector,
+                    start_date=start_date,
+                    end_date=end_date,
+                    rebalance_dates=rebalance_dates,
+                    benchmark_type='510300_proxy',
+                    benchmark_etf_codes=proxy_codes,
+                )
+                proxy_result.benchmark_fallback_reason = str(error)
+                return proxy_result
 
-        if benchmark_type == 'equal_weight':
+        if effective_benchmark_type in {'equal_weight', '510300_proxy'}:
+            benchmark_pool = etf_codes if effective_benchmark_type == 'equal_weight' else proxy_codes
             sector_returns = _compute_sector_returns(
-                etf_codes, etf_to_sector, valuation_repo, period_start, period_end
+                benchmark_pool, etf_to_sector, valuation_repo, period_start, period_end
             )
         else:
-            sector_returns = _compute_csi300_sector_returns(
-                csi300_source, period_start, period_end
-            )
+            try:
+                sector_returns = _compute_csi300_sector_returns(
+                    csi300_source, period_start, period_end
+                )
+            except RuntimeError as error:
+                proxy_result = run_attribution(
+                    trade_log=trade_log,
+                    strategy_nav=strategy_nav,
+                    etf_codes=etf_codes,
+                    valuation_repo=valuation_repo,
+                    etf_to_sector=etf_to_sector,
+                    start_date=start_date,
+                    end_date=end_date,
+                    rebalance_dates=rebalance_dates,
+                    benchmark_type='510300_proxy',
+                    benchmark_etf_codes=proxy_codes,
+                )
+                proxy_result.benchmark_fallback_reason = str(error)
+                return proxy_result
 
         etf_returns = {}
         for code in curr_weights.keys():
@@ -567,8 +628,9 @@ def run_attribution(
         rolling_ir=rolling_ir,
         etf_switch_breakdown=etf_switch_breakdown,
         switch_period_breakdown=switch_period_breakdown,
-        benchmark_type=benchmark_type,
+        benchmark_type=effective_benchmark_type,
         total_periods=len(bf_period_results),
+        benchmark_fallback_reason=benchmark_fallback_reason,
     )
 
 
@@ -632,5 +694,3 @@ def _get_period_return(nav_df: pd.DataFrame, start: str, end: str) -> float:
     if first_nav <= 0:
         return 0.0
     return (last_nav / first_nav - 1)
-
-

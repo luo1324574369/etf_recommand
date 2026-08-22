@@ -61,3 +61,5 @@ def test_autopilot_cli_publishes_and_archives_decision(tmp_path):
     assert Path(output["report_paths"]["data"]).exists()
     assert (tmp_path / "versions" / "active-config.json").exists()
     assert output["decision"]["published"]["previous_version_id"] == "baseline"
+    assert Path(output["report_paths"]["operation_log"]).exists()
+    assert Path(output["report_paths"]["next_plan"]).exists()

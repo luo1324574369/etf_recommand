@@ -1116,8 +1116,14 @@ if result:
                 st.markdown("##### 分ETF换仓明细")
                 st.dataframe(attribution.etf_switch_breakdown, use_container_width=True, hide_index=True)
 
-        benchmark_label = '沪深300' if attribution.benchmark_type == 'csi300' else 'ETF池等权组合'
+        benchmark_label = {
+            'csi300': '沪深300',
+            '510300_proxy': '510300本地代理',
+            'equal_weight': 'ETF池等权组合',
+        }.get(attribution.benchmark_type, attribution.benchmark_type)
         st.caption(f"基准类型：{benchmark_label}")
+        if getattr(attribution, 'benchmark_fallback_reason', None):
+            st.caption(f"基准回退原因：{attribution.benchmark_fallback_reason}")
     else:
         attr_err = result.get('attribution_error')
         attr_status = result.get('attribution_status')

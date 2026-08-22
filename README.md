@@ -260,7 +260,7 @@ OOS 证据 JSON 至少包含 `start_date`、`end_date` 和 `metrics`。影子运
 
 ### Codex 自主优化
 
-项目已将 `$etf-autopilot` Skill 安装到仓库 `.agents/skills/etf-autopilot/SKILL.md`，不接入外部 AI、不部署模型、不连接券商。Skill 读取正式运行报告，调用质量门禁和 Walk-Forward，生成参数/因子候选，执行 12/24 个月 OOS、最终留出集和压力测试，并根据风险调整后收益评分自动发布或回滚模拟策略。
+项目已将 `$etf-autopilot` Skill 安装到仓库 `.agents/skills/etf-autopilot/SKILL.md`，不接入外部 AI、不部署模型、不连接券商。Skill 读取正式运行报告，先完成沪深 300/`510300` 代理归因、因子贡献、行业/风格暴露和决策树，再生成参数/因子候选，执行 12/24 个月 OOS、最终留出集和压力测试，并根据风险调整后收益评分自动发布或回滚模拟策略。
 
 #### 方式 A：让 Codex 执行 Skill（推荐）
 
@@ -274,6 +274,8 @@ $etf-autopilot
 
 Codex 会阅读 `AGENTS.md`、ADR、当前版本和历史报告，然后调用下面的确定性脚本。系统不需要额外接入 AI，也不需要配置定时任务。
 
+每次运行会自动执行多类互补搜索：均衡参数、回撤/换手控制、收益修复/趋势响应；所有候选完成完整验证后，先过硬门槛，再按风险调整综合评分择优，只发布一个最佳候选。单轮内不会因为前几个候选失败而提前停止。
+
 #### 方式 B：手动执行两个 CLI
 
 先生成候选事实 JSON：
@@ -282,7 +284,7 @@ Codex 会阅读 `AGENTS.md`、ADR、当前版本和历史报告，然后调用�
 .venv/bin/python scripts/build_autopilot_candidates.py \
   --start 2019-01-01 --end 2026-05-01 \
   --output reports/autopilot/candidates.json \
-  --max-combinations 20
+  --max-combinations 20 --search-rounds 3
 ```
 
 随后调用 `$etf-autopilot` 完成候选读取、评分、版本发布和静态决策报告。正式版本保存在 `config/strategy_versions/`，发布分支使用 `codex/autopilot/<date>-<run-id>`，无候选通过时保持当前版本。
@@ -298,7 +300,7 @@ Codex 会阅读 `AGENTS.md`、ADR、当前版本和历史报告，然后调用�
   --branch codex/autopilot/<date>-<run-id>
 ```
 
-如果需要自动创建版本提交并推送远端，再显式增加 `--git-release`。该选项会创建 `codex/autopilot/...` 分支，不会直接推送 `main`。决策结果保存到 `reports/autopilot/YYYY-MM-DD/<run-id>/`，包括 `autopilot-manifest.json`、`candidate-comparison.json`、每个候选的明细和 Markdown/HTML 报告。
+如果需要自动创建版本提交并推送远端，再显式增加 `--git-release`。该选项会创建 `codex/autopilot/...` 分支，不会直接推送 `main`。决策结果保存到 `reports/autopilot/YYYY-MM-DD/<run-id>/`，包括 `autopilot-manifest.json`、`candidate-comparison.json`、每个候选的明细、`operation-log.jsonl`、`next-plan.json` 和 Markdown/HTML 报告。阅读 `operation-log.jsonl` 可了解每一步回测区间、数据门禁和淘汰原因；阅读 `next-plan.json` 可了解下一次运行命令和回滚触发条件。
 
 常见返回状态：
 

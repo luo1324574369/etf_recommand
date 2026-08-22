@@ -105,6 +105,42 @@ def test_autopilot_keeps_active_version_when_no_candidate_passes(tmp_path):
     assert store.load_active()["version_id"] == "baseline"
 
 
+def test_autopilot_evaluates_later_candidates_before_selecting_best(tmp_path):
+    from service.autopilot_service import AutopilotService, StrategyVersionStore
+
+    store = StrategyVersionStore(tmp_path / "versions")
+    store.initialize({"params": {"top_n": 3}}, commit="base-commit")
+    candidates = [
+        {"config": {"params": {"top_n": 4}}, "metrics": _metrics()},
+        {"config": {"params": {"top_n": 5}}, "metrics": _metrics(oos_sharpe=0.1)},
+        {"config": {"params": {"top_n": 6}}, "metrics": _metrics(oos_sharpe=0.1)},
+        {"config": {"params": {"top_n": 7}}, "metrics": _metrics(oos_sharpe=0.1)},
+        {
+            "config": {"params": {"top_n": 8}},
+            "metrics": _metrics(
+                oos_12_excess_return=5.0,
+                oos_24_excess_return=7.0,
+                oos_sharpe=1.2,
+                max_drawdown=15.0,
+                annual_return=25.0,
+                oos_stability=1.0,
+            ),
+        },
+    ]
+
+    decision = AutopilotService(store).evaluate_and_publish(
+        candidates,
+        baseline_metrics=_metrics(),
+        commit="candidate-commit",
+        branch="codex/autopilot/test-run",
+    )
+
+    assert len(decision["evaluations"]) == 5
+    assert decision["status"] == "published"
+    assert store.load_active()["config"]["params"]["top_n"] == 8
+    assert decision["budget"]["selection_method"] == "evaluate_all_within_budget_then_rank_accepted"
+
+
 def test_autopilot_rolls_back_on_hard_risk_breach(tmp_path):
     from service.autopilot_service import AutopilotService, StrategyVersionStore
 

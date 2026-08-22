@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+from collections import Counter
 import hashlib
 import html
 import json
@@ -91,6 +92,7 @@ class CandidateEvaluation:
     score_improvement_pct: float
     accepted: bool
     reasons: tuple[str, ...]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -100,6 +102,7 @@ def score_candidate(
     config: dict[str, Any],
     metrics: dict[str, Any],
     baseline_metrics: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
 ) -> CandidateEvaluation:
     if not isinstance(config, dict):
         raise TypeError("candidate config must be an object")
@@ -160,6 +163,7 @@ def score_candidate(
         score_improvement_pct=score_improvement_pct,
         accepted=not reasons,
         reasons=tuple(reasons),
+        metadata=dict(metadata or {}),
     )
 
 
@@ -170,7 +174,7 @@ def _configuration_scope_reasons(config: dict[str, Any], active_config: dict[str
     active_params = active_config.get("params", {})
     if not isinstance(candidate_params, dict) or not isinstance(active_params, dict):
         return ("out_of_scope_config",)
-    if set(candidate_params) - set(active_params) - {"factor_weights", "constraints"}:
+    if set(candidate_params) - set(active_params) - {"factor_weights", "constraints", "force_factor_weights"}:
         return ("out_of_scope_config",)
     if config.get("constraints", {}) != active_config.get("constraints", {}):
         return ("risk_constraints_are_not_auto_optimizable",)
@@ -366,7 +370,6 @@ class AutopilotService:
         best_score = float("-inf")
         started_at = time.monotonic()
         stop_reason = "input_exhausted"
-        stagnant_rounds = 0
         active_config = self.version_store.load_active().get("config", {})
         for index, candidate in enumerate(candidates):
             if index >= min(self.max_iterations, self.max_backtests):
@@ -375,7 +378,17 @@ class AutopilotService:
             if time.monotonic() - started_at >= self.max_runtime_seconds:
                 stop_reason = "budget_runtime"
                 break
-            evaluation = score_candidate(candidate["config"], candidate["metrics"], baseline_metrics)
+            metadata = {
+                key: candidate[key]
+                for key in ("optimization_stage", "search_round", "search_profile")
+                if key in candidate
+            }
+            evaluation = score_candidate(
+                candidate["config"],
+                candidate["metrics"],
+                baseline_metrics,
+                metadata=metadata,
+            )
             scope_reasons = _configuration_scope_reasons(candidate["config"], active_config)
             if scope_reasons:
                 evaluation = replace(
@@ -394,12 +407,6 @@ class AutopilotService:
             evaluations.append(evaluation)
             if evaluation.score > best_score:
                 best_score = evaluation.score
-                stagnant_rounds = 0
-            else:
-                stagnant_rounds += 1
-            if stagnant_rounds >= self.stagnation_limit:
-                stop_reason = "stagnation"
-                break
         accepted = [item for item in evaluations if item.accepted]
         accepted.sort(key=lambda item: item.score, reverse=True)
         if not accepted:
@@ -412,6 +419,13 @@ class AutopilotService:
                     "stop_reason": stop_reason,
                     "evaluated_candidates": len(evaluations),
                     "max_candidates": min(self.max_iterations, self.max_backtests),
+                    "selection_method": "evaluate_all_within_budget_then_rank_accepted",
+                },
+                "selection": {
+                    "method": "hard_gates_then_score_desc",
+                    "evaluated": len(evaluations),
+                    "accepted": 0,
+                    "selected": None,
                 },
             }
         selected = accepted[0]
@@ -430,6 +444,13 @@ class AutopilotService:
                 "stop_reason": stop_reason,
                 "evaluated_candidates": len(evaluations),
                 "max_candidates": min(self.max_iterations, self.max_backtests),
+                "selection_method": "evaluate_all_within_budget_then_rank_accepted",
+            },
+            "selection": {
+                "method": "hard_gates_then_score_desc",
+                "evaluated": len(evaluations),
+                "accepted": len(accepted),
+                "selected": selected.metadata,
             },
         }
 
@@ -480,17 +501,41 @@ class AutopilotService:
         }
 
 
-def write_autopilot_report(root: str | Path, decision: dict[str, Any], run_id: str) -> dict[str, Path]:
+def write_autopilot_report(
+    root: str | Path,
+    decision: dict[str, Any],
+    run_id: str,
+    operation_log: list[dict[str, Any]] | None = None,
+    next_plan: dict[str, Any] | None = None,
+) -> dict[str, Path]:
     output = Path(root) / run_id
     output.mkdir(parents=True, exist_ok=True)
-    normalized = json.loads(json.dumps(decision, ensure_ascii=False, default=str))
+    from service.reporting import _json_payload
+
+    normalized = _json_payload(decision)
+    normalized["operation_log"] = _json_payload(
+        operation_log if operation_log is not None else normalized.get("operation_log", [])
+    )
+    normalized["next_plan"] = _json_payload(
+        next_plan if next_plan is not None else normalized.get("next_plan", {})
+    )
     data_path = output / "autopilot-manifest.json"
     markdown_path = output / "decision.md"
     html_path = output / "decision.html"
     comparison_path = output / "candidate-comparison.json"
+    operation_log_path = output / "operation-log.jsonl"
+    next_plan_path = output / "next-plan.json"
     data_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
     comparison_path.write_text(
         json.dumps(normalized.get("evaluations", []), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    operation_log_path.write_text(
+        "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in normalized["operation_log"]),
+        encoding="utf-8",
+    )
+    next_plan_path.write_text(
+        json.dumps(normalized["next_plan"], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     candidate_dir = output / "candidates"
@@ -499,20 +544,97 @@ def write_autopilot_report(root: str | Path, decision: dict[str, Any], run_id: s
         (candidate_dir / f"candidate-{index:03d}.json").write_text(
             json.dumps(evaluation, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-    markdown_path.write_text(
-        "\n".join([
-            "# Codex 自主优化决策报告",
-            "",
-            f"- 运行 ID：`{run_id}`",
-            f"- 状态：`{normalized.get('status', 'unknown')}`",
-            f"- 原因：{normalized.get('reason', '')}",
-            "",
-            "## 决策事实",
-            "",
-            json.dumps(normalized, ensure_ascii=False, indent=2),
-        ]),
-        encoding="utf-8",
+    next_plan_payload = normalized.get("next_plan", {})
+    expected_goal = next_plan_payload.get("expected_optimization_goal", {})
+    if isinstance(expected_goal, dict):
+        goal_text = (
+            f"{expected_goal.get('focus', '未定义')}；"
+            f"当前：{expected_goal.get('current', '未知')}；"
+            f"目标：{expected_goal.get('target', '未知')}"
+        )
+    else:
+        goal_text = str(expected_goal or "未定义")
+    operations = []
+    data_ranges = []
+    for operation in normalized.get("operation_log", []):
+        operation_name = operation.get("operation")
+        if operation_name and operation_name not in operations:
+            operations.append(operation_name)
+        if operation.get("data_range") and operation.get("data_range") not in data_ranges:
+            data_ranges.append(operation["data_range"])
+    evaluations = normalized.get("evaluations", [])
+    rejection_reasons = Counter(
+        reason
+        for evaluation in evaluations
+        for reason in evaluation.get("reasons", [])
     )
+    status_labels = {
+        "published": "已发布",
+        "kept_current": "保持当前版本",
+        "rolled_back": "已回滚",
+        "blocked": "阻塞",
+    }
+    status = status_labels.get(normalized.get("status"), normalized.get("status", "未知"))
+    summary_lines = [
+        "# ETF 自主优化决策汇报",
+        "",
+        f"- 运行 ID：`{run_id}`",
+        f"- 当前状态：{status}",
+        f"- 本轮预期优化目标：{goal_text}",
+        "",
+        "## 本轮尝试",
+        "",
+        f"- 回测区间：{json.dumps(data_ranges, ensure_ascii=False, separators=(',', ':')) if data_ranges else '报告未提供'}",
+        f"- 执行轮次：{len(evaluations)} 个候选；自动完成基线、候选、OOS、留出集和压力测试。",
+    ]
+    if operations:
+        summary_lines.extend(f"- {operation}" for operation in operations)
+    summary_lines.extend([
+        "",
+        "## 结果",
+        "",
+        f"- {normalized.get('reason', '未记录决策原因')}",
+    ])
+    selection = normalized.get("selection") or {}
+    if selection:
+        summary_lines.append(
+            f"- 择优：完成 {selection.get('evaluated', 0)} 个候选评估，"
+            f"{selection.get('accepted', 0)} 个通过硬门槛，按风险调整综合评分选择最佳候选。"
+        )
+    published = normalized.get("published") or {}
+    if published:
+        summary_lines.append(
+            f"- 发布版本：`{published.get('version_id', '未知')}`；配置哈希：`{published.get('config_hash', '未知')}`。"
+        )
+    if rejection_reasons:
+        reason_text = "、".join(
+            f"{reason}（{count}）" for reason, count in rejection_reasons.most_common()
+        )
+        summary_lines.extend(["", "## 未达成原因", "", f"- 候选淘汰原因：{reason_text}。"])
+    summary_lines.extend([
+        "",
+        "## 下一轮计划",
+        "",
+        f"- 优先动作：{next_plan_payload.get('current_action', '继续诊断')}。",
+        f"- 预期改善：{goal_text}。",
+        f"- 执行方式：{next_plan_payload.get('next_run', '继续使用既定 OOS 和风险门槛验证')}。",
+    ])
+    if normalized.get("status") == "blocked":
+        summary_lines.extend(["", "- 需要用户决策：是；原因：" + str(normalized.get("reason", "未记录"))])
+    else:
+        stop_reason = (normalized.get("budget") or {}).get("stop_reason")
+        stop_messages = {
+            "budget_backtests": "本轮达到候选回测预算",
+            "budget_runtime": "本轮达到运行时间预算",
+        }
+        if stop_reason in stop_messages:
+            continuation = f"{stop_messages[stop_reason]}，本次自动结束；下次重新唤起 Skill 后继续。"
+        elif stop_reason == "stagnation":
+            continuation = "本轮搜索停滞，已自动结束；下次重新唤起 Skill 后继续。"
+        else:
+            continuation = "本轮候选已评估完成；如仍需继续搜索，下次重新唤起 Skill。"
+        summary_lines.extend(["", f"- 需要用户决策：否；{continuation}"])
+    markdown_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
     html_path.write_text(
         "<html><head><meta charset='utf-8'><title>Codex 自主优化决策报告</title></head>"
         "<body><h1>Codex 自主优化决策报告</h1><pre>"
@@ -523,6 +645,8 @@ def write_autopilot_report(root: str | Path, decision: dict[str, Any], run_id: s
     result = {
         "data": data_path,
         "comparison": comparison_path,
+        "operation_log": operation_log_path,
+        "next_plan": next_plan_path,
         "candidates": candidate_dir,
         "markdown": markdown_path,
         "html": html_path,

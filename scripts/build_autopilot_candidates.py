@@ -6,6 +6,7 @@ import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import sys
 import time
@@ -20,8 +21,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from config.settings import DB_PATH, ETF_UNIVERSE, TUSHARE_TOKEN
 from config.versioned_strategy import load_active_strategy_config
 from service.application_service import ApplicationService
-from service.autopilot_service import write_autopilot_report
+from service.autopilot_service import configuration_hash, write_autopilot_report
 from service.factor_sandbox import FactorSandbox
+from service.autopilot_diagnostics import build_autopilot_diagnostics, build_next_plan
 from strategy.optimizer import MULTI_FACTOR_PARAM_RANGES
 from strategy import multi_factor
 from strategy.walk_forward import _run_single_backtest, generate_walk_forward_presets
@@ -64,6 +66,23 @@ def _period_metrics(data_dict, params, start_date, end_date, valuation_repo, cod
     if result is None:
         raise RuntimeError(f"候选回测失败: {start_date} ~ {end_date}")
     return result
+
+
+def _full_backtest_result(data_dict, params, start_date, end_date, valuation_repo, code_to_sector):
+    return multi_factor.run_backtest(
+        data_dict,
+        initial_capital=1_000_000,
+        start_date=start_date,
+        end_date=end_date,
+        valuation_repo=valuation_repo,
+        code_to_sector=code_to_sector,
+        enable_attribution=False,
+        **params,
+    )
+
+
+def _plain_health(reports):
+    return [asdict(report) if hasattr(report, "__dataclass_fields__") else report for report in reports]
 
 
 def _stress_windows(data_dict, start_date, end_date, window_days=63):
@@ -199,6 +218,43 @@ def _config_params(config):
     return params
 
 
+def build_search_profiles(param_ranges, search_rounds=3):
+    """为一次自主优化生成互补的参数搜索轮次。"""
+    if search_rounds <= 0:
+        raise ValueError("search_rounds must be positive")
+
+    base = {name: list(values) for name, values in param_ranges.items()}
+    profiles = [("balanced", "均衡风险收益", base)]
+
+    if search_rounds >= 2:
+        risk_control = {name: list(values) for name, values in base.items()}
+        for name in (
+            "top_n",
+            "rebalance_freq",
+            "sector_penalty_factor",
+            "lookback_volatility",
+        ):
+            if risk_control.get(name):
+                risk_control[name] = [max(risk_control[name])]
+        if risk_control.get("sector_exclude_threshold"):
+            risk_control["sector_exclude_threshold"] = [max(risk_control["sector_exclude_threshold"])]
+        if len(risk_control.get("drawdown_threshold", [])) > 1:
+            risk_control["drawdown_threshold"] = [min(risk_control["drawdown_threshold"])]
+        profiles.append(("risk_control", "回撤与换手控制", risk_control))
+
+    if search_rounds >= 3:
+        return_recovery = {name: list(values) for name, values in base.items()}
+        for name in ("lookback_momentum", "top_n", "sector_penalty_factor"):
+            if return_recovery.get(name):
+                return_recovery[name] = [min(return_recovery[name]), max(return_recovery[name])]
+        for name in ("rebalance_freq", "lookback_volatility"):
+            if return_recovery.get(name):
+                return_recovery[name] = [min(return_recovery[name])]
+        profiles.append(("return_recovery", "收益修复与趋势响应", return_recovery))
+
+    return profiles[:search_rounds]
+
+
 def _archive_blocked_report(root, payload):
     run_id = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/candidate-build-{uuid4().hex[:12]}"
     decision = {
@@ -207,8 +263,16 @@ def _archive_blocked_report(root, payload):
         "data_quality": payload.get("data_quality", {}),
         "repair_attempt": payload.get("repair_attempt"),
         "evaluations": [],
+        "operation_log": payload.get("operation_log", []),
+        "next_plan": payload.get("next_plan", {}),
     }
-    return write_autopilot_report(root, decision, run_id)
+    return write_autopilot_report(
+        root,
+        decision,
+        run_id,
+        operation_log=decision["operation_log"],
+        next_plan=decision["next_plan"],
+    )
 
 
 def _run_factor_sandbox(source_path, rows_path):
@@ -232,9 +296,15 @@ def revalidate_candidate_payload(
 ):
     """使用本地行情重新计算候选事实，禁止直接信任外部指标 JSON。"""
     selected_codes = codes or [item["code"] for item in ETF_UNIVERSE]
+    operation_log = []
     service = ApplicationService(db_path, tushare_token=TUSHARE_TOKEN)
     try:
         quality = service.validate_backtest_data(selected_codes, start_date, end_date)
+        operation_log.append({
+            "operation": "数据质量门禁",
+            "data_range": {"start": start_date, "end": end_date},
+            "result": quality.to_dict(),
+        })
         if quality.status != "passed":
             service.refresh_market_data(selected_codes, start_date, end_date)
             quality = service.validate_backtest_data(selected_codes, start_date, end_date)
@@ -276,17 +346,65 @@ def revalidate_candidate_payload(
             )
 
         baseline_metrics = evaluate(active["config"])
+        baseline_params = _config_params(active["config"])
+        baseline_result = _full_backtest_result(
+            data_dict, baseline_params, start_date, end_date, valuation_repo, code_to_sector
+        )
+        factor_health = _plain_health(baseline_result.get("factor_health", []))
+
+        def diagnostic_backtest(params, period_start, period_end):
+            return _full_backtest_result(
+                data_dict, params, period_start, period_end, valuation_repo, code_to_sector
+            )
+
+        diagnostics = build_autopilot_diagnostics(
+            config=active["config"],
+            baseline_result=baseline_result,
+            data_dict=data_dict,
+            etf_to_sector=code_to_sector,
+            start_date=start_date,
+            end_date=end_date,
+            factor_health=factor_health,
+            backtest_runner=diagnostic_backtest,
+            benchmark_etf_codes=["510300"],
+        )
+        diagnostics["next_plan"] = build_next_plan(
+            diagnostics["decision"],
+            current_metrics=baseline_metrics,
+        )
+        operation_log.extend([
+            {
+                "operation": "基线 12/24 个月 OOS 重新验证",
+                "data_range": {"start": str(oos_24_start.date()), "end": end_date},
+                "result": baseline_metrics,
+            },
+            {
+                "operation": "基线归因、行业暴露、风格暴露和因子边际贡献诊断",
+                "data_range": {"start": start_date, "end": end_date},
+                "result": diagnostics["decision"],
+            },
+        ])
         verified_candidates = []
         for candidate in payload.get("candidates", []):
             config = candidate.get("config") if isinstance(candidate, dict) else None
             if not isinstance(config, dict):
                 continue
-            verified_candidates.append({"config": config, "metrics": evaluate(config)})
+            verified_candidate = {
+                "config": config,
+                "metrics": evaluate(config),
+            }
+            for key in ("optimization_stage", "search_round", "search_profile"):
+                if isinstance(candidate, dict) and key in candidate:
+                    verified_candidate[key] = candidate[key]
+            verified_candidates.append(verified_candidate)
         return {
             "schema_version": 1,
             "generated_by": "revalidate_candidate_payload",
             "data_quality": quality.to_dict(),
             "baseline_metrics": baseline_metrics,
+            "diagnostics": diagnostics,
+            "next_plan": diagnostics["next_plan"],
+            "operation_log": operation_log,
             "candidates": verified_candidates,
         }
     finally:
@@ -300,6 +418,7 @@ def main() -> int:
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-combinations", type=int, default=20)
+    parser.add_argument("--search-rounds", type=int, default=3, choices=(1, 2, 3))
     parser.add_argument("--max-runtime-seconds", type=float, default=1800.0)
     parser.add_argument("--max-data-calls", type=int, default=200)
     parser.add_argument("--factor-source", type=Path)
@@ -307,6 +426,7 @@ def main() -> int:
     parser.add_argument("--codes", nargs="*", default=None)
     args = parser.parse_args()
     started_at = time.monotonic()
+    operation_log = []
     if bool(args.factor_source) != bool(args.factor_rows):
         parser.error("--factor-source and --factor-rows must be provided together")
 
@@ -314,6 +434,11 @@ def main() -> int:
     service = ApplicationService(args.db, tushare_token=TUSHARE_TOKEN)
     try:
         quality = service.validate_backtest_data(codes, args.start, args.end)
+        operation_log.append({
+            "operation": "数据质量门禁",
+            "data_range": {"start": args.start, "end": args.end},
+            "result": quality.to_dict(),
+        })
         repair_attempt = None
         if quality.status != "passed":
             try:
@@ -321,12 +446,18 @@ def main() -> int:
                 quality = service.validate_backtest_data(codes, args.start, args.end)
             except Exception as error:
                 repair_attempt = {"error": str(error)}
+            operation_log.append({
+                "operation": "仅使用批准数据源重抓并重新校验",
+                "data_range": {"start": args.start, "end": args.end},
+                "result": repair_attempt,
+            })
         if quality.status != "passed":
             blocked = {
                 "status": "blocked",
                 "reason": "data_quality",
                 "data_quality": quality.to_dict(),
                 "repair_attempt": repair_attempt,
+                "operation_log": operation_log,
                 "baseline_metrics": {},
                 "candidates": [],
             }
@@ -378,9 +509,57 @@ def main() -> int:
             final_holdout_passed=True,
             future_safe=future_safe,
         )
-        factor_health = [asdict(report) for report in service.build_factor_health_report(args.end)]
+        operation_log.append({
+            "operation": "验证当前正式版本基线（24个月 OOS + 12个月最终留出）",
+            "data_range": {
+                "full": {"start": args.start, "end": args.end},
+                "oos_24": {"start": oos_24_start.strftime("%Y-%m-%d"), "end": oos_24_end},
+                "final_holdout": {"start": oos_12_start.strftime("%Y-%m-%d"), "end": args.end},
+            },
+            "result": baseline_metrics,
+        })
+        baseline_result = _full_backtest_result(
+            data_dict, baseline_params, args.start, args.end, valuation_repo, code_to_sector
+        )
+        factor_health_reports = service.build_factor_health_report(args.end)
+        factor_health = _plain_health(factor_health_reports)
+        if baseline_result.get("factor_health"):
+            factor_health = _plain_health(baseline_result["factor_health"])
+        csi300_source = None
+        try:
+            from data.sources.csi300_source import CSI300Source
+            csi300_source = CSI300Source(db_path=str(service.db_path), tushare_token=TUSHARE_TOKEN)
+        except Exception:
+            csi300_source = None
+
+        def diagnostic_backtest(params, period_start, period_end):
+            return _full_backtest_result(
+                data_dict, params, period_start, period_end, valuation_repo, code_to_sector
+            )
+
+        diagnostics = build_autopilot_diagnostics(
+            config=active_config,
+            baseline_result=baseline_result,
+            data_dict=data_dict,
+            etf_to_sector=code_to_sector,
+            start_date=args.start,
+            end_date=args.end,
+            factor_health=factor_health,
+            backtest_runner=diagnostic_backtest,
+            csi300_source=csi300_source,
+            benchmark_etf_codes=["510300"],
+        )
+        diagnostics["next_plan"] = build_next_plan(
+            diagnostics["decision"],
+            current_metrics=baseline_metrics,
+        )
+        operation_log.append({
+            "operation": "执行基线自动归因、因子贡献、行业暴露和风格暴露诊断",
+            "data_range": {"start": args.start, "end": args.end},
+            "result": diagnostics["decision"],
+        })
         factor_actions = [
-            {"factor_name": report["factor_name"], "action": "replace_or_reweight", "status": report["status"]}
+            {"factor_name": report["factor_name"], "action": diagnostics["decision"]["action"], "status": report["status"]}
             for report in factor_health
             if report["status"] in {"failure_candidate", "warning"}
         ]
@@ -388,55 +567,152 @@ def main() -> int:
             _run_factor_sandbox(args.factor_source, args.factor_rows)
             if args.factor_source else None
         )
-        walk_forward = generate_walk_forward_presets(
-            data_dict,
-            args.start,
-            args.end,
-            MULTI_FACTOR_PARAM_RANGES,
-            max_combinations=args.max_combinations,
-            strategy_module=multi_factor,
-            extra_params={
-                "valuation_repo": valuation_repo,
-                "code_to_sector": code_to_sector,
-                "factor_weights": active_config.get("factor_weights") or None,
-                "constraints": dict(active_config.get("constraints", {})),
-            },
+        search_profiles = build_search_profiles(MULTI_FACTOR_PARAM_RANGES, args.search_rounds)
+        profile_combination_budget = max(
+            1, math.ceil(args.max_combinations / len(search_profiles))
         )
-        if time.monotonic() - started_at > args.max_runtime_seconds:
-            raise RuntimeError("候选生成超过运行时间预算")
-        candidates = []
-        for preset in walk_forward.get("presets", []):
-            params = dict(preset["params"])
-            if active_config.get("factor_weights"):
-                params["factor_weights"] = dict(active_config["factor_weights"])
-            params["constraints"] = dict(active_config.get("constraints", {}))
-            period_24 = _period_metrics(
-                data_dict, params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
-                valuation_repo, code_to_sector,
+        walk_forward_profiles = []
+        for search_round, (profile_key, profile_name, profile_ranges) in enumerate(search_profiles, 1):
+            walk_forward = generate_walk_forward_presets(
+                data_dict,
+                args.start,
+                args.end,
+                profile_ranges,
+                max_combinations=profile_combination_budget,
+                strategy_module=multi_factor,
+                extra_params={
+                    "valuation_repo": valuation_repo,
+                    "code_to_sector": code_to_sector,
+                    "factor_weights": active_config.get("factor_weights") or None,
+                    "constraints": dict(active_config.get("constraints", {})),
+                },
             )
-            holdout_available = preset.get("metrics", {}).get("oos_status") == "available"
-            period_12 = {
-                "annual_return": preset["metrics"].get("oos_annual_return", 0.0),
-                "sharpe_ratio": preset["metrics"].get("oos_sharpe_ratio", 0.0),
-                "max_drawdown": preset["metrics"].get("oos_max_drawdown", 0.0),
-                "turnover_annual_pct": preset["metrics"].get("oos_turnover_annual_pct", 0.0),
-                "excess_return": preset["metrics"].get("oos_excess_return", 0.0),
-                "total_return": preset["metrics"].get("oos_total_return", 0.0),
-            }
-            stress_results = _stress_metrics(
-                data_dict, params, stress_windows, valuation_repo, code_to_sector
-            )
-            config = {**active_config, "params": params}
-            candidates.append({
-                "config": config,
-                "metrics": _autopilot_metrics(
-                    period_12,
-                    period_24,
-                    stress_results,
-                    final_holdout_passed=holdout_available,
-                    future_safe=future_safe,
-                ),
+            walk_forward_profiles.append((search_round, profile_key, profile_name, walk_forward))
+            operation_log.append({
+                "operation": f"第{search_round}轮{profile_name}参数搜索",
+                "data_range": {"start": args.start, "end": args.end},
+                "result": {
+                    "search_profile": profile_key,
+                    "combination_budget": profile_combination_budget,
+                    "tested_combinations": walk_forward.get("total_combinations", 0),
+                    "preset_count": len(walk_forward.get("presets", [])),
+                },
             })
+            if time.monotonic() - started_at > args.max_runtime_seconds:
+                raise RuntimeError("候选生成超过运行时间预算")
+        candidates = []
+        if diagnostics["decision"]["action"] == "replace_or_reweight_factor_first":
+            factor_rows = diagnostics["factor_attribution"].get("factors", [])
+            failed_factors = set(diagnostics["decision"].get("replacement_targets", []))
+            weights = {
+                row["factor"]: float(row["weight"])
+                for row in factor_rows
+                if row.get("factor") not in failed_factors
+            }
+            total_weight = sum(weights.values())
+            if total_weight > 0 and len(weights) < len(factor_rows):
+                weights = {name: value / total_weight for name, value in weights.items()}
+                reweight_params = dict(active_config.get("params", {}))
+                reweight_params["factor_weights"] = weights
+                reweight_params["force_factor_weights"] = True
+                period_12 = _period_metrics(
+                    data_dict, reweight_params, oos_12_start.strftime("%Y-%m-%d"), args.end,
+                    valuation_repo, code_to_sector,
+                )
+                period_24 = _period_metrics(
+                    data_dict, reweight_params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
+                    valuation_repo, code_to_sector,
+                )
+                config = {
+                    **active_config,
+                    "params": reweight_params,
+                    "factor_weights": weights,
+                }
+                candidates.append({
+                    "config": config,
+                    "optimization_stage": "factor_reweighting",
+                    "metrics": _autopilot_metrics(
+                        period_12,
+                        period_24,
+                        _stress_metrics(data_dict, reweight_params, stress_windows, valuation_repo, code_to_sector),
+                        final_holdout_passed=True,
+                        future_safe=future_safe,
+                    ),
+                })
+                operation_log.append({
+                    "operation": "生成失效因子降权候选并执行 OOS",
+                    "data_range": {
+                        "oos_24": {"start": oos_24_start.strftime("%Y-%m-%d"), "end": oos_24_end},
+                        "final_holdout": {"start": oos_12_start.strftime("%Y-%m-%d"), "end": args.end},
+                    },
+                    "result": {"removed_factors": sorted(failed_factors), "metrics": candidates[-1]["metrics"]},
+                })
+        for search_round, profile_key, profile_name, walk_forward in walk_forward_profiles:
+            for preset in walk_forward.get("presets", []):
+                params = dict(preset["params"])
+                if active_config.get("factor_weights"):
+                    params["factor_weights"] = dict(active_config["factor_weights"])
+                params["constraints"] = dict(active_config.get("constraints", {}))
+                period_24 = _period_metrics(
+                    data_dict, params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
+                    valuation_repo, code_to_sector,
+                )
+                holdout_available = preset.get("metrics", {}).get("oos_status") == "available"
+                period_12 = {
+                    "annual_return": preset["metrics"].get("oos_annual_return", 0.0),
+                    "sharpe_ratio": preset["metrics"].get("oos_sharpe_ratio", 0.0),
+                    "max_drawdown": preset["metrics"].get("oos_max_drawdown", 0.0),
+                    "turnover_annual_pct": preset["metrics"].get("oos_turnover_annual_pct", 0.0),
+                    "excess_return": preset["metrics"].get("oos_excess_return", 0.0),
+                    "total_return": preset["metrics"].get("oos_total_return", 0.0),
+                }
+                stress_results = _stress_metrics(
+                    data_dict, params, stress_windows, valuation_repo, code_to_sector
+                )
+                config = {**active_config, "params": params}
+                candidates.append({
+                    "config": config,
+                    "optimization_stage": "parameter_search",
+                    "search_round": search_round,
+                    "search_profile": profile_key,
+                    "metrics": _autopilot_metrics(
+                        period_12,
+                        period_24,
+                        stress_results,
+                        final_holdout_passed=holdout_available,
+                        future_safe=future_safe,
+                    ),
+                })
+                operation_log.append({
+                    "operation": f"验证第{search_round}轮{profile_name}参数候选",
+                    "data_range": {
+                        "oos_24": {"start": oos_24_start.strftime("%Y-%m-%d"), "end": oos_24_end},
+                        "final_holdout": {"start": oos_12_start.strftime("%Y-%m-%d"), "end": args.end},
+                    },
+                    "result": {
+                        "search_profile": profile_key,
+                        "metrics": candidates[-1]["metrics"],
+                    },
+                })
+
+        unique_candidates = []
+        seen_hashes = set()
+        for candidate in candidates:
+            candidate_hash = configuration_hash(candidate["config"])
+            if candidate_hash in seen_hashes:
+                continue
+            seen_hashes.add(candidate_hash)
+            unique_candidates.append(candidate)
+        candidates = unique_candidates[:args.max_combinations]
+        operation_log.append({
+            "operation": "合并去重全部搜索轮次并交由评估器择优",
+            "data_range": {"start": args.start, "end": args.end},
+            "result": {
+                "search_rounds": len(search_profiles),
+                "candidate_count": len(candidates),
+                "selection": "硬门槛通过后按风险调整综合评分降序选择最佳候选",
+            },
+        })
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps({
@@ -445,6 +721,9 @@ def main() -> int:
                 "factor_health": factor_health,
                 "factor_actions": factor_actions,
                 "factor_sandbox": factor_sandbox,
+                "diagnostics": diagnostics,
+                "next_plan": diagnostics["next_plan"],
+                "operation_log": operation_log,
                 "baseline_metrics": baseline_metrics,
                 "candidates": candidates,
             }, ensure_ascii=False, indent=2),
@@ -458,6 +737,12 @@ def main() -> int:
             "reason": str(error),
             "baseline_metrics": {},
             "candidates": [],
+            "operation_log": operation_log,
+            "next_plan": {
+                "immediate_next_command": "$etf-autopilot",
+                "current_action": "repair_data_quality_then_rerun",
+                "rollback_triggers": [],
+            },
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

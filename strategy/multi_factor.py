@@ -94,6 +94,7 @@ class MultiFactorStrategy(bt.Strategy):
         ('constraints', None),
         ('valuation_repo', None),
         ('factor_weights', None),  # None=等权，或指定权重dict
+        ('force_factor_weights', False),  # 诊断/候选验证时固定权重，跳过ICIR动态覆盖
         ('sector_penalty_factor', 0.7),       # 赛道软降权系数，1.0=关闭软降权
         ('sector_exclude_threshold', -0.10),   # 赛道硬排除阈值，-inf=关闭硬排除
         ('code_to_sector', None),  # ETF到赛道的映射 {code: sector}
@@ -1177,49 +1178,69 @@ class MultiFactorStrategy(bt.Strategy):
         self._last_excluded = dict(icir_excluded)
         self._last_excluded['_mode'] = icir_mode
 
-        effective_weights = {f: icir_weights.get(f, 0.0) for f in available_factors}
-        total_w = sum(effective_weights.values())
+        forced_weights_applied = False
+        if self.p.force_factor_weights and self.p.factor_weights:
+            fixed_weights = {
+                factor: max(0.0, float(self.p.factor_weights.get(factor, 0.0)))
+                for factor in available_factors
+            }
+            total_fixed_weight = sum(fixed_weights.values())
+            if total_fixed_weight > 1e-9:
+                effective_weights = {
+                    factor: weight / total_fixed_weight
+                    for factor, weight in fixed_weights.items()
+                }
+                scores = weighted_score(zscores, effective_weights, factor_names=available_factors)
+                weights_used = effective_weights
+                weights_used_mode = 'forced_param_factor_weights'
+                forced_weights_applied = True
 
-        current_date = self.data.datetime.date(0)
-        if total_w > 1e-9:
-            # Regime-aware 二次叠加：ICIR权重 × 牛熊倍数 → 归一化
-            if self.p.market_regime_switch:
-                regime = self._get_market_regime()
-                adjusted = dict(effective_weights)
-                if regime == 'bull':
-                    for f in adjusted:
-                        if 'momentum_120d' in f:
-                            adjusted[f] *= self.p.bull_momentum_mult
-                elif regime == 'bear':
-                    value_keys = ('pe_percentile', 'dividend_yield', 'volatility')
-                    for f in adjusted:
-                        if any(k in f for k in value_keys):
-                            adjusted[f] *= self.p.bear_value_mult
-                t = sum(adjusted.values())
-                if t > 0:
-                    effective_weights = {f: w / t for f, w in adjusted.items()}
-                    weights_used_mode = f'{icir_mode}_x_regime_{regime}'
+        if not forced_weights_applied:
+            effective_weights = {f: icir_weights.get(f, 0.0) for f in available_factors}
+            total_w = sum(effective_weights.values())
+            current_date = self.data.datetime.date(0)
+            if total_w > 1e-9:
+                # Regime-aware 二次叠加：ICIR权重 × 牛熊倍数 → 归一化
+                if self.p.market_regime_switch:
+                    regime = self._get_market_regime()
+                    adjusted = dict(effective_weights)
+                    if regime == 'bull':
+                        for f in adjusted:
+                            if 'momentum_120d' in f:
+                                adjusted[f] *= self.p.bull_momentum_mult
+                    elif regime == 'bear':
+                        value_keys = ('pe_percentile', 'dividend_yield', 'volatility')
+                        for f in adjusted:
+                            if any(k in f for k in value_keys):
+                                adjusted[f] *= self.p.bear_value_mult
+                    t = sum(adjusted.values())
+                    if t > 0:
+                        effective_weights = {f: w / t for f, w in adjusted.items()}
+                        weights_used_mode = f'{icir_mode}_x_regime_{regime}'
+                    else:
+                        weights_used_mode = icir_mode
                 else:
                     weights_used_mode = icir_mode
             else:
-                weights_used_mode = icir_mode
-            scores = weighted_score(zscores, effective_weights, factor_names=available_factors)
-            weights_used = effective_weights
-        else:
-            # Fallback: 原始加权逻辑
-            if self.p.factor_weights is not None:
-                scores = weighted_score(zscores, self.p.factor_weights, factor_names=available_factors)
-                weights_used = dict(self.p.factor_weights)
-                weights_used_mode = 'param_factor_weights'
-            elif self.p.market_regime_switch:
-                dynamic_weights = self._get_dynamic_factor_weights(available_factors)
-                scores = weighted_score(zscores, dynamic_weights, factor_names=available_factors)
-                weights_used = dynamic_weights
-                weights_used_mode = 'regime_dynamic'
-            else:
-                scores = equal_weight_score(zscores, factor_names=available_factors)
-                weights_used = {f: 1.0 / len(available_factors) for f in available_factors} if available_factors else {}
-                weights_used_mode = 'equal_weight'
+                # Fallback: 原始加权逻辑
+                if self.p.factor_weights is not None:
+                    scores = weighted_score(zscores, self.p.factor_weights, factor_names=available_factors)
+                    weights_used = dict(self.p.factor_weights)
+                    weights_used_mode = 'param_factor_weights'
+                elif self.p.market_regime_switch:
+                    dynamic_weights = self._get_dynamic_factor_weights(available_factors)
+                    scores = weighted_score(zscores, dynamic_weights, factor_names=available_factors)
+                    weights_used = dynamic_weights
+                    weights_used_mode = 'regime_dynamic'
+                else:
+                    scores = equal_weight_score(zscores, factor_names=available_factors)
+                    weights_used = {f: 1.0 / len(available_factors) for f in available_factors} if available_factors else {}
+                    weights_used_mode = 'equal_weight'
+            if total_w > 1e-9:
+                scores = weighted_score(zscores, effective_weights, factor_names=available_factors)
+                weights_used = effective_weights
+
+        current_date = self.data.datetime.date(0)
 
         # 记录权重历史
         row = {'date': current_date.isoformat()}

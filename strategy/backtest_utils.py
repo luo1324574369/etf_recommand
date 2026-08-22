@@ -7,6 +7,19 @@ import pandas as pd
 from typing import Dict, Any
 
 
+class _SafeReturnsAnalyzer(bt.analyzers.Returns):
+    """避免无有效收益 bar 时 Backtrader Returns 分析器除零。"""
+
+    def stop(self):
+        if getattr(self, '_tcount', 0) == 0:
+            self.rets['rtot'] = 0.0
+            self.rets['ravg'] = 0.0
+            self.rets['rnorm'] = 0.0
+            self.rets['rnorm100'] = 0.0
+            return
+        super().stop()
+
+
 class SignalAwarePandasData(bt.feeds.PandasData):
     lines = ('signal_open', 'signal_high', 'signal_low', 'signal_close')
     params = (
@@ -297,7 +310,7 @@ def run_backtest(
     cerebro.addstrategy(strategy_cls, **strategy_kwargs)
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-    cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
+    cerebro.addanalyzer(_SafeReturnsAnalyzer, _name='returns')
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
     cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='timereturn', timeframe=bt.TimeFrame.Days)
 
@@ -396,6 +409,7 @@ def run_backtest(
                 rebalance_dates=_extract_rebalance_dates(trade_list),
                 benchmark_type=benchmark_type,
                 csi300_source=csi300_source,
+                benchmark_etf_codes=['510300'] if '510300' in data_dict else [],
             )
             attribution_status = 'available'
         except Exception as e:

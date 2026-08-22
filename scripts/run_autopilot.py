@@ -16,6 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from config.settings import DB_PATH
 from config.versioned_strategy import default_strategy_config, load_active_strategy_config
 from service.autopilot_service import AutopilotService, StrategyVersionStore, write_autopilot_report
+from service.autopilot_diagnostics import build_next_plan
 
 
 def _git_revision() -> str:
@@ -108,10 +109,18 @@ def main() -> int:
             "data_quality": candidate_payload.get("data_quality", {}),
             "repair_attempt": candidate_payload.get("repair_attempt"),
             "evaluations": [],
+            "operation_log": candidate_payload.get("operation_log", []),
+            "next_plan": candidate_payload.get("next_plan", {}),
         }
         decision["created_at"] = datetime.now(timezone.utc).isoformat()
         decision["run_id"] = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/autopilot-{uuid4().hex[:12]}"
-        paths = write_autopilot_report(args.report_root, decision, decision["run_id"])
+        paths = write_autopilot_report(
+            args.report_root,
+            decision,
+            decision["run_id"],
+            operation_log=decision["operation_log"],
+            next_plan=decision["next_plan"],
+        )
         print(json.dumps({"decision": decision, "report_paths": {key: str(value) for key, value in paths.items()}}, ensure_ascii=False, indent=2))
         return 2
     if bool(args.start) != bool(args.end):
@@ -177,14 +186,31 @@ def main() -> int:
             branch=args.branch,
         )
     decision["created_at"] = datetime.now(timezone.utc).isoformat()
+    decision["diagnostics"] = candidate_payload.get("diagnostics", {})
+    decision["operation_log"] = candidate_payload.get("operation_log", [])
+    decision["next_plan"] = candidate_payload.get("next_plan") or build_next_plan(
+        candidate_payload.get("diagnostics", {}).get("decision", {})
+    )
     decision["run_id"] = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/autopilot-{uuid4().hex[:12]}"
-    paths = write_autopilot_report(args.report_root, decision, decision["run_id"])
+    paths = write_autopilot_report(
+        args.report_root,
+        decision,
+        decision["run_id"],
+        operation_log=decision["operation_log"],
+        next_plan=decision["next_plan"],
+    )
     if args.git_release and decision.get("status") == "published":
         decision["git_release"] = {
             "branch": args.branch,
             "commit": _create_git_release(args.branch, args.version_root, paths),
         }
-        paths = write_autopilot_report(args.report_root, decision, decision["run_id"])
+        paths = write_autopilot_report(
+            args.report_root,
+            decision,
+            decision["run_id"],
+            operation_log=decision["operation_log"],
+            next_plan=decision["next_plan"],
+        )
     print(json.dumps({"decision": decision, "report_paths": {key: str(value) for key, value in paths.items()}}, ensure_ascii=False, indent=2))
     return 0
 
