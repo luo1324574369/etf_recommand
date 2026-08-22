@@ -348,7 +348,20 @@ def _expected_optimization_goal(
             "target": "因子通过沙箱、前12个月选择期、后12个月最终留出和压力测试，并且不恶化已通过指标",
             "success_criteria": ["只修改因子组合或权重", "保留数据质量、风险和交易约束"],
         }
-    focus = next((problem for problem in labels if problem in performance_problems), None)
+    focus = None
+    for problem in performance_problems:
+        descriptor = labels.get(problem)
+        if descriptor is None:
+            continue
+        _, threshold, metric_name = descriptor
+        current = _number(current_metrics.get(metric_name))
+        if problem == "max_drawdown":
+            unmet = abs(current) > threshold
+        else:
+            unmet = current < threshold
+        if unmet:
+            focus = problem
+            break
     if focus:
         label, threshold, metric_name = labels[focus]
         current = _number(current_metrics.get(metric_name))

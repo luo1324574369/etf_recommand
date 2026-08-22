@@ -76,6 +76,27 @@ def test_diagnostics_runs_attribution_with_local_proxy_and_builds_exposures():
     assert goal["current"] == -3.71
 
 
+def test_next_goal_skips_already_passing_holdout_metric():
+    from service.autopilot_diagnostics import build_next_plan
+
+    goal = build_next_plan(
+        {
+            "action": "adjust_parameters",
+            "performance_problems": [
+                "12_month_oos_excess_return",
+                "24_month_oos_excess_return",
+            ],
+        },
+        current_metrics={
+            "oos_12_excess_return": 22.73,
+            "oos_24_excess_return": -0.4,
+        },
+    )["expected_optimization_goal"]
+
+    assert goal["focus"] == "前12个月选择期超额收益"
+    assert goal["current"] == -0.4
+
+
 def test_diagnostics_decides_factor_replacement_when_health_and_marginal_fail():
     from service.autopilot_diagnostics import build_autopilot_diagnostics
 
