@@ -1,1 +1,180 @@
-[]
+[
+  {
+    "event": "publish",
+    "version_id": "v-20260822T103700Z-d7b202172d52",
+    "config_hash": "d7b202172d5245272a8d5e5b2c9f34e3a97cbb008d22f9cf4aeaafdbf1d4a7ca",
+    "previous_version_id": "baseline",
+    "commit": "71c9a85e8073452085e253453560f9076b34fff5",
+    "branch": "codex/autopilot/2026-08-22-risk-control",
+    "evaluation": {
+      "config": {
+        "params": {
+          "lookback_momentum": 60,
+          "top_n": 3,
+          "rebalance_freq": 60,
+          "sector_penalty_factor": 0.7,
+          "lookback_volatility": 60,
+          "sector_exclude_threshold": -0.15,
+          "max_monthly_turnover": 60.0,
+          "drawdown_threshold": 35.0,
+          "max_sector_exposure_pct": 100.0,
+          "market_regime_switch": true,
+          "enable_factor_monitor": true,
+          "factor_weights": {
+            "momentum_120d": 0.47467549,
+            "pe_percentile": 0.28805081,
+            "dividend_yield": 0.2372737
+          },
+          "force_factor_weights": true
+        },
+        "factor_weights": {
+          "momentum_120d": 0.47467549,
+          "pe_percentile": 0.28805081,
+          "dividend_yield": 0.2372737
+        },
+        "constraints": {}
+      },
+      "config_hash": "d7b202172d5245272a8d5e5b2c9f34e3a97cbb008d22f9cf4aeaafdbf1d4a7ca",
+      "metrics": {
+        "data_quality_passed": true,
+        "future_safe": true,
+        "oos_12_excess_return": 22.73,
+        "oos_24_excess_return": 7.34,
+        "oos_sharpe": 0.33,
+        "max_drawdown": 14.33,
+        "annual_turnover": 158.02112956849317,
+        "annual_cost_pct": 0.047406338870547945,
+        "oos_stability": 1.0,
+        "annual_return": 49.51,
+        "stress_passed": true,
+        "stress_results": {
+          "bull": {
+            "window": {
+              "start": "2024-07-03",
+              "end": "2024-10-08"
+            },
+            "available": true,
+            "sharpe": 5.19,
+            "max_drawdown": 7.99,
+            "annual_return": 118.83,
+            "excess_return": -4.79
+          },
+          "bear": {
+            "window": {
+              "start": "2023-11-07",
+              "end": "2024-02-02"
+            },
+            "available": true,
+            "sharpe": -2.56,
+            "max_drawdown": 7.53,
+            "annual_return": -24.4,
+            "excess_return": 5.0
+          },
+          "sideways": {
+            "window": {
+              "start": "2026-02-10",
+              "end": "2026-05-21"
+            },
+            "available": true,
+            "sharpe": -0.05,
+            "max_drawdown": 10.6,
+            "annual_return": 0.97,
+            "excess_return": -1.34
+          },
+          "high_volatility": {
+            "window": {
+              "start": "2024-07-19",
+              "end": "2024-10-24"
+            },
+            "available": true,
+            "sharpe": 1.96,
+            "max_drawdown": 7.45,
+            "annual_return": 54.81,
+            "excess_return": 0.12
+          }
+        },
+        "final_holdout_passed": true,
+        "selection_metrics": {
+          "data_quality_passed": true,
+          "future_safe": true,
+          "oos_12_excess_return": 7.34,
+          "oos_24_excess_return": 7.34,
+          "oos_sharpe": 0.33,
+          "max_drawdown": 14.33,
+          "annual_turnover": 88.04277699657534,
+          "annual_cost_pct": 0.026412833098972605,
+          "oos_stability": 1.0,
+          "annual_return": 6.77,
+          "stress_passed": true,
+          "stress_results": {
+            "bull": {
+              "window": {
+                "start": "2024-07-03",
+                "end": "2024-10-08"
+              },
+              "available": true,
+              "sharpe": 5.19,
+              "max_drawdown": 7.99,
+              "annual_return": 118.83,
+              "excess_return": -4.79
+            },
+            "bear": {
+              "window": {
+                "start": "2023-11-07",
+                "end": "2024-02-02"
+              },
+              "available": true,
+              "sharpe": -2.56,
+              "max_drawdown": 7.53,
+              "annual_return": -24.4,
+              "excess_return": 5.0
+            },
+            "sideways": {
+              "window": {
+                "start": "2024-05-24",
+                "end": "2024-08-21"
+              },
+              "available": true,
+              "sharpe": -1.79,
+              "max_drawdown": 5.29,
+              "annual_return": -13.69,
+              "excess_return": 2.33
+            },
+            "high_volatility": {
+              "window": {
+                "start": "2024-07-19",
+                "end": "2024-10-24"
+              },
+              "available": true,
+              "sharpe": 1.96,
+              "max_drawdown": 7.45,
+              "annual_return": 54.81,
+              "excess_return": 0.12
+            }
+          },
+          "final_holdout_passed": true
+        },
+        "final_holdout_metrics": {
+          "available": true,
+          "data_quality_passed": true,
+          "future_safe": true,
+          "oos_12_excess_return": 22.73,
+          "oos_sharpe": 2.78,
+          "max_drawdown": 8.15,
+          "annual_turnover": 158.02112956849317,
+          "annual_return": 49.51
+        }
+      },
+      "score": 56.140781,
+      "baseline_score": 21.971562,
+      "score_improvement_pct": 155.51565701154973,
+      "accepted": true,
+      "reasons": [],
+      "metadata": {
+        "optimization_stage": "risk_parameter_control",
+        "search_profile": "sector_penalty07"
+      }
+    },
+    "created_at": "2026-08-22T10:37:00.856851+00:00"
+  }
+]

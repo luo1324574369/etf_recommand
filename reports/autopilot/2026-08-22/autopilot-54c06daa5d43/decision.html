@@ -1,0 +1,4115 @@
+<html><head><meta charset='utf-8'><title>Codex 自主优化决策报告</title></head><body><h1>Codex 自主优化决策报告</h1><pre>{
+  &quot;status&quot;: &quot;published&quot;,
+  &quot;published&quot;: {
+    &quot;version_id&quot;: &quot;v-20260822T103700Z-d7b202172d52&quot;,
+    &quot;config&quot;: {
+      &quot;params&quot;: {
+        &quot;lookback_momentum&quot;: 60,
+        &quot;top_n&quot;: 3,
+        &quot;rebalance_freq&quot;: 60,
+        &quot;sector_penalty_factor&quot;: 0.7,
+        &quot;lookback_volatility&quot;: 60,
+        &quot;sector_exclude_threshold&quot;: -0.15,
+        &quot;max_monthly_turnover&quot;: 60.0,
+        &quot;drawdown_threshold&quot;: 35.0,
+        &quot;max_sector_exposure_pct&quot;: 100.0,
+        &quot;market_regime_switch&quot;: true,
+        &quot;enable_factor_monitor&quot;: true,
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;force_factor_weights&quot;: true
+      },
+      &quot;factor_weights&quot;: {
+        &quot;momentum_120d&quot;: 0.47467549,
+        &quot;pe_percentile&quot;: 0.28805081,
+        &quot;dividend_yield&quot;: 0.2372737
+      },
+      &quot;constraints&quot;: {}
+    },
+    &quot;config_hash&quot;: &quot;d7b202172d5245272a8d5e5b2c9f34e3a97cbb008d22f9cf4aeaafdbf1d4a7ca&quot;,
+    &quot;commit&quot;: &quot;71c9a85e8073452085e253453560f9076b34fff5&quot;,
+    &quot;previous_version_id&quot;: &quot;baseline&quot;,
+    &quot;evaluation&quot;: {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.7,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;d7b202172d5245272a8d5e5b2c9f34e3a97cbb008d22f9cf4aeaafdbf1d4a7ca&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 7.34,
+        &quot;oos_sharpe&quot;: 0.33,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 5.19,
+            &quot;max_drawdown&quot;: 7.99,
+            &quot;annual_return&quot;: 118.83,
+            &quot;excess_return&quot;: -4.79
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.56,
+            &quot;max_drawdown&quot;: 7.53,
+            &quot;annual_return&quot;: -24.4,
+            &quot;excess_return&quot;: 5.0
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.96,
+            &quot;max_drawdown&quot;: 7.45,
+            &quot;annual_return&quot;: 54.81,
+            &quot;excess_return&quot;: 0.12
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 7.34,
+          &quot;oos_24_excess_return&quot;: 7.34,
+          &quot;oos_sharpe&quot;: 0.33,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 88.04277699657534,
+          &quot;annual_cost_pct&quot;: 0.026412833098972605,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 6.77,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 5.19,
+              &quot;max_drawdown&quot;: 7.99,
+              &quot;annual_return&quot;: 118.83,
+              &quot;excess_return&quot;: -4.79
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.56,
+              &quot;max_drawdown&quot;: 7.53,
+              &quot;annual_return&quot;: -24.4,
+              &quot;excess_return&quot;: 5.0
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.79,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.69,
+              &quot;excess_return&quot;: 2.33
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.96,
+              &quot;max_drawdown&quot;: 7.45,
+              &quot;annual_return&quot;: 54.81,
+              &quot;excess_return&quot;: 0.12
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 56.140781,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 155.51565701154973,
+      &quot;accepted&quot;: true,
+      &quot;reasons&quot;: [],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_penalty07&quot;
+      }
+    },
+    &quot;created_at&quot;: &quot;2026-08-22T10:37:00.856851+00:00&quot;
+  },
+  &quot;evaluations&quot;: [
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;7055daf969b01cf40465bb15f1f89b7c3418c4c893c105b670fab27997ffbb1d&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;no_vol_control&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 50.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;d1e2b2a7c79032b5dab213aa8e60eb62439c7aeb254ece2fde7a08034795c3e7&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_cap50&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 70.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;8e48f40ffd145e2d91ca2cf7568aa4d87b36b95a0ef59851a5a324beb13f6a40&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_cap70&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 80.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;9f688e3a54d9884622fd9a06d8d87d9ddd76c72a3d373d70f3bf46f8ec086a1b&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_cap80&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.7,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;d7b202172d5245272a8d5e5b2c9f34e3a97cbb008d22f9cf4aeaafdbf1d4a7ca&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 7.34,
+        &quot;oos_sharpe&quot;: 0.33,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 5.19,
+            &quot;max_drawdown&quot;: 7.99,
+            &quot;annual_return&quot;: 118.83,
+            &quot;excess_return&quot;: -4.79
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.56,
+            &quot;max_drawdown&quot;: 7.53,
+            &quot;annual_return&quot;: -24.4,
+            &quot;excess_return&quot;: 5.0
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.96,
+            &quot;max_drawdown&quot;: 7.45,
+            &quot;annual_return&quot;: 54.81,
+            &quot;excess_return&quot;: 0.12
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 7.34,
+          &quot;oos_24_excess_return&quot;: 7.34,
+          &quot;oos_sharpe&quot;: 0.33,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 88.04277699657534,
+          &quot;annual_cost_pct&quot;: 0.026412833098972605,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 6.77,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 5.19,
+              &quot;max_drawdown&quot;: 7.99,
+              &quot;annual_return&quot;: 118.83,
+              &quot;excess_return&quot;: -4.79
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.56,
+              &quot;max_drawdown&quot;: 7.53,
+              &quot;annual_return&quot;: -24.4,
+              &quot;excess_return&quot;: 5.0
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.79,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.69,
+              &quot;excess_return&quot;: 2.33
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.96,
+              &quot;max_drawdown&quot;: 7.45,
+              &quot;annual_return&quot;: 54.81,
+              &quot;excess_return&quot;: 0.12
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 56.140781,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 155.51565701154973,
+      &quot;accepted&quot;: true,
+      &quot;reasons&quot;: [],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_penalty07&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 1.0,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;4c0ea2a2ca62ff21ec1762ef7e9aed42eaf5bc9b8cc7794782bdf458b4f78755&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 26.4,
+        &quot;oos_24_excess_return&quot;: 6.22,
+        &quot;oos_sharpe&quot;: 0.29,
+        &quot;max_drawdown&quot;: 14.25,
+        &quot;annual_turnover&quot;: 97.77741499315069,
+        &quot;annual_cost_pct&quot;: 0.029333224497945204,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 53.38,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.99,
+            &quot;max_drawdown&quot;: 8.1,
+            &quot;annual_return&quot;: 114.55,
+            &quot;excess_return&quot;: -5.39
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.56,
+            &quot;max_drawdown&quot;: 7.53,
+            &quot;annual_return&quot;: -24.4,
+            &quot;excess_return&quot;: 5.0
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 0.29,
+            &quot;max_drawdown&quot;: 8.17,
+            &quot;annual_return&quot;: 6.92,
+            &quot;excess_return&quot;: 0.11
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.96,
+            &quot;max_drawdown&quot;: 7.45,
+            &quot;annual_return&quot;: 54.81,
+            &quot;excess_return&quot;: 0.12
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 6.22,
+          &quot;oos_24_excess_return&quot;: 6.22,
+          &quot;oos_sharpe&quot;: 0.29,
+          &quot;max_drawdown&quot;: 14.25,
+          &quot;annual_turnover&quot;: 86.54059380821917,
+          &quot;annual_cost_pct&quot;: 0.02596217814246575,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 6.21,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.99,
+              &quot;max_drawdown&quot;: 8.1,
+              &quot;annual_return&quot;: 114.55,
+              &quot;excess_return&quot;: -5.39
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.56,
+              &quot;max_drawdown&quot;: 7.53,
+              &quot;annual_return&quot;: -24.4,
+              &quot;excess_return&quot;: 5.0
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.79,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.69,
+              &quot;excess_return&quot;: 2.33
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.96,
+              &quot;max_drawdown&quot;: 7.45,
+              &quot;annual_return&quot;: 54.81,
+              &quot;excess_return&quot;: 0.12
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 26.4,
+          &quot;oos_sharpe&quot;: 2.94,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 97.77741499315069,
+          &quot;annual_return&quot;: 53.38
+        }
+      },
+      &quot;score&quot;: 55.299546,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 151.68691238246967,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_penalty10&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 30.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;1f306deb1ae6264c5679d2c2cdd93143e041fc06b4573c210855ed91f63dbe8c&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;turnover30&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 45.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;dfebdf8b440c6fa1ce71e59beca2016c18e632682a4ef0505523886666935abb&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;turnover45&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 2,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 100.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;72311d3746ad437363121e5f405144e2d2a4fc91c51ed3dab6172a30316e8fe3&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: -7.16,
+        &quot;oos_24_excess_return&quot;: -6.23,
+        &quot;oos_sharpe&quot;: -0.21,
+        &quot;max_drawdown&quot;: 12.38,
+        &quot;annual_turnover&quot;: 0.0,
+        &quot;annual_cost_pct&quot;: 0.0,
+        &quot;oos_stability&quot;: 0.0,
+        &quot;annual_return&quot;: 18.19,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 3.77,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 62.48,
+            &quot;excess_return&quot;: -13.52
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -4.12,
+            &quot;max_drawdown&quot;: 8.19,
+            &quot;annual_return&quot;: -28.33,
+            &quot;excess_return&quot;: 3.77
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 0.14,
+            &quot;max_drawdown&quot;: 5.19,
+            &quot;annual_return&quot;: 3.45,
+            &quot;excess_return&quot;: -0.73
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.58,
+            &quot;max_drawdown&quot;: 6.73,
+            &quot;annual_return&quot;: 32.3,
+            &quot;excess_return&quot;: -4.17
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: -6.23,
+          &quot;oos_24_excess_return&quot;: -6.23,
+          &quot;oos_sharpe&quot;: -0.21,
+          &quot;max_drawdown&quot;: 12.38,
+          &quot;annual_turnover&quot;: 0.0,
+          &quot;annual_cost_pct&quot;: 0.0,
+          &quot;oos_stability&quot;: 0.0,
+          &quot;annual_return&quot;: -0.09,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 3.77,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 62.48,
+              &quot;excess_return&quot;: -13.52
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -4.12,
+              &quot;max_drawdown&quot;: 8.19,
+              &quot;annual_return&quot;: -28.33,
+              &quot;excess_return&quot;: 3.77
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.98,
+              &quot;max_drawdown&quot;: 5.03,
+              &quot;annual_return&quot;: -17.52,
+              &quot;excess_return&quot;: 1.24
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.58,
+              &quot;max_drawdown&quot;: 6.73,
+              &quot;annual_return&quot;: 32.3,
+              &quot;excess_return&quot;: -4.17
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: -7.16,
+          &quot;oos_sharpe&quot;: 1.51,
+          &quot;max_drawdown&quot;: 6.06,
+          &quot;annual_turnover&quot;: 0.0,
+          &quot;annual_return&quot;: 18.19
+        }
+      },
+      &quot;score&quot;: 24.649286,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 12.187226379262436,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_24_excess_return&quot;,
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;top2&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 45.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 70.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;ac6ec9c840e4e437ef329c10d6514036f4a27dd05483fbe607bc107d90145f8c&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 2.01,
+        &quot;oos_sharpe&quot;: 0.17,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.54,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 76.26,
+            &quot;excess_return&quot;: -11.2
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.59,
+            &quot;max_drawdown&quot;: 7.6,
+            &quot;annual_return&quot;: -24.73,
+            &quot;excess_return&quot;: 4.9
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.18,
+            &quot;max_drawdown&quot;: 7.56,
+            &quot;annual_return&quot;: 28.07,
+            &quot;excess_return&quot;: -5.04
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 2.01,
+          &quot;oos_24_excess_return&quot;: 2.01,
+          &quot;oos_sharpe&quot;: 0.17,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 79.57306979794522,
+          &quot;annual_cost_pct&quot;: 0.023871920939383565,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 4.13,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.54,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 76.26,
+              &quot;excess_return&quot;: -11.2
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.59,
+              &quot;max_drawdown&quot;: 7.6,
+              &quot;annual_return&quot;: -24.73,
+              &quot;excess_return&quot;: 4.9
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.77,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.51,
+              &quot;excess_return&quot;: 2.38
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.18,
+              &quot;max_drawdown&quot;: 7.56,
+              &quot;annual_return&quot;: 28.07,
+              &quot;excess_return&quot;: -5.04
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 54.361994,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 147.4197965533812,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_cap70_turnover45&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 3,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.7,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 50.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;6df758d06504891cc4adb1dfb684a26da6ef6aeca67d8f63312c553edc6aa7ce&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: 22.73,
+        &quot;oos_24_excess_return&quot;: 7.34,
+        &quot;oos_sharpe&quot;: 0.33,
+        &quot;max_drawdown&quot;: 14.33,
+        &quot;annual_turnover&quot;: 158.02112956849317,
+        &quot;annual_cost_pct&quot;: 0.047406338870547945,
+        &quot;oos_stability&quot;: 1.0,
+        &quot;annual_return&quot;: 49.51,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 5.19,
+            &quot;max_drawdown&quot;: 7.99,
+            &quot;annual_return&quot;: 118.83,
+            &quot;excess_return&quot;: -4.79
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -2.56,
+            &quot;max_drawdown&quot;: 7.53,
+            &quot;annual_return&quot;: -24.4,
+            &quot;excess_return&quot;: 5.0
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -0.05,
+            &quot;max_drawdown&quot;: 10.6,
+            &quot;annual_return&quot;: 0.97,
+            &quot;excess_return&quot;: -1.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.96,
+            &quot;max_drawdown&quot;: 7.45,
+            &quot;annual_return&quot;: 54.81,
+            &quot;excess_return&quot;: 0.12
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 7.34,
+          &quot;oos_24_excess_return&quot;: 7.34,
+          &quot;oos_sharpe&quot;: 0.33,
+          &quot;max_drawdown&quot;: 14.33,
+          &quot;annual_turnover&quot;: 88.04277699657534,
+          &quot;annual_cost_pct&quot;: 0.026412833098972605,
+          &quot;oos_stability&quot;: 1.0,
+          &quot;annual_return&quot;: 6.77,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 5.19,
+              &quot;max_drawdown&quot;: 7.99,
+              &quot;annual_return&quot;: 118.83,
+              &quot;excess_return&quot;: -4.79
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.56,
+              &quot;max_drawdown&quot;: 7.53,
+              &quot;annual_return&quot;: -24.4,
+              &quot;excess_return&quot;: 5.0
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -1.79,
+              &quot;max_drawdown&quot;: 5.29,
+              &quot;annual_return&quot;: -13.69,
+              &quot;excess_return&quot;: 2.33
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.96,
+              &quot;max_drawdown&quot;: 7.45,
+              &quot;annual_return&quot;: 54.81,
+              &quot;excess_return&quot;: 0.12
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: 22.73,
+          &quot;oos_sharpe&quot;: 2.78,
+          &quot;max_drawdown&quot;: 8.15,
+          &quot;annual_turnover&quot;: 158.02112956849317,
+          &quot;annual_return&quot;: 49.51
+        }
+      },
+      &quot;score&quot;: 56.140781,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 155.51565701154973,
+      &quot;accepted&quot;: true,
+      &quot;reasons&quot;: [],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_cap50_penalty07&quot;
+      }
+    },
+    {
+      &quot;config&quot;: {
+        &quot;params&quot;: {
+          &quot;lookback_momentum&quot;: 60,
+          &quot;top_n&quot;: 2,
+          &quot;rebalance_freq&quot;: 60,
+          &quot;sector_penalty_factor&quot;: 0.5,
+          &quot;lookback_volatility&quot;: 60,
+          &quot;sector_exclude_threshold&quot;: -0.15,
+          &quot;max_monthly_turnover&quot;: 60.0,
+          &quot;drawdown_threshold&quot;: 35.0,
+          &quot;max_sector_exposure_pct&quot;: 70.0,
+          &quot;market_regime_switch&quot;: true,
+          &quot;enable_factor_monitor&quot;: true,
+          &quot;factor_weights&quot;: {
+            &quot;momentum_120d&quot;: 0.47467549,
+            &quot;pe_percentile&quot;: 0.28805081,
+            &quot;dividend_yield&quot;: 0.2372737
+          },
+          &quot;force_factor_weights&quot;: true
+        },
+        &quot;factor_weights&quot;: {
+          &quot;momentum_120d&quot;: 0.47467549,
+          &quot;pe_percentile&quot;: 0.28805081,
+          &quot;dividend_yield&quot;: 0.2372737
+        },
+        &quot;constraints&quot;: {}
+      },
+      &quot;config_hash&quot;: &quot;d1219c92571d06125184818ce8317741138a07fcb6e47cec1d43c1fb659a9b40&quot;,
+      &quot;metrics&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: -7.16,
+        &quot;oos_24_excess_return&quot;: -6.23,
+        &quot;oos_sharpe&quot;: -0.21,
+        &quot;max_drawdown&quot;: 12.38,
+        &quot;annual_turnover&quot;: 0.0,
+        &quot;annual_cost_pct&quot;: 0.0,
+        &quot;oos_stability&quot;: 0.0,
+        &quot;annual_return&quot;: 18.19,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 3.77,
+            &quot;max_drawdown&quot;: 4.76,
+            &quot;annual_return&quot;: 62.48,
+            &quot;excess_return&quot;: -13.52
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -4.12,
+            &quot;max_drawdown&quot;: 8.19,
+            &quot;annual_return&quot;: -28.33,
+            &quot;excess_return&quot;: 3.77
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 0.14,
+            &quot;max_drawdown&quot;: 5.19,
+            &quot;annual_return&quot;: 3.45,
+            &quot;excess_return&quot;: -0.73
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.58,
+            &quot;max_drawdown&quot;: 6.73,
+            &quot;annual_return&quot;: 32.3,
+            &quot;excess_return&quot;: -4.17
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: -6.23,
+          &quot;oos_24_excess_return&quot;: -6.23,
+          &quot;oos_sharpe&quot;: -0.21,
+          &quot;max_drawdown&quot;: 12.38,
+          &quot;annual_turnover&quot;: 0.0,
+          &quot;annual_cost_pct&quot;: 0.0,
+          &quot;oos_stability&quot;: 0.0,
+          &quot;annual_return&quot;: -0.09,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 3.77,
+              &quot;max_drawdown&quot;: 4.76,
+              &quot;annual_return&quot;: 62.48,
+              &quot;excess_return&quot;: -13.52
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -4.12,
+              &quot;max_drawdown&quot;: 8.19,
+              &quot;annual_return&quot;: -28.33,
+              &quot;excess_return&quot;: 3.77
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -2.98,
+              &quot;max_drawdown&quot;: 5.03,
+              &quot;annual_return&quot;: -17.52,
+              &quot;excess_return&quot;: 1.24
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.58,
+              &quot;max_drawdown&quot;: 6.73,
+              &quot;annual_return&quot;: 32.3,
+              &quot;excess_return&quot;: -4.17
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: -7.16,
+          &quot;oos_sharpe&quot;: 1.51,
+          &quot;max_drawdown&quot;: 6.06,
+          &quot;annual_turnover&quot;: 0.0,
+          &quot;annual_return&quot;: 18.19
+        }
+      },
+      &quot;score&quot;: 24.649286,
+      &quot;baseline_score&quot;: 21.971562,
+      &quot;score_improvement_pct&quot;: 12.187226379262436,
+      &quot;accepted&quot;: false,
+      &quot;reasons&quot;: [
+        &quot;oos_24_excess_return&quot;,
+        &quot;oos_sharpe&quot;
+      ],
+      &quot;metadata&quot;: {
+        &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+        &quot;search_profile&quot;: &quot;sector_cap70_top2&quot;
+      }
+    }
+  ],
+  &quot;reason&quot;: &quot;best_candidate_passed_all_gates&quot;,
+  &quot;budget&quot;: {
+    &quot;stop_reason&quot;: &quot;input_exhausted&quot;,
+    &quot;evaluated_candidates&quot;: 12,
+    &quot;max_candidates&quot;: 20,
+    &quot;selection_method&quot;: &quot;evaluate_all_within_budget_then_rank_accepted&quot;
+  },
+  &quot;selection&quot;: {
+    &quot;method&quot;: &quot;hard_gates_then_score_desc&quot;,
+    &quot;evaluated&quot;: 12,
+    &quot;accepted&quot;: 2,
+    &quot;selected&quot;: {
+      &quot;optimization_stage&quot;: &quot;risk_parameter_control&quot;,
+      &quot;search_profile&quot;: &quot;sector_penalty07&quot;
+    }
+  },
+  &quot;created_at&quot;: &quot;2026-08-22T10:37:00.859599+00:00&quot;,
+  &quot;diagnostics&quot;: {
+    &quot;attribution&quot;: {
+      &quot;allocation_effect&quot;: 1.0451204244006476,
+      &quot;selection_effect&quot;: 11.974788185556513,
+      &quot;total_excess&quot;: 13.01990860995716,
+      &quot;sector_breakdown&quot;: [
+        {
+          &quot;赛道&quot;: &quot;宽基&quot;,
+          &quot;策略权重&quot;: 0.8467875712969772,
+          &quot;基准权重&quot;: 1.0,
+          &quot;配置收益(%)&quot;: 4.3733392157149203e-14
+        },
+        {
+          &quot;赛道&quot;: &quot;海外&quot;,
+          &quot;策略权重&quot;: 0.425943514259684,
+          &quot;基准权重&quot;: 0.0,
+          &quot;配置收益(%)&quot;: -1.159777410566636
+        },
+        {
+          &quot;赛道&quot;: &quot;科技&quot;,
+          &quot;策略权重&quot;: 0.4338445176926145,
+          &quot;基准权重&quot;: 0.0,
+          &quot;配置收益(%)&quot;: -1.787002590038233
+        },
+        {
+          &quot;赛道&quot;: &quot;红利&quot;,
+          &quot;策略权重&quot;: 0.10074218274729285,
+          &quot;基准权重&quot;: 0.0,
+          &quot;配置收益(%)&quot;: 0.3326271198976336
+        },
+        {
+          &quot;赛道&quot;: &quot;金融&quot;,
+          &quot;策略权重&quot;: 0.4390094648683407,
+          &quot;基准权重&quot;: 0.0,
+          &quot;配置收益(%)&quot;: 3.659273305107839
+        }
+      ],
+      &quot;period_breakdown&quot;: [
+        {
+          &quot;期间起始&quot;: &quot;2023-07-04&quot;,
+          &quot;期间结束&quot;: &quot;2023-07-05&quot;,
+          &quot;配置收益(%)&quot;: 0.0,
+          &quot;选品收益(%)&quot;: 0.09060159853516458,
+          &quot;总超额(%)&quot;: 0.09060159853516458
+        },
+        {
+          &quot;期间起始&quot;: &quot;2023-07-05&quot;,
+          &quot;期间结束&quot;: &quot;2023-09-27&quot;,
+          &quot;配置收益(%)&quot;: 1.6556217828893134,
+          &quot;选品收益(%)&quot;: -1.3587599866080202,
+          &quot;总超额(%)&quot;: 0.29686179628129317
+        },
+        {
+          &quot;期间起始&quot;: &quot;2023-09-27&quot;,
+          &quot;期间结束&quot;: &quot;2023-12-28&quot;,
+          &quot;配置收益(%)&quot;: 4.930380657631324e-30,
+          &quot;选品收益(%)&quot;: 1.1531635782097323,
+          &quot;总超额(%)&quot;: 1.1531635782097323
+        },
+        {
+          &quot;期间起始&quot;: &quot;2023-12-28&quot;,
+          &quot;期间结束&quot;: &quot;2024-04-01&quot;,
+          &quot;配置收益(%)&quot;: -1.159777410566636,
+          &quot;选品收益(%)&quot;: 3.7495519646374245,
+          &quot;总超额(%)&quot;: 2.589774554070788
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-04-01&quot;,
+          &quot;期间结束&quot;: &quot;2024-07-02&quot;,
+          &quot;配置收益(%)&quot;: 0.0,
+          &quot;选品收益(%)&quot;: -3.101892477613679,
+          &quot;总超额(%)&quot;: -3.101892477613679
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-07-02&quot;,
+          &quot;期间结束&quot;: &quot;2024-09-26&quot;,
+          &quot;配置收益(%)&quot;: -1.787002590038233,
+          &quot;选品收益(%)&quot;: -1.4535673256173696,
+          &quot;总超额(%)&quot;: -3.2405699156556027
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-09-26&quot;,
+          &quot;期间结束&quot;: &quot;2024-12-26&quot;,
+          &quot;配置收益(%)&quot;: 0.0,
+          &quot;选品收益(%)&quot;: 3.1005838509496413,
+          &quot;总超额(%)&quot;: 3.1005838509496413
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-12-26&quot;,
+          &quot;期间结束&quot;: &quot;2025-03-31&quot;,
+          &quot;配置收益(%)&quot;: 0.0,
+          &quot;选品收益(%)&quot;: 0.8117899559682871,
+          &quot;总超额(%)&quot;: 0.8117899559682871
+        },
+        {
+          &quot;期间起始&quot;: &quot;2025-03-31&quot;,
+          &quot;期间结束&quot;: &quot;2025-09-22&quot;,
+          &quot;配置收益(%)&quot;: -1.7256332301709633e-29,
+          &quot;选品收益(%)&quot;: 4.814270847933793,
+          &quot;总超额(%)&quot;: 4.814270847933793
+        },
+        {
+          &quot;期间起始&quot;: &quot;2025-09-22&quot;,
+          &quot;期间结束&quot;: &quot;2025-12-23&quot;,
+          &quot;配置收益(%)&quot;: 0.0,
+          &quot;选品收益(%)&quot;: -0.9268277531444278,
+          &quot;总超额(%)&quot;: -0.9268277531444278
+        },
+        {
+          &quot;期间起始&quot;: &quot;2025-12-23&quot;,
+          &quot;期间结束&quot;: &quot;2026-03-27&quot;,
+          &quot;配置收益(%)&quot;: 2.3362786421162034,
+          &quot;选品收益(%)&quot;: 2.18771393257934,
+          &quot;总超额(%)&quot;: 4.5239925746955425
+        },
+        {
+          &quot;期间起始&quot;: &quot;2026-03-27&quot;,
+          &quot;期间结束&quot;: &quot;2026-07-02&quot;,
+          &quot;配置收益(%)&quot;: 0.0,
+          &quot;选品收益(%)&quot;: 2.9081599997266276,
+          &quot;总超额(%)&quot;: 2.9081599997266276
+        }
+      ],
+      &quot;hold_return&quot;: 27.880931989076487,
+      &quot;switch_return&quot;: 9.444388765598287,
+      &quot;switch_win_rate&quot;: 0.5454545454545454,
+      &quot;rolling_ir&quot;: -0.0023056650177809587,
+      &quot;etf_switch_breakdown&quot;: [
+        {
+          &quot;ETF&quot;: &quot;510300&quot;,
+          &quot;持有收益(%)&quot;: 6.387197692393645,
+          &quot;换仓收益(%)&quot;: 4.887783589586929,
+          &quot;总收益(%)&quot;: 11.274981281980574
+        },
+        {
+          &quot;ETF&quot;: &quot;510500&quot;,
+          &quot;持有收益(%)&quot;: 11.872812971586324,
+          &quot;换仓收益(%)&quot;: 6.691168798375882,
+          &quot;总收益(%)&quot;: 18.563981769962208
+        },
+        {
+          &quot;ETF&quot;: &quot;510880&quot;,
+          &quot;持有收益(%)&quot;: 0.0,
+          &quot;换仓收益(%)&quot;: 0.45450170642435306,
+          &quot;总收益(%)&quot;: 0.45450170642435306
+        },
+        {
+          &quot;ETF&quot;: &quot;512100&quot;,
+          &quot;持有收益(%)&quot;: 9.620921325096516,
+          &quot;换仓收益(%)&quot;: -4.562124688724064,
+          &quot;总收益(%)&quot;: 5.058796636372451
+        },
+        {
+          &quot;ETF&quot;: &quot;512990&quot;,
+          &quot;持有收益(%)&quot;: 0.0,
+          &quot;换仓收益(%)&quot;: -1.9287727436541724,
+          &quot;总收益(%)&quot;: -1.9287727436541724
+        },
+        {
+          &quot;ETF&quot;: &quot;513100&quot;,
+          &quot;持有收益(%)&quot;: 0.0,
+          &quot;换仓收益(%)&quot;: 4.483615939575626,
+          &quot;总收益(%)&quot;: 4.483615939575626
+        },
+        {
+          &quot;ETF&quot;: &quot;515000&quot;,
+          &quot;持有收益(%)&quot;: 0.0,
+          &quot;换仓收益(%)&quot;: -0.5817838359862647,
+          &quot;总收益(%)&quot;: -0.5817838359862647
+        }
+      ],
+      &quot;switch_period_breakdown&quot;: [
+        {
+          &quot;期间起始&quot;: &quot;2023-07-05&quot;,
+          &quot;期间结束&quot;: &quot;2023-09-27&quot;,
+          &quot;持有收益(%)&quot;: -4.295002079882691,
+          &quot;换仓收益(%)&quot;: 1.2900978152476845,
+          &quot;总收益(%)&quot;: -3.004904264635007
+        },
+        {
+          &quot;期间起始&quot;: &quot;2023-09-27&quot;,
+          &quot;期间结束&quot;: &quot;2023-12-28&quot;,
+          &quot;持有收益(%)&quot;: -3.2388694966130727,
+          &quot;换仓收益(%)&quot;: -3.257516951646225,
+          &quot;总收益(%)&quot;: -6.4963864482592975
+        },
+        {
+          &quot;期间起始&quot;: &quot;2023-12-28&quot;,
+          &quot;期间结束&quot;: &quot;2024-04-01&quot;,
+          &quot;持有收益(%)&quot;: 1.444111958737847,
+          &quot;换仓收益(%)&quot;: 3.868505816886391,
+          &quot;总收益(%)&quot;: 5.312617775624238
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-04-01&quot;,
+          &quot;期间结束&quot;: &quot;2024-07-02&quot;,
+          &quot;持有收益(%)&quot;: -3.1901751875091833,
+          &quot;换仓收益(%)&quot;: -2.3670744329616356,
+          &quot;总收益(%)&quot;: -5.557249620470818
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-07-02&quot;,
+          &quot;期间结束&quot;: &quot;2024-09-26&quot;,
+          &quot;持有收益(%)&quot;: 2.579162616938708,
+          &quot;换仓收益(%)&quot;: -1.7007393975828597,
+          &quot;总收益(%)&quot;: 0.8784232193558481
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-09-26&quot;,
+          &quot;期间结束&quot;: &quot;2024-12-26&quot;,
+          &quot;持有收益(%)&quot;: 8.490174189500149,
+          &quot;换仓收益(%)&quot;: 6.506014057053891,
+          &quot;总收益(%)&quot;: 14.996188246554038
+        },
+        {
+          &quot;期间起始&quot;: &quot;2024-12-26&quot;,
+          &quot;期间结束&quot;: &quot;2025-03-31&quot;,
+          &quot;持有收益(%)&quot;: -2.1215298463434515,
+          &quot;换仓收益(%)&quot;: 0.7481982702714595,
+          &quot;总收益(%)&quot;: -1.3733315760719922
+        },
+        {
+          &quot;期间起始&quot;: &quot;2025-03-31&quot;,
+          &quot;期间结束&quot;: &quot;2025-09-22&quot;,
+          &quot;持有收益(%)&quot;: 20.986675527738885,
+          &quot;换仓收益(%)&quot;: -0.23364965972478627,
+          &quot;总收益(%)&quot;: 20.7530258680141
+        },
+        {
+          &quot;期间起始&quot;: &quot;2025-09-22&quot;,
+          &quot;期间结束&quot;: &quot;2025-12-23&quot;,
+          &quot;持有收益(%)&quot;: 1.2815664408897747,
+          &quot;换仓收益(%)&quot;: 0.4112204411682362,
+          &quot;总收益(%)&quot;: 1.692786882058011
+        },
+        {
+          &quot;期间起始&quot;: &quot;2025-12-23&quot;,
+          &quot;期间结束&quot;: &quot;2026-03-27&quot;,
+          &quot;持有收益(%)&quot;: 0.45952411808271276,
+          &quot;换仓收益(%)&quot;: -0.8300463113196592,
+          &quot;总收益(%)&quot;: -0.37052219323694646
+        },
+        {
+          &quot;期间起始&quot;: &quot;2026-03-27&quot;,
+          &quot;期间结束&quot;: &quot;2026-07-02&quot;,
+          &quot;持有收益(%)&quot;: 5.485293747536807,
+          &quot;换仓收益(%)&quot;: 5.009379118205791,
+          &quot;总收益(%)&quot;: 10.494672865742597
+        }
+      ],
+      &quot;benchmark_type&quot;: &quot;510300_proxy&quot;,
+      &quot;total_periods&quot;: 12,
+      &quot;benchmark_fallback_reason&quot;: &quot;CSI300 基准未配置数据源&quot;
+    },
+    &quot;attribution_error&quot;: null,
+    &quot;factor_attribution&quot;: {
+      &quot;method&quot;: &quot;leave_one_factor_out_with_fixed_weights&quot;,
+      &quot;baseline_total_return_pct&quot;: 19.642903471999986,
+      &quot;factors&quot;: [
+        {
+          &quot;factor&quot;: &quot;volatility_60d&quot;,
+          &quot;weight&quot;: 0.20662725,
+          &quot;rank_ic&quot;: -0.10069046315408835,
+          &quot;icir&quot;: 0.30453456133248813,
+          &quot;five_group_returns&quot;: [
+            {
+              &quot;group&quot;: 1,
+              &quot;forward_return&quot;: 0.018055644475215415,
+              &quot;observations&quot;: 120
+            },
+            {
+              &quot;group&quot;: 2,
+              &quot;forward_return&quot;: 0.01854343958902308,
+              &quot;observations&quot;: 120
+            },
+            {
+              &quot;group&quot;: 3,
+              &quot;forward_return&quot;: 0.041218004306917785,
+              &quot;observations&quot;: 120
+            },
+            {
+              &quot;group&quot;: 4,
+              &quot;forward_return&quot;: 0.02837972655820843,
+              &quot;observations&quot;: 108
+            },
+            {
+              &quot;group&quot;: 5,
+              &quot;forward_return&quot;: 0.01443834101777112,
+              &quot;observations&quot;: 108
+            }
+          ],
+          &quot;without_factor_return_pct&quot;: 27.275366636000015,
+          &quot;marginal_contribution_pct_points&quot;: -7.632463164000029,
+          &quot;status&quot;: &quot;available&quot;,
+          &quot;error&quot;: null,
+          &quot;actual_return_contribution_pct_points&quot;: -2.78471516339274
+        },
+        {
+          &quot;factor&quot;: &quot;momentum_120d&quot;,
+          &quot;weight&quot;: 0.3765946,
+          &quot;rank_ic&quot;: 0.13821645679548417,
+          &quot;icir&quot;: 0.5047963719457199,
+          &quot;five_group_returns&quot;: [
+            {
+              &quot;group&quot;: 1,
+              &quot;forward_return&quot;: 0.030747113948091986,
+              &quot;observations&quot;: 120
+            },
+            {
+              &quot;group&quot;: 2,
+              &quot;forward_return&quot;: 0.026384302232070684,
+              &quot;observations&quot;: 120
+            },
+            {
+              &quot;group&quot;: 3,
+              &quot;forward_return&quot;: 0.022463489272095058,
+              &quot;observations&quot;: 120
+            },
+            {
+              &quot;group&quot;: 4,
+              &quot;forward_return&quot;: 0.025852256902571338,
+              &quot;observations&quot;: 108
+            },
+            {
+              &quot;group&quot;: 5,
+              &quot;forward_return&quot;: 0.014990458361073272,
+              &quot;observations&quot;: 108
+            }
+          ],
+          &quot;without_factor_return_pct&quot;: 46.60047555900002,
+          &quot;marginal_contribution_pct_points&quot;: -26.95757208700003,
+          &quot;status&quot;: &quot;available&quot;,
+          &quot;error&quot;: null,
+          &quot;actual_return_contribution_pct_points&quot;: -9.835508949849885
+        },
+        {
+          &quot;factor&quot;: &quot;pe_percentile&quot;,
+          &quot;weight&quot;: 0.22853166,
+          &quot;rank_ic&quot;: -0.04986975300341701,
+          &quot;icir&quot;: 0.28439707340734,
+          &quot;five_group_returns&quot;: [
+            {
+              &quot;group&quot;: 1,
+              &quot;forward_return&quot;: 0.030656112894189763,
+              &quot;observations&quot;: 106
+            },
+            {
+              &quot;group&quot;: 2,
+              &quot;forward_return&quot;: 0.013283152635100893,
+              &quot;observations&quot;: 106
+            },
+            {
+              &quot;group&quot;: 3,
+              &quot;forward_return&quot;: 0.025521050913804216,
+              &quot;observations&quot;: 106
+            },
+            {
+              &quot;group&quot;: 4,
+              &quot;forward_return&quot;: 0.028696896188777816,
+              &quot;observations&quot;: 105
+            },
+            {
+              &quot;group&quot;: 5,
+              &quot;forward_return&quot;: 0.02157394821004688,
+              &quot;observations&quot;: 94
+            }
+          ],
+          &quot;without_factor_return_pct&quot;: 12.617994151000003,
+          &quot;marginal_contribution_pct_points&quot;: 7.024909320999983,
+          &quot;status&quot;: &quot;available&quot;,
+          &quot;error&quot;: null,
+          &quot;actual_return_contribution_pct_points&quot;: 2.56304826991073
+        },
+        {
+          &quot;factor&quot;: &quot;dividend_yield&quot;,
+          &quot;weight&quot;: 0.18824649,
+          &quot;rank_ic&quot;: 0.039243348233078505,
+          &quot;icir&quot;: 0.10856627160075744,
+          &quot;five_group_returns&quot;: [
+            {
+              &quot;group&quot;: 1,
+              &quot;forward_return&quot;: 0.02827519199267488,
+              &quot;observations&quot;: 60
+            },
+            {
+              &quot;group&quot;: 2,
+              &quot;forward_return&quot;: 0.004010928874489422,
+              &quot;observations&quot;: 60
+            },
+            {
+              &quot;group&quot;: 3,
+              &quot;forward_return&quot;: 0.04197567995488775,
+              &quot;observations&quot;: 60
+            },
+            {
+              &quot;group&quot;: 4,
+              &quot;forward_return&quot;: 0.03514789553908568,
+              &quot;observations&quot;: 60
+            },
+            {
+              &quot;group&quot;: 5,
+              &quot;forward_return&quot;: 0.01445974338722541,
+              &quot;observations&quot;: 60
+            }
+          ],
+          &quot;without_factor_return_pct&quot;: 31.866045881000023,
+          &quot;marginal_contribution_pct_points&quot;: -12.223142409000037,
+          &quot;status&quot;: &quot;available&quot;,
+          &quot;error&quot;: null,
+          &quot;actual_return_contribution_pct_points&quot;: -4.459631088846633
+        }
+      ]
+    },
+    &quot;industry_exposure&quot;: {
+      &quot;snapshots&quot;: [
+        {
+          &quot;date&quot;: &quot;2023-07-04&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 1.0
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2023-07-05&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.49856478250011205,
+            &quot;金融&quot;: 0.40069303475259505,
+            &quot;红利&quot;: 0.10074218274729285
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2023-09-27&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.9999999999999998
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2023-12-28&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.5740564857403159,
+            &quot;海外&quot;: 0.425943514259684
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2024-04-01&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 1.0
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2024-07-02&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.5661554823073855,
+            &quot;科技&quot;: 0.4338445176926145
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2024-09-26&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 1.0
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2024-12-26&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.9999999999999998
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2025-03-31&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.9999999999999999
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2025-09-22&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 1.0
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2025-12-23&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 0.5226741050159136,
+            &quot;金融&quot;: 0.4773258949840863
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2026-03-27&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 1.0
+          }
+        },
+        {
+          &quot;date&quot;: &quot;2026-07-02&quot;,
+          &quot;weights&quot;: {
+            &quot;宽基&quot;: 1.0
+          }
+        }
+      ],
+      &quot;summary&quot;: [
+        {
+          &quot;sector&quot;: &quot;宽基&quot;,
+          &quot;average_exposure_pct&quot;: 85.857314,
+          &quot;max_exposure_pct&quot;: 100.0,
+          &quot;latest_exposure_pct&quot;: 100.0
+        },
+        {
+          &quot;sector&quot;: &quot;海外&quot;,
+          &quot;average_exposure_pct&quot;: 3.276489,
+          &quot;max_exposure_pct&quot;: 42.594351,
+          &quot;latest_exposure_pct&quot;: 0.0
+        },
+        {
+          &quot;sector&quot;: &quot;科技&quot;,
+          &quot;average_exposure_pct&quot;: 3.337266,
+          &quot;max_exposure_pct&quot;: 43.384452,
+          &quot;latest_exposure_pct&quot;: 0.0
+        },
+        {
+          &quot;sector&quot;: &quot;红利&quot;,
+          &quot;average_exposure_pct&quot;: 0.77494,
+          &quot;max_exposure_pct&quot;: 10.074218,
+          &quot;latest_exposure_pct&quot;: 0.0
+        },
+        {
+          &quot;sector&quot;: &quot;金融&quot;,
+          &quot;average_exposure_pct&quot;: 6.753992,
+          &quot;max_exposure_pct&quot;: 47.732589,
+          &quot;latest_exposure_pct&quot;: 0.0
+        }
+      ],
+      &quot;sample_count&quot;: 13
+    },
+    &quot;style_exposure&quot;: {
+      &quot;momentum&quot;: {
+        &quot;available&quot;: true,
+        &quot;sample_count&quot;: 48,
+        &quot;exposure&quot;: 0.477851,
+        &quot;proxy&quot;: &quot;横截面标准化后的现有行情字段&quot;
+      },
+      &quot;value&quot;: {
+        &quot;available&quot;: false,
+        &quot;sample_count&quot;: 0,
+        &quot;exposure&quot;: null
+      },
+      &quot;volatility&quot;: {
+        &quot;available&quot;: true,
+        &quot;sample_count&quot;: 48,
+        &quot;exposure&quot;: -0.265417,
+        &quot;proxy&quot;: &quot;横截面标准化后的现有行情字段&quot;
+      },
+      &quot;liquidity&quot;: {
+        &quot;available&quot;: true,
+        &quot;sample_count&quot;: 48,
+        &quot;exposure&quot;: 2.765159,
+        &quot;proxy&quot;: &quot;横截面标准化后的现有行情字段&quot;
+      },
+      &quot;size_proxy&quot;: {
+        &quot;available&quot;: true,
+        &quot;sample_count&quot;: 48,
+        &quot;exposure&quot;: 1.559099,
+        &quot;proxy&quot;: &quot;横截面标准化后的现有行情字段&quot;
+      }
+    },
+    &quot;decision&quot;: {
+      &quot;action&quot;: &quot;adjust_parameters&quot;,
+      &quot;reason&quot;: &quot;因子未同时满足替换条件，但绩效或成本存在问题，进入参数调整阶段。&quot;,
+      &quot;failed_factors&quot;: [
+        &quot;avg_amount_20d&quot;,
+        &quot;momentum_20d&quot;,
+        &quot;pe_percentile&quot;,
+        &quot;reversal_20d&quot;
+      ],
+      &quot;negative_marginal_factors&quot;: [
+        &quot;volatility_60d&quot;,
+        &quot;momentum_120d&quot;,
+        &quot;dividend_yield&quot;
+      ],
+      &quot;replacement_targets&quot;: [],
+      &quot;performance_problems&quot;: [
+        &quot;12_month_oos_excess_return&quot;,
+        &quot;24_month_oos_excess_return&quot;
+      ],
+      &quot;stages&quot;: [
+        &quot;parameter_adjustment&quot;,
+        &quot;oos_revalidation&quot;,
+        &quot;final_holdout_and_stress_test&quot;,
+        &quot;publish_immediately_if_all_gates_pass&quot;
+      ]
+    },
+    &quot;next_plan&quot;: {
+      &quot;immediate_next_command&quot;: &quot;$etf-autopilot&quot;,
+      &quot;current_action&quot;: &quot;adjust_parameters&quot;,
+      &quot;next_optimization&quot;: &quot;围绕最大绩效缺口依次运行均衡参数、回撤/换手控制、收益修复三类候选，全部完成后按风险调整评分择优。&quot;,
+      &quot;expected_optimization_goal&quot;: {
+        &quot;focus&quot;: &quot;12个月 OOS 超额收益&quot;,
+        &quot;current&quot;: -6.87,
+        &quot;target&quot;: &quot;&gt;= 0&quot;,
+        &quot;success_criteria&quot;: [
+          &quot;本轮至少消除该硬门槛缺口&quot;,
+          &quot;不牺牲已通过的 OOS、回撤、成本和压力测试指标&quot;
+        ]
+      },
+      &quot;next_run&quot;: &quot;重新读取本次静态报告，使用最新可用36个月数据，按24个月OOS+12个月最终留出重新验证。&quot;,
+      &quot;continue_observing&quot;: [
+        &quot;avg_amount_20d&quot;,
+        &quot;momentum_20d&quot;,
+        &quot;pe_percentile&quot;,
+        &quot;reversal_20d&quot;
+      ],
+      &quot;rollback_triggers&quot;: [
+        &quot;数据质量失败&quot;,
+        &quot;未来函数或代码异常&quot;,
+        &quot;最大回撤超过35%&quot;,
+        &quot;连续三个评估窗口风险调整评分恶化&quot;
+      ],
+      &quot;report_root&quot;: null
+    },
+    &quot;methodology&quot;: {
+      &quot;benchmark_priority&quot;: &quot;沪深300，获取失败时使用本地510300；两者都不可用则阻断归因。&quot;,
+      &quot;factor_marginal_contribution&quot;: &quot;固定权重逐因子移除后重跑，与基线总收益差值。&quot;,
+      &quot;style_fields&quot;: [
+        &quot;momentum&quot;,
+        &quot;value&quot;,
+        &quot;volatility&quot;,
+        &quot;liquidity&quot;,
+        &quot;size_proxy&quot;
+      ],
+      &quot;data_range&quot;: {
+        &quot;start&quot;: &quot;2023-07-02&quot;,
+        &quot;end&quot;: &quot;2026-07-02&quot;
+      }
+    }
+  },
+  &quot;operation_log&quot;: [
+    {
+      &quot;operation&quot;: &quot;数据质量门禁&quot;,
+      &quot;data_range&quot;: {
+        &quot;start&quot;: &quot;2023-07-02&quot;,
+        &quot;end&quot;: &quot;2026-07-02&quot;
+      },
+      &quot;result&quot;: {
+        &quot;snapshot_id&quot;: &quot;2026-07-02-f511af0a7ae5&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;issues&quot;: [],
+        &quot;checked_at&quot;: &quot;2026-08-22T10:30:42.757585+00:00&quot;,
+        &quot;snapshot_metadata&quot;: {
+          &quot;source&quot;: &quot;tushare_primary_akshare_cross_checked&quot;,
+          &quot;start_date&quot;: &quot;2023-07-02&quot;,
+          &quot;end_date&quot;: &quot;2026-07-02&quot;,
+          &quot;data_version&quot;: &quot;tushare-akshare-v2&quot;,
+          &quot;record_count&quot;: 46751,
+          &quot;observed_dates&quot;: [
+            &quot;2022-07-04&quot;,
+            &quot;2022-07-05&quot;,
+            &quot;2022-07-06&quot;,
+            &quot;2022-07-07&quot;,
+            &quot;2022-07-08&quot;,
+            &quot;2022-07-11&quot;,
+            &quot;2022-07-12&quot;,
+            &quot;2022-07-13&quot;,
+            &quot;2022-07-14&quot;,
+            &quot;2022-07-15&quot;,
+            &quot;2022-07-18&quot;,
+            &quot;2022-07-19&quot;,
+            &quot;2022-07-20&quot;,
+            &quot;2022-07-21&quot;,
+            &quot;2022-07-22&quot;,
+            &quot;2022-07-25&quot;,
+            &quot;2022-07-26&quot;,
+            &quot;2022-07-27&quot;,
+            &quot;2022-07-28&quot;,
+            &quot;2022-07-29&quot;,
+            &quot;2022-08-01&quot;,
+            &quot;2022-08-02&quot;,
+            &quot;2022-08-03&quot;,
+            &quot;2022-08-04&quot;,
+            &quot;2022-08-05&quot;,
+            &quot;2022-08-08&quot;,
+            &quot;2022-08-09&quot;,
+            &quot;2022-08-10&quot;,
+            &quot;2022-08-11&quot;,
+            &quot;2022-08-12&quot;,
+            &quot;2022-08-15&quot;,
+            &quot;2022-08-16&quot;,
+            &quot;2022-08-17&quot;,
+            &quot;2022-08-18&quot;,
+            &quot;2022-08-19&quot;,
+            &quot;2022-08-22&quot;,
+            &quot;2022-08-23&quot;,
+            &quot;2022-08-24&quot;,
+            &quot;2022-08-25&quot;,
+            &quot;2022-08-26&quot;,
+            &quot;2022-08-29&quot;,
+            &quot;2022-08-30&quot;,
+            &quot;2022-08-31&quot;,
+            &quot;2022-09-01&quot;,
+            &quot;2022-09-02&quot;,
+            &quot;2022-09-05&quot;,
+            &quot;2022-09-06&quot;,
+            &quot;2022-09-07&quot;,
+            &quot;2022-09-08&quot;,
+            &quot;2022-09-09&quot;,
+            &quot;2022-09-13&quot;,
+            &quot;2022-09-14&quot;,
+            &quot;2022-09-15&quot;,
+            &quot;2022-09-16&quot;,
+            &quot;2022-09-19&quot;,
+            &quot;2022-09-20&quot;,
+            &quot;2022-09-21&quot;,
+            &quot;2022-09-22&quot;,
+            &quot;2022-09-23&quot;,
+            &quot;2022-09-26&quot;,
+            &quot;2022-09-27&quot;,
+            &quot;2022-09-28&quot;,
+            &quot;2022-09-29&quot;,
+            &quot;2022-09-30&quot;,
+            &quot;2022-10-10&quot;,
+            &quot;2022-10-11&quot;,
+            &quot;2022-10-12&quot;,
+            &quot;2022-10-13&quot;,
+            &quot;2022-10-14&quot;,
+            &quot;2022-10-17&quot;,
+            &quot;2022-10-18&quot;,
+            &quot;2022-10-19&quot;,
+            &quot;2022-10-20&quot;,
+            &quot;2022-10-21&quot;,
+            &quot;2022-10-24&quot;,
+            &quot;2022-10-25&quot;,
+            &quot;2022-10-26&quot;,
+            &quot;2022-10-27&quot;,
+            &quot;2022-10-28&quot;,
+            &quot;2022-10-31&quot;,
+            &quot;2022-11-01&quot;,
+            &quot;2022-11-02&quot;,
+            &quot;2022-11-03&quot;,
+            &quot;2022-11-04&quot;,
+            &quot;2022-11-07&quot;,
+            &quot;2022-11-08&quot;,
+            &quot;2022-11-09&quot;,
+            &quot;2022-11-10&quot;,
+            &quot;2022-11-11&quot;,
+            &quot;2022-11-14&quot;,
+            &quot;2022-11-15&quot;,
+            &quot;2022-11-16&quot;,
+            &quot;2022-11-17&quot;,
+            &quot;2022-11-18&quot;,
+            &quot;2022-11-21&quot;,
+            &quot;2022-11-22&quot;,
+            &quot;2022-11-23&quot;,
+            &quot;2022-11-24&quot;,
+            &quot;2022-11-25&quot;,
+            &quot;2022-11-28&quot;,
+            &quot;2022-11-29&quot;,
+            &quot;2022-11-30&quot;,
+            &quot;2022-12-01&quot;,
+            &quot;2022-12-02&quot;,
+            &quot;2022-12-05&quot;,
+            &quot;2022-12-06&quot;,
+            &quot;2022-12-07&quot;,
+            &quot;2022-12-08&quot;,
+            &quot;2022-12-09&quot;,
+            &quot;2022-12-12&quot;,
+            &quot;2022-12-13&quot;,
+            &quot;2022-12-14&quot;,
+            &quot;2022-12-15&quot;,
+            &quot;2022-12-16&quot;,
+            &quot;2022-12-19&quot;,
+            &quot;2022-12-20&quot;,
+            &quot;2022-12-21&quot;,
+            &quot;2022-12-22&quot;,
+            &quot;2022-12-23&quot;,
+            &quot;2022-12-26&quot;,
+            &quot;2022-12-27&quot;,
+            &quot;2022-12-28&quot;,
+            &quot;2022-12-29&quot;,
+            &quot;2022-12-30&quot;,
+            &quot;2023-01-03&quot;,
+            &quot;2023-01-04&quot;,
+            &quot;2023-01-05&quot;,
+            &quot;2023-01-06&quot;,
+            &quot;2023-01-09&quot;,
+            &quot;2023-01-10&quot;,
+            &quot;2023-01-11&quot;,
+            &quot;2023-01-12&quot;,
+            &quot;2023-01-13&quot;,
+            &quot;2023-01-16&quot;,
+            &quot;2023-01-17&quot;,
+            &quot;2023-01-18&quot;,
+            &quot;2023-01-19&quot;,
+            &quot;2023-01-20&quot;,
+            &quot;2023-01-30&quot;,
+            &quot;2023-01-31&quot;,
+            &quot;2023-02-01&quot;,
+            &quot;2023-02-02&quot;,
+            &quot;2023-02-03&quot;,
+            &quot;2023-02-06&quot;,
+            &quot;2023-02-07&quot;,
+            &quot;2023-02-08&quot;,
+            &quot;2023-02-09&quot;,
+            &quot;2023-02-10&quot;,
+            &quot;2023-02-13&quot;,
+            &quot;2023-02-14&quot;,
+            &quot;2023-02-15&quot;,
+            &quot;2023-02-16&quot;,
+            &quot;2023-02-17&quot;,
+            &quot;2023-02-20&quot;,
+            &quot;2023-02-21&quot;,
+            &quot;2023-02-22&quot;,
+            &quot;2023-02-23&quot;,
+            &quot;2023-02-24&quot;,
+            &quot;2023-02-27&quot;,
+            &quot;2023-02-28&quot;,
+            &quot;2023-03-01&quot;,
+            &quot;2023-03-02&quot;,
+            &quot;2023-03-03&quot;,
+            &quot;2023-03-06&quot;,
+            &quot;2023-03-07&quot;,
+            &quot;2023-03-08&quot;,
+            &quot;2023-03-09&quot;,
+            &quot;2023-03-10&quot;,
+            &quot;2023-03-13&quot;,
+            &quot;2023-03-14&quot;,
+            &quot;2023-03-15&quot;,
+            &quot;2023-03-16&quot;,
+            &quot;2023-03-17&quot;,
+            &quot;2023-03-20&quot;,
+            &quot;2023-03-21&quot;,
+            &quot;2023-03-22&quot;,
+            &quot;2023-03-23&quot;,
+            &quot;2023-03-24&quot;,
+            &quot;2023-03-27&quot;,
+            &quot;2023-03-28&quot;,
+            &quot;2023-03-29&quot;,
+            &quot;2023-03-30&quot;,
+            &quot;2023-03-31&quot;,
+            &quot;2023-04-03&quot;,
+            &quot;2023-04-04&quot;,
+            &quot;2023-04-06&quot;,
+            &quot;2023-04-07&quot;,
+            &quot;2023-04-10&quot;,
+            &quot;2023-04-11&quot;,
+            &quot;2023-04-12&quot;,
+            &quot;2023-04-13&quot;,
+            &quot;2023-04-14&quot;,
+            &quot;2023-04-17&quot;,
+            &quot;2023-04-18&quot;,
+            &quot;2023-04-19&quot;,
+            &quot;2023-04-20&quot;,
+            &quot;2023-04-21&quot;,
+            &quot;2023-04-24&quot;,
+            &quot;2023-04-25&quot;,
+            &quot;2023-04-26&quot;,
+            &quot;2023-04-27&quot;,
+            &quot;2023-04-28&quot;,
+            &quot;2023-05-04&quot;,
+            &quot;2023-05-05&quot;,
+            &quot;2023-05-08&quot;,
+            &quot;2023-05-09&quot;,
+            &quot;2023-05-10&quot;,
+            &quot;2023-05-11&quot;,
+            &quot;2023-05-12&quot;,
+            &quot;2023-05-15&quot;,
+            &quot;2023-05-16&quot;,
+            &quot;2023-05-17&quot;,
+            &quot;2023-05-18&quot;,
+            &quot;2023-05-19&quot;,
+            &quot;2023-05-22&quot;,
+            &quot;2023-05-23&quot;,
+            &quot;2023-05-24&quot;,
+            &quot;2023-05-25&quot;,
+            &quot;2023-05-26&quot;,
+            &quot;2023-05-29&quot;,
+            &quot;2023-05-30&quot;,
+            &quot;2023-05-31&quot;,
+            &quot;2023-06-01&quot;,
+            &quot;2023-06-02&quot;,
+            &quot;2023-06-05&quot;,
+            &quot;2023-06-06&quot;,
+            &quot;2023-06-07&quot;,
+            &quot;2023-06-08&quot;,
+            &quot;2023-06-09&quot;,
+            &quot;2023-06-12&quot;,
+            &quot;2023-06-13&quot;,
+            &quot;2023-06-14&quot;,
+            &quot;2023-06-15&quot;,
+            &quot;2023-06-16&quot;,
+            &quot;2023-06-19&quot;,
+            &quot;2023-06-20&quot;,
+            &quot;2023-06-21&quot;,
+            &quot;2023-06-26&quot;,
+            &quot;2023-06-27&quot;,
+            &quot;2023-06-28&quot;,
+            &quot;2023-06-29&quot;,
+            &quot;2023-06-30&quot;,
+            &quot;2023-07-03&quot;,
+            &quot;2023-07-04&quot;,
+            &quot;2023-07-05&quot;,
+            &quot;2023-07-06&quot;,
+            &quot;2023-07-07&quot;,
+            &quot;2023-07-10&quot;,
+            &quot;2023-07-11&quot;,
+            &quot;2023-07-12&quot;,
+            &quot;2023-07-13&quot;,
+            &quot;2023-07-14&quot;,
+            &quot;2023-07-17&quot;,
+            &quot;2023-07-18&quot;,
+            &quot;2023-07-19&quot;,
+            &quot;2023-07-20&quot;,
+            &quot;2023-07-21&quot;,
+            &quot;2023-07-24&quot;,
+            &quot;2023-07-25&quot;,
+            &quot;2023-07-26&quot;,
+            &quot;2023-07-27&quot;,
+            &quot;2023-07-28&quot;,
+            &quot;2023-07-31&quot;,
+            &quot;2023-08-01&quot;,
+            &quot;2023-08-02&quot;,
+            &quot;2023-08-03&quot;,
+            &quot;2023-08-04&quot;,
+            &quot;2023-08-07&quot;,
+            &quot;2023-08-08&quot;,
+            &quot;2023-08-09&quot;,
+            &quot;2023-08-10&quot;,
+            &quot;2023-08-11&quot;,
+            &quot;2023-08-14&quot;,
+            &quot;2023-08-15&quot;,
+            &quot;2023-08-16&quot;,
+            &quot;2023-08-17&quot;,
+            &quot;2023-08-18&quot;,
+            &quot;2023-08-21&quot;,
+            &quot;2023-08-22&quot;,
+            &quot;2023-08-23&quot;,
+            &quot;2023-08-24&quot;,
+            &quot;2023-08-25&quot;,
+            &quot;2023-08-28&quot;,
+            &quot;2023-08-29&quot;,
+            &quot;2023-08-30&quot;,
+            &quot;2023-08-31&quot;,
+            &quot;2023-09-01&quot;,
+            &quot;2023-09-04&quot;,
+            &quot;2023-09-05&quot;,
+            &quot;2023-09-06&quot;,
+            &quot;2023-09-07&quot;,
+            &quot;2023-09-08&quot;,
+            &quot;2023-09-11&quot;,
+            &quot;2023-09-12&quot;,
+            &quot;2023-09-13&quot;,
+            &quot;2023-09-14&quot;,
+            &quot;2023-09-15&quot;,
+            &quot;2023-09-18&quot;,
+            &quot;2023-09-19&quot;,
+            &quot;2023-09-20&quot;,
+            &quot;2023-09-21&quot;,
+            &quot;2023-09-22&quot;,
+            &quot;2023-09-25&quot;,
+            &quot;2023-09-26&quot;,
+            &quot;2023-09-27&quot;,
+            &quot;2023-09-28&quot;,
+            &quot;2023-10-09&quot;,
+            &quot;2023-10-10&quot;,
+            &quot;2023-10-11&quot;,
+            &quot;2023-10-12&quot;,
+            &quot;2023-10-13&quot;,
+            &quot;2023-10-16&quot;,
+            &quot;2023-10-17&quot;,
+            &quot;2023-10-18&quot;,
+            &quot;2023-10-19&quot;,
+            &quot;2023-10-20&quot;,
+            &quot;2023-10-23&quot;,
+            &quot;2023-10-24&quot;,
+            &quot;2023-10-25&quot;,
+            &quot;2023-10-26&quot;,
+            &quot;2023-10-27&quot;,
+            &quot;2023-10-30&quot;,
+            &quot;2023-10-31&quot;,
+            &quot;2023-11-01&quot;,
+            &quot;2023-11-02&quot;,
+            &quot;2023-11-03&quot;,
+            &quot;2023-11-06&quot;,
+            &quot;2023-11-07&quot;,
+            &quot;2023-11-08&quot;,
+            &quot;2023-11-09&quot;,
+            &quot;2023-11-10&quot;,
+            &quot;2023-11-13&quot;,
+            &quot;2023-11-14&quot;,
+            &quot;2023-11-15&quot;,
+            &quot;2023-11-16&quot;,
+            &quot;2023-11-17&quot;,
+            &quot;2023-11-20&quot;,
+            &quot;2023-11-21&quot;,
+            &quot;2023-11-22&quot;,
+            &quot;2023-11-23&quot;,
+            &quot;2023-11-24&quot;,
+            &quot;2023-11-27&quot;,
+            &quot;2023-11-28&quot;,
+            &quot;2023-11-29&quot;,
+            &quot;2023-11-30&quot;,
+            &quot;2023-12-01&quot;,
+            &quot;2023-12-04&quot;,
+            &quot;2023-12-05&quot;,
+            &quot;2023-12-06&quot;,
+            &quot;2023-12-07&quot;,
+            &quot;2023-12-08&quot;,
+            &quot;2023-12-11&quot;,
+            &quot;2023-12-12&quot;,
+            &quot;2023-12-13&quot;,
+            &quot;2023-12-14&quot;,
+            &quot;2023-12-15&quot;,
+            &quot;2023-12-18&quot;,
+            &quot;2023-12-19&quot;,
+            &quot;2023-12-20&quot;,
+            &quot;2023-12-21&quot;,
+            &quot;2023-12-22&quot;,
+            &quot;2023-12-25&quot;,
+            &quot;2023-12-26&quot;,
+            &quot;2023-12-27&quot;,
+            &quot;2023-12-28&quot;,
+            &quot;2023-12-29&quot;,
+            &quot;2024-01-02&quot;,
+            &quot;2024-01-03&quot;,
+            &quot;2024-01-04&quot;,
+            &quot;2024-01-05&quot;,
+            &quot;2024-01-08&quot;,
+            &quot;2024-01-09&quot;,
+            &quot;2024-01-10&quot;,
+            &quot;2024-01-11&quot;,
+            &quot;2024-01-12&quot;,
+            &quot;2024-01-15&quot;,
+            &quot;2024-01-16&quot;,
+            &quot;2024-01-17&quot;,
+            &quot;2024-01-18&quot;,
+            &quot;2024-01-19&quot;,
+            &quot;2024-01-22&quot;,
+            &quot;2024-01-23&quot;,
+            &quot;2024-01-24&quot;,
+            &quot;2024-01-25&quot;,
+            &quot;2024-01-26&quot;,
+            &quot;2024-01-29&quot;,
+            &quot;2024-01-30&quot;,
+            &quot;2024-01-31&quot;,
+            &quot;2024-02-01&quot;,
+            &quot;2024-02-02&quot;,
+            &quot;2024-02-05&quot;,
+            &quot;2024-02-06&quot;,
+            &quot;2024-02-07&quot;,
+            &quot;2024-02-08&quot;,
+            &quot;2024-02-19&quot;,
+            &quot;2024-02-20&quot;,
+            &quot;2024-02-21&quot;,
+            &quot;2024-02-22&quot;,
+            &quot;2024-02-23&quot;,
+            &quot;2024-02-26&quot;,
+            &quot;2024-02-27&quot;,
+            &quot;2024-02-28&quot;,
+            &quot;2024-02-29&quot;,
+            &quot;2024-03-01&quot;,
+            &quot;2024-03-04&quot;,
+            &quot;2024-03-05&quot;,
+            &quot;2024-03-06&quot;,
+            &quot;2024-03-07&quot;,
+            &quot;2024-03-08&quot;,
+            &quot;2024-03-11&quot;,
+            &quot;2024-03-12&quot;,
+            &quot;2024-03-13&quot;,
+            &quot;2024-03-14&quot;,
+            &quot;2024-03-15&quot;,
+            &quot;2024-03-18&quot;,
+            &quot;2024-03-19&quot;,
+            &quot;2024-03-20&quot;,
+            &quot;2024-03-21&quot;,
+            &quot;2024-03-22&quot;,
+            &quot;2024-03-25&quot;,
+            &quot;2024-03-26&quot;,
+            &quot;2024-03-27&quot;,
+            &quot;2024-03-28&quot;,
+            &quot;2024-03-29&quot;,
+            &quot;2024-04-01&quot;,
+            &quot;2024-04-02&quot;,
+            &quot;2024-04-03&quot;,
+            &quot;2024-04-08&quot;,
+            &quot;2024-04-09&quot;,
+            &quot;2024-04-10&quot;,
+            &quot;2024-04-11&quot;,
+            &quot;2024-04-12&quot;,
+            &quot;2024-04-15&quot;,
+            &quot;2024-04-16&quot;,
+            &quot;2024-04-17&quot;,
+            &quot;2024-04-18&quot;,
+            &quot;2024-04-19&quot;,
+            &quot;2024-04-22&quot;,
+            &quot;2024-04-23&quot;,
+            &quot;2024-04-24&quot;,
+            &quot;2024-04-25&quot;,
+            &quot;2024-04-26&quot;,
+            &quot;2024-04-29&quot;,
+            &quot;2024-04-30&quot;,
+            &quot;2024-05-06&quot;,
+            &quot;2024-05-07&quot;,
+            &quot;2024-05-08&quot;,
+            &quot;2024-05-09&quot;,
+            &quot;2024-05-10&quot;,
+            &quot;2024-05-13&quot;,
+            &quot;2024-05-14&quot;,
+            &quot;2024-05-15&quot;,
+            &quot;2024-05-16&quot;,
+            &quot;2024-05-17&quot;,
+            &quot;2024-05-20&quot;,
+            &quot;2024-05-21&quot;,
+            &quot;2024-05-22&quot;,
+            &quot;2024-05-23&quot;,
+            &quot;2024-05-24&quot;,
+            &quot;2024-05-27&quot;,
+            &quot;2024-05-28&quot;,
+            &quot;2024-05-29&quot;,
+            &quot;2024-05-30&quot;,
+            &quot;2024-05-31&quot;,
+            &quot;2024-06-03&quot;,
+            &quot;2024-06-04&quot;,
+            &quot;2024-06-05&quot;,
+            &quot;2024-06-06&quot;,
+            &quot;2024-06-07&quot;,
+            &quot;2024-06-11&quot;,
+            &quot;2024-06-12&quot;,
+            &quot;2024-06-13&quot;,
+            &quot;2024-06-14&quot;,
+            &quot;2024-06-17&quot;,
+            &quot;2024-06-18&quot;,
+            &quot;2024-06-19&quot;,
+            &quot;2024-06-20&quot;,
+            &quot;2024-06-21&quot;,
+            &quot;2024-06-24&quot;,
+            &quot;2024-06-25&quot;,
+            &quot;2024-06-26&quot;,
+            &quot;2024-06-27&quot;,
+            &quot;2024-06-28&quot;,
+            &quot;2024-07-01&quot;,
+            &quot;2024-07-02&quot;,
+            &quot;2024-07-03&quot;,
+            &quot;2024-07-04&quot;,
+            &quot;2024-07-05&quot;,
+            &quot;2024-07-08&quot;,
+            &quot;2024-07-09&quot;,
+            &quot;2024-07-10&quot;,
+            &quot;2024-07-11&quot;,
+            &quot;2024-07-12&quot;,
+            &quot;2024-07-15&quot;,
+            &quot;2024-07-16&quot;,
+            &quot;2024-07-17&quot;,
+            &quot;2024-07-18&quot;,
+            &quot;2024-07-19&quot;,
+            &quot;2024-07-22&quot;,
+            &quot;2024-07-23&quot;,
+            &quot;2024-07-24&quot;,
+            &quot;2024-07-25&quot;,
+            &quot;2024-07-26&quot;,
+            &quot;2024-07-29&quot;,
+            &quot;2024-07-30&quot;,
+            &quot;2024-07-31&quot;,
+            &quot;2024-08-01&quot;,
+            &quot;2024-08-02&quot;,
+            &quot;2024-08-05&quot;,
+            &quot;2024-08-06&quot;,
+            &quot;2024-08-07&quot;,
+            &quot;2024-08-08&quot;,
+            &quot;2024-08-09&quot;,
+            &quot;2024-08-12&quot;,
+            &quot;2024-08-13&quot;,
+            &quot;2024-08-14&quot;,
+            &quot;2024-08-15&quot;,
+            &quot;2024-08-16&quot;,
+            &quot;2024-08-19&quot;,
+            &quot;2024-08-20&quot;,
+            &quot;2024-08-21&quot;,
+            &quot;2024-08-22&quot;,
+            &quot;2024-08-23&quot;,
+            &quot;2024-08-26&quot;,
+            &quot;2024-08-27&quot;,
+            &quot;2024-08-28&quot;,
+            &quot;2024-08-29&quot;,
+            &quot;2024-08-30&quot;,
+            &quot;2024-09-02&quot;,
+            &quot;2024-09-03&quot;,
+            &quot;2024-09-04&quot;,
+            &quot;2024-09-05&quot;,
+            &quot;2024-09-06&quot;,
+            &quot;2024-09-09&quot;,
+            &quot;2024-09-10&quot;,
+            &quot;2024-09-11&quot;,
+            &quot;2024-09-12&quot;,
+            &quot;2024-09-13&quot;,
+            &quot;2024-09-18&quot;,
+            &quot;2024-09-19&quot;,
+            &quot;2024-09-20&quot;,
+            &quot;2024-09-23&quot;,
+            &quot;2024-09-24&quot;,
+            &quot;2024-09-25&quot;,
+            &quot;2024-09-26&quot;,
+            &quot;2024-09-27&quot;,
+            &quot;2024-09-30&quot;,
+            &quot;2024-10-08&quot;,
+            &quot;2024-10-09&quot;,
+            &quot;2024-10-10&quot;,
+            &quot;2024-10-11&quot;,
+            &quot;2024-10-14&quot;,
+            &quot;2024-10-15&quot;,
+            &quot;2024-10-16&quot;,
+            &quot;2024-10-17&quot;,
+            &quot;2024-10-18&quot;,
+            &quot;2024-10-21&quot;,
+            &quot;2024-10-22&quot;,
+            &quot;2024-10-23&quot;,
+            &quot;2024-10-24&quot;,
+            &quot;2024-10-25&quot;,
+            &quot;2024-10-28&quot;,
+            &quot;2024-10-29&quot;,
+            &quot;2024-10-30&quot;,
+            &quot;2024-10-31&quot;,
+            &quot;2024-11-01&quot;,
+            &quot;2024-11-04&quot;,
+            &quot;2024-11-05&quot;,
+            &quot;2024-11-06&quot;,
+            &quot;2024-11-07&quot;,
+            &quot;2024-11-08&quot;,
+            &quot;2024-11-11&quot;,
+            &quot;2024-11-12&quot;,
+            &quot;2024-11-13&quot;,
+            &quot;2024-11-14&quot;,
+            &quot;2024-11-15&quot;,
+            &quot;2024-11-18&quot;,
+            &quot;2024-11-19&quot;,
+            &quot;2024-11-20&quot;,
+            &quot;2024-11-21&quot;,
+            &quot;2024-11-22&quot;,
+            &quot;2024-11-25&quot;,
+            &quot;2024-11-26&quot;,
+            &quot;2024-11-27&quot;,
+            &quot;2024-11-28&quot;,
+            &quot;2024-11-29&quot;,
+            &quot;2024-12-02&quot;,
+            &quot;2024-12-03&quot;,
+            &quot;2024-12-04&quot;,
+            &quot;2024-12-05&quot;,
+            &quot;2024-12-06&quot;,
+            &quot;2024-12-09&quot;,
+            &quot;2024-12-10&quot;,
+            &quot;2024-12-11&quot;,
+            &quot;2024-12-12&quot;,
+            &quot;2024-12-13&quot;,
+            &quot;2024-12-16&quot;,
+            &quot;2024-12-17&quot;,
+            &quot;2024-12-18&quot;,
+            &quot;2024-12-19&quot;,
+            &quot;2024-12-20&quot;,
+            &quot;2024-12-23&quot;,
+            &quot;2024-12-24&quot;,
+            &quot;2024-12-25&quot;,
+            &quot;2024-12-26&quot;,
+            &quot;2024-12-27&quot;,
+            &quot;2024-12-30&quot;,
+            &quot;2024-12-31&quot;,
+            &quot;2025-01-02&quot;,
+            &quot;2025-01-03&quot;,
+            &quot;2025-01-06&quot;,
+            &quot;2025-01-07&quot;,
+            &quot;2025-01-08&quot;,
+            &quot;2025-01-09&quot;,
+            &quot;2025-01-10&quot;,
+            &quot;2025-01-13&quot;,
+            &quot;2025-01-14&quot;,
+            &quot;2025-01-15&quot;,
+            &quot;2025-01-16&quot;,
+            &quot;2025-01-17&quot;,
+            &quot;2025-01-20&quot;,
+            &quot;2025-01-21&quot;,
+            &quot;2025-01-22&quot;,
+            &quot;2025-01-23&quot;,
+            &quot;2025-01-24&quot;,
+            &quot;2025-01-27&quot;,
+            &quot;2025-02-05&quot;,
+            &quot;2025-02-06&quot;,
+            &quot;2025-02-07&quot;,
+            &quot;2025-02-10&quot;,
+            &quot;2025-02-11&quot;,
+            &quot;2025-02-12&quot;,
+            &quot;2025-02-13&quot;,
+            &quot;2025-02-14&quot;,
+            &quot;2025-02-17&quot;,
+            &quot;2025-02-18&quot;,
+            &quot;2025-02-19&quot;,
+            &quot;2025-02-20&quot;,
+            &quot;2025-02-21&quot;,
+            &quot;2025-02-24&quot;,
+            &quot;2025-02-25&quot;,
+            &quot;2025-02-26&quot;,
+            &quot;2025-02-27&quot;,
+            &quot;2025-02-28&quot;,
+            &quot;2025-03-03&quot;,
+            &quot;2025-03-04&quot;,
+            &quot;2025-03-05&quot;,
+            &quot;2025-03-06&quot;,
+            &quot;2025-03-07&quot;,
+            &quot;2025-03-10&quot;,
+            &quot;2025-03-11&quot;,
+            &quot;2025-03-12&quot;,
+            &quot;2025-03-13&quot;,
+            &quot;2025-03-14&quot;,
+            &quot;2025-03-17&quot;,
+            &quot;2025-03-18&quot;,
+            &quot;2025-03-19&quot;,
+            &quot;2025-03-20&quot;,
+            &quot;2025-03-21&quot;,
+            &quot;2025-03-24&quot;,
+            &quot;2025-03-25&quot;,
+            &quot;2025-03-26&quot;,
+            &quot;2025-03-27&quot;,
+            &quot;2025-03-28&quot;,
+            &quot;2025-03-31&quot;,
+            &quot;2025-04-01&quot;,
+            &quot;2025-04-02&quot;,
+            &quot;2025-04-03&quot;,
+            &quot;2025-04-07&quot;,
+            &quot;2025-04-08&quot;,
+            &quot;2025-04-09&quot;,
+            &quot;2025-04-10&quot;,
+            &quot;2025-04-11&quot;,
+            &quot;2025-04-14&quot;,
+            &quot;2025-04-15&quot;,
+            &quot;2025-04-16&quot;,
+            &quot;2025-04-17&quot;,
+            &quot;2025-04-18&quot;,
+            &quot;2025-04-21&quot;,
+            &quot;2025-04-22&quot;,
+            &quot;2025-04-23&quot;,
+            &quot;2025-04-24&quot;,
+            &quot;2025-04-25&quot;,
+            &quot;2025-04-28&quot;,
+            &quot;2025-04-29&quot;,
+            &quot;2025-04-30&quot;,
+            &quot;2025-05-06&quot;,
+            &quot;2025-05-07&quot;,
+            &quot;2025-05-08&quot;,
+            &quot;2025-05-09&quot;,
+            &quot;2025-05-12&quot;,
+            &quot;2025-05-13&quot;,
+            &quot;2025-05-14&quot;,
+            &quot;2025-05-15&quot;,
+            &quot;2025-05-16&quot;,
+            &quot;2025-05-19&quot;,
+            &quot;2025-05-20&quot;,
+            &quot;2025-05-21&quot;,
+            &quot;2025-05-22&quot;,
+            &quot;2025-05-23&quot;,
+            &quot;2025-05-26&quot;,
+            &quot;2025-05-27&quot;,
+            &quot;2025-05-28&quot;,
+            &quot;2025-05-29&quot;,
+            &quot;2025-05-30&quot;,
+            &quot;2025-06-03&quot;,
+            &quot;2025-06-04&quot;,
+            &quot;2025-06-05&quot;,
+            &quot;2025-06-06&quot;,
+            &quot;2025-06-09&quot;,
+            &quot;2025-06-10&quot;,
+            &quot;2025-06-11&quot;,
+            &quot;2025-06-12&quot;,
+            &quot;2025-06-13&quot;,
+            &quot;2025-06-16&quot;,
+            &quot;2025-06-17&quot;,
+            &quot;2025-06-18&quot;,
+            &quot;2025-06-19&quot;,
+            &quot;2025-06-20&quot;,
+            &quot;2025-06-23&quot;,
+            &quot;2025-06-24&quot;,
+            &quot;2025-06-25&quot;,
+            &quot;2025-06-26&quot;,
+            &quot;2025-06-27&quot;,
+            &quot;2025-06-30&quot;,
+            &quot;2025-07-01&quot;,
+            &quot;2025-07-02&quot;,
+            &quot;2025-07-03&quot;,
+            &quot;2025-07-04&quot;,
+            &quot;2025-07-07&quot;,
+            &quot;2025-07-08&quot;,
+            &quot;2025-07-09&quot;,
+            &quot;2025-07-10&quot;,
+            &quot;2025-07-11&quot;,
+            &quot;2025-07-14&quot;,
+            &quot;2025-07-15&quot;,
+            &quot;2025-07-16&quot;,
+            &quot;2025-07-17&quot;,
+            &quot;2025-07-18&quot;,
+            &quot;2025-07-21&quot;,
+            &quot;2025-07-22&quot;,
+            &quot;2025-07-23&quot;,
+            &quot;2025-07-24&quot;,
+            &quot;2025-07-25&quot;,
+            &quot;2025-07-28&quot;,
+            &quot;2025-07-29&quot;,
+            &quot;2025-07-30&quot;,
+            &quot;2025-07-31&quot;,
+            &quot;2025-08-01&quot;,
+            &quot;2025-08-04&quot;,
+            &quot;2025-08-05&quot;,
+            &quot;2025-08-06&quot;,
+            &quot;2025-08-07&quot;,
+            &quot;2025-08-08&quot;,
+            &quot;2025-08-11&quot;,
+            &quot;2025-08-12&quot;,
+            &quot;2025-08-13&quot;,
+            &quot;2025-08-14&quot;,
+            &quot;2025-08-15&quot;,
+            &quot;2025-08-18&quot;,
+            &quot;2025-08-19&quot;,
+            &quot;2025-08-20&quot;,
+            &quot;2025-08-21&quot;,
+            &quot;2025-08-22&quot;,
+            &quot;2025-08-25&quot;,
+            &quot;2025-08-26&quot;,
+            &quot;2025-08-27&quot;,
+            &quot;2025-08-28&quot;,
+            &quot;2025-08-29&quot;,
+            &quot;2025-09-01&quot;,
+            &quot;2025-09-02&quot;,
+            &quot;2025-09-03&quot;,
+            &quot;2025-09-04&quot;,
+            &quot;2025-09-05&quot;,
+            &quot;2025-09-08&quot;,
+            &quot;2025-09-09&quot;,
+            &quot;2025-09-10&quot;,
+            &quot;2025-09-11&quot;,
+            &quot;2025-09-12&quot;,
+            &quot;2025-09-15&quot;,
+            &quot;2025-09-16&quot;,
+            &quot;2025-09-17&quot;,
+            &quot;2025-09-18&quot;,
+            &quot;2025-09-19&quot;,
+            &quot;2025-09-22&quot;,
+            &quot;2025-09-23&quot;,
+            &quot;2025-09-24&quot;,
+            &quot;2025-09-25&quot;,
+            &quot;2025-09-26&quot;,
+            &quot;2025-09-29&quot;,
+            &quot;2025-09-30&quot;,
+            &quot;2025-10-09&quot;,
+            &quot;2025-10-10&quot;,
+            &quot;2025-10-13&quot;,
+            &quot;2025-10-14&quot;,
+            &quot;2025-10-15&quot;,
+            &quot;2025-10-16&quot;,
+            &quot;2025-10-17&quot;,
+            &quot;2025-10-20&quot;,
+            &quot;2025-10-21&quot;,
+            &quot;2025-10-22&quot;,
+            &quot;2025-10-23&quot;,
+            &quot;2025-10-24&quot;,
+            &quot;2025-10-27&quot;,
+            &quot;2025-10-28&quot;,
+            &quot;2025-10-29&quot;,
+            &quot;2025-10-30&quot;,
+            &quot;2025-10-31&quot;,
+            &quot;2025-11-03&quot;,
+            &quot;2025-11-04&quot;,
+            &quot;2025-11-05&quot;,
+            &quot;2025-11-06&quot;,
+            &quot;2025-11-07&quot;,
+            &quot;2025-11-10&quot;,
+            &quot;2025-11-11&quot;,
+            &quot;2025-11-12&quot;,
+            &quot;2025-11-13&quot;,
+            &quot;2025-11-14&quot;,
+            &quot;2025-11-17&quot;,
+            &quot;2025-11-18&quot;,
+            &quot;2025-11-19&quot;,
+            &quot;2025-11-20&quot;,
+            &quot;2025-11-21&quot;,
+            &quot;2025-11-24&quot;,
+            &quot;2025-11-25&quot;,
+            &quot;2025-11-26&quot;,
+            &quot;2025-11-27&quot;,
+            &quot;2025-11-28&quot;,
+            &quot;2025-12-01&quot;,
+            &quot;2025-12-02&quot;,
+            &quot;2025-12-03&quot;,
+            &quot;2025-12-04&quot;,
+            &quot;2025-12-05&quot;,
+            &quot;2025-12-08&quot;,
+            &quot;2025-12-09&quot;,
+            &quot;2025-12-10&quot;,
+            &quot;2025-12-11&quot;,
+            &quot;2025-12-12&quot;,
+            &quot;2025-12-15&quot;,
+            &quot;2025-12-16&quot;,
+            &quot;2025-12-17&quot;,
+            &quot;2025-12-18&quot;,
+            &quot;2025-12-19&quot;,
+            &quot;2025-12-22&quot;,
+            &quot;2025-12-23&quot;,
+            &quot;2025-12-24&quot;,
+            &quot;2025-12-25&quot;,
+            &quot;2025-12-26&quot;,
+            &quot;2025-12-29&quot;,
+            &quot;2025-12-30&quot;,
+            &quot;2025-12-31&quot;,
+            &quot;2026-01-05&quot;,
+            &quot;2026-01-06&quot;,
+            &quot;2026-01-07&quot;,
+            &quot;2026-01-08&quot;,
+            &quot;2026-01-09&quot;,
+            &quot;2026-01-12&quot;,
+            &quot;2026-01-13&quot;,
+            &quot;2026-01-14&quot;,
+            &quot;2026-01-15&quot;,
+            &quot;2026-01-16&quot;,
+            &quot;2026-01-19&quot;,
+            &quot;2026-01-20&quot;,
+            &quot;2026-01-21&quot;,
+            &quot;2026-01-22&quot;,
+            &quot;2026-01-23&quot;,
+            &quot;2026-01-26&quot;,
+            &quot;2026-01-27&quot;,
+            &quot;2026-01-28&quot;,
+            &quot;2026-01-29&quot;,
+            &quot;2026-01-30&quot;,
+            &quot;2026-02-02&quot;,
+            &quot;2026-02-03&quot;,
+            &quot;2026-02-04&quot;,
+            &quot;2026-02-05&quot;,
+            &quot;2026-02-06&quot;,
+            &quot;2026-02-09&quot;,
+            &quot;2026-02-10&quot;,
+            &quot;2026-02-11&quot;,
+            &quot;2026-02-12&quot;,
+            &quot;2026-02-13&quot;,
+            &quot;2026-02-24&quot;,
+            &quot;2026-02-25&quot;,
+            &quot;2026-02-26&quot;,
+            &quot;2026-02-27&quot;,
+            &quot;2026-03-02&quot;,
+            &quot;2026-03-03&quot;,
+            &quot;2026-03-04&quot;,
+            &quot;2026-03-05&quot;,
+            &quot;2026-03-06&quot;,
+            &quot;2026-03-09&quot;,
+            &quot;2026-03-10&quot;,
+            &quot;2026-03-11&quot;,
+            &quot;2026-03-12&quot;,
+            &quot;2026-03-13&quot;,
+            &quot;2026-03-16&quot;,
+            &quot;2026-03-17&quot;,
+            &quot;2026-03-18&quot;,
+            &quot;2026-03-19&quot;,
+            &quot;2026-03-20&quot;,
+            &quot;2026-03-23&quot;,
+            &quot;2026-03-24&quot;,
+            &quot;2026-03-25&quot;,
+            &quot;2026-03-26&quot;,
+            &quot;2026-03-27&quot;,
+            &quot;2026-03-30&quot;,
+            &quot;2026-03-31&quot;,
+            &quot;2026-04-01&quot;,
+            &quot;2026-04-02&quot;,
+            &quot;2026-04-03&quot;,
+            &quot;2026-04-07&quot;,
+            &quot;2026-04-08&quot;,
+            &quot;2026-04-09&quot;,
+            &quot;2026-04-10&quot;,
+            &quot;2026-04-13&quot;,
+            &quot;2026-04-14&quot;,
+            &quot;2026-04-15&quot;,
+            &quot;2026-04-16&quot;,
+            &quot;2026-04-17&quot;,
+            &quot;2026-04-20&quot;,
+            &quot;2026-04-21&quot;,
+            &quot;2026-04-22&quot;,
+            &quot;2026-04-23&quot;,
+            &quot;2026-04-24&quot;,
+            &quot;2026-04-27&quot;,
+            &quot;2026-04-28&quot;,
+            &quot;2026-04-29&quot;,
+            &quot;2026-04-30&quot;,
+            &quot;2026-05-06&quot;,
+            &quot;2026-05-07&quot;,
+            &quot;2026-05-08&quot;,
+            &quot;2026-05-11&quot;,
+            &quot;2026-05-12&quot;,
+            &quot;2026-05-13&quot;,
+            &quot;2026-05-14&quot;,
+            &quot;2026-05-15&quot;,
+            &quot;2026-05-18&quot;,
+            &quot;2026-05-19&quot;,
+            &quot;2026-05-20&quot;,
+            &quot;2026-05-21&quot;,
+            &quot;2026-05-22&quot;,
+            &quot;2026-05-25&quot;,
+            &quot;2026-05-26&quot;,
+            &quot;2026-05-27&quot;,
+            &quot;2026-05-28&quot;,
+            &quot;2026-05-29&quot;,
+            &quot;2026-06-01&quot;,
+            &quot;2026-06-02&quot;,
+            &quot;2026-06-03&quot;,
+            &quot;2026-06-04&quot;,
+            &quot;2026-06-05&quot;,
+            &quot;2026-06-08&quot;,
+            &quot;2026-06-09&quot;,
+            &quot;2026-06-10&quot;,
+            &quot;2026-06-11&quot;,
+            &quot;2026-06-12&quot;,
+            &quot;2026-06-15&quot;,
+            &quot;2026-06-16&quot;,
+            &quot;2026-06-17&quot;,
+            &quot;2026-06-18&quot;,
+            &quot;2026-06-22&quot;,
+            &quot;2026-06-23&quot;,
+            &quot;2026-06-24&quot;,
+            &quot;2026-06-25&quot;,
+            &quot;2026-06-26&quot;,
+            &quot;2026-06-29&quot;,
+            &quot;2026-06-30&quot;,
+            &quot;2026-07-01&quot;,
+            &quot;2026-07-02&quot;,
+            &quot;2026-07-03&quot;,
+            &quot;2026-07-06&quot;,
+            &quot;2026-07-07&quot;,
+            &quot;2026-07-08&quot;,
+            &quot;2026-07-09&quot;
+          ],
+          &quot;missing_dates&quot;: [],
+          &quot;duplicate_records&quot;: [],
+          &quot;content_hash&quot;: &quot;f511af0a7ae5c2c961f931c4808501e48cefd04d89fc17c61b76dd0c663dc84f&quot;
+        }
+      }
+    },
+    {
+      &quot;operation&quot;: &quot;基线 12/24 个月 OOS 重新验证&quot;,
+      &quot;data_range&quot;: {
+        &quot;start&quot;: &quot;2023-07-02&quot;,
+        &quot;end&quot;: &quot;2026-07-02&quot;
+      },
+      &quot;result&quot;: {
+        &quot;data_quality_passed&quot;: true,
+        &quot;future_safe&quot;: true,
+        &quot;oos_12_excess_return&quot;: -6.87,
+        &quot;oos_24_excess_return&quot;: -5.47,
+        &quot;oos_sharpe&quot;: -0.13,
+        &quot;max_drawdown&quot;: 15.31,
+        &quot;annual_turnover&quot;: 83.94962038356165,
+        &quot;annual_cost_pct&quot;: 0.025184886115068496,
+        &quot;oos_stability&quot;: 0.0,
+        &quot;annual_return&quot;: 18.5,
+        &quot;stress_passed&quot;: true,
+        &quot;stress_results&quot;: {
+          &quot;bull&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-03&quot;,
+              &quot;end&quot;: &quot;2024-10-08&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 4.52,
+            &quot;max_drawdown&quot;: 9.72,
+            &quot;annual_return&quot;: 138.81,
+            &quot;excess_return&quot;: -2.11
+          },
+          &quot;bear&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2023-11-07&quot;,
+              &quot;end&quot;: &quot;2024-02-02&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: -3.27,
+            &quot;max_drawdown&quot;: 7.35,
+            &quot;annual_return&quot;: -24.59,
+            &quot;excess_return&quot;: 4.95
+          },
+          &quot;sideways&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2026-02-10&quot;,
+              &quot;end&quot;: &quot;2026-05-21&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 2.2,
+            &quot;max_drawdown&quot;: 8.71,
+            &quot;annual_return&quot;: 51.36,
+            &quot;excess_return&quot;: 9.34
+          },
+          &quot;high_volatility&quot;: {
+            &quot;window&quot;: {
+              &quot;start&quot;: &quot;2024-07-19&quot;,
+              &quot;end&quot;: &quot;2024-10-24&quot;
+            },
+            &quot;available&quot;: true,
+            &quot;sharpe&quot;: 1.92,
+            &quot;max_drawdown&quot;: 10.41,
+            &quot;annual_return&quot;: 67.62,
+            &quot;excess_return&quot;: 2.36
+          }
+        },
+        &quot;final_holdout_passed&quot;: true,
+        &quot;selection_metrics&quot;: {
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: -5.47,
+          &quot;oos_24_excess_return&quot;: -5.47,
+          &quot;oos_sharpe&quot;: -0.13,
+          &quot;max_drawdown&quot;: 15.31,
+          &quot;annual_turnover&quot;: 82.65247753767123,
+          &quot;annual_cost_pct&quot;: 0.02479574326130137,
+          &quot;oos_stability&quot;: 0.0,
+          &quot;annual_return&quot;: 0.31,
+          &quot;stress_passed&quot;: true,
+          &quot;stress_results&quot;: {
+            &quot;bull&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-03&quot;,
+                &quot;end&quot;: &quot;2024-10-08&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 4.52,
+              &quot;max_drawdown&quot;: 9.72,
+              &quot;annual_return&quot;: 138.81,
+              &quot;excess_return&quot;: -2.11
+            },
+            &quot;bear&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2023-11-07&quot;,
+                &quot;end&quot;: &quot;2024-02-02&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -3.27,
+              &quot;max_drawdown&quot;: 7.35,
+              &quot;annual_return&quot;: -24.59,
+              &quot;excess_return&quot;: 4.95
+            },
+            &quot;sideways&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-05-24&quot;,
+                &quot;end&quot;: &quot;2024-08-21&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: -3.06,
+              &quot;max_drawdown&quot;: 5.21,
+              &quot;annual_return&quot;: -18.12,
+              &quot;excess_return&quot;: 1.06
+            },
+            &quot;high_volatility&quot;: {
+              &quot;window&quot;: {
+                &quot;start&quot;: &quot;2024-07-19&quot;,
+                &quot;end&quot;: &quot;2024-10-24&quot;
+              },
+              &quot;available&quot;: true,
+              &quot;sharpe&quot;: 1.92,
+              &quot;max_drawdown&quot;: 10.41,
+              &quot;annual_return&quot;: 67.62,
+              &quot;excess_return&quot;: 2.36
+            }
+          },
+          &quot;final_holdout_passed&quot;: true
+        },
+        &quot;final_holdout_metrics&quot;: {
+          &quot;available&quot;: true,
+          &quot;data_quality_passed&quot;: true,
+          &quot;future_safe&quot;: true,
+          &quot;oos_12_excess_return&quot;: -6.87,
+          &quot;oos_sharpe&quot;: 0.92,
+          &quot;max_drawdown&quot;: 11.45,
+          &quot;annual_turnover&quot;: 83.94962038356165,
+          &quot;annual_return&quot;: 18.5
+        }
+      }
+    },
+    {
+      &quot;operation&quot;: &quot;基线归因、行业暴露、风格暴露和因子边际贡献诊断&quot;,
+      &quot;data_range&quot;: {
+        &quot;start&quot;: &quot;2023-07-02&quot;,
+        &quot;end&quot;: &quot;2026-07-02&quot;
+      },
+      &quot;result&quot;: {
+        &quot;action&quot;: &quot;adjust_parameters&quot;,
+        &quot;reason&quot;: &quot;因子未同时满足替换条件，但绩效或成本存在问题，进入参数调整阶段。&quot;,
+        &quot;failed_factors&quot;: [
+          &quot;avg_amount_20d&quot;,
+          &quot;momentum_20d&quot;,
+          &quot;pe_percentile&quot;,
+          &quot;reversal_20d&quot;
+        ],
+        &quot;negative_marginal_factors&quot;: [
+          &quot;volatility_60d&quot;,
+          &quot;momentum_120d&quot;,
+          &quot;dividend_yield&quot;
+        ],
+        &quot;replacement_targets&quot;: [],
+        &quot;performance_problems&quot;: [
+          &quot;12_month_oos_excess_return&quot;,
+          &quot;24_month_oos_excess_return&quot;
+        ],
+        &quot;stages&quot;: [
+          &quot;parameter_adjustment&quot;,
+          &quot;oos_revalidation&quot;,
+          &quot;final_holdout_and_stress_test&quot;,
+          &quot;publish_immediately_if_all_gates_pass&quot;
+        ]
+      }
+    }
+  ],
+  &quot;next_plan&quot;: {
+    &quot;immediate_next_command&quot;: &quot;$etf-autopilot&quot;,
+    &quot;current_action&quot;: &quot;adjust_parameters&quot;,
+    &quot;next_optimization&quot;: &quot;围绕最大绩效缺口依次运行均衡参数、回撤/换手控制、收益修复三类候选，全部完成后按风险调整评分择优。&quot;,
+    &quot;expected_optimization_goal&quot;: {
+      &quot;focus&quot;: &quot;12个月 OOS 超额收益&quot;,
+      &quot;current&quot;: -6.87,
+      &quot;target&quot;: &quot;&gt;= 0&quot;,
+      &quot;success_criteria&quot;: [
+        &quot;本轮至少消除该硬门槛缺口&quot;,
+        &quot;不牺牲已通过的 OOS、回撤、成本和压力测试指标&quot;
+      ]
+    },
+    &quot;next_run&quot;: &quot;重新读取本次静态报告，使用最新可用36个月数据，按24个月OOS+12个月最终留出重新验证。&quot;,
+    &quot;continue_observing&quot;: [
+      &quot;avg_amount_20d&quot;,
+      &quot;momentum_20d&quot;,
+      &quot;pe_percentile&quot;,
+      &quot;reversal_20d&quot;
+    ],
+    &quot;rollback_triggers&quot;: [
+      &quot;数据质量失败&quot;,
+      &quot;未来函数或代码异常&quot;,
+      &quot;最大回撤超过35%&quot;,
+      &quot;连续三个评估窗口风险调整评分恶化&quot;
+    ],
+    &quot;report_root&quot;: null
+  },
+  &quot;continuation&quot;: {
+    &quot;required&quot;: true,
+    &quot;terminal&quot;: false,
+    &quot;reason&quot;: &quot;candidate_batch_complete&quot;,
+    &quot;next_action&quot;: &quot;start_next_optimization_round&quot;
+  },
+  &quot;run_id&quot;: &quot;2026-08-22/autopilot-54c06daa5d43&quot;
+}</pre></body></html>

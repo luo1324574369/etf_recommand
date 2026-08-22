@@ -1,0 +1,28 @@
+{
+  "immediate_next_command": "$etf-autopilot",
+  "current_action": "adjust_parameters",
+  "next_optimization": "围绕最大绩效缺口依次运行均衡参数、回撤/换手控制、收益修复三类候选，全部完成后按风险调整评分择优。",
+  "expected_optimization_goal": {
+    "focus": "12个月 OOS 超额收益",
+    "current": -6.87,
+    "target": ">= 0",
+    "success_criteria": [
+      "本轮至少消除该硬门槛缺口",
+      "不牺牲已通过的 OOS、回撤、成本和压力测试指标"
+    ]
+  },
+  "next_run": "重新读取本次静态报告，使用最新可用36个月数据，按24个月OOS+12个月最终留出重新验证。",
+  "continue_observing": [
+    "avg_amount_20d",
+    "momentum_20d",
+    "pe_percentile",
+    "reversal_20d"
+  ],
+  "rollback_triggers": [
+    "数据质量失败",
+    "未来函数或代码异常",
+    "最大回撤超过35%",
+    "连续三个评估窗口风险调整评分恶化"
+  ],
+  "report_root": null
+}
