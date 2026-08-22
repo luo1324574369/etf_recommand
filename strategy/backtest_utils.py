@@ -360,6 +360,9 @@ def run_backtest(
     turnover_total = trade_metrics['turnover_total_pct']
     turnover_annual = trade_metrics['turnover_annual_pct']
     turnover_series = trade_metrics['turnover_series']
+    constraint_config = kwargs.get('constraints') or {}
+    slippage_rate_pct = float(constraint_config.get('slippage_rate', 0.0) or 0.0)
+    annual_cost_pct = turnover_annual * (commission_rate * 100.0 + slippage_rate_pct) / 100.0
 
     # 归因（可选，默认关闭；失败不影响回测主体）
     attribution_result = None
@@ -450,6 +453,7 @@ def run_backtest(
         'benchmark_navs': benchmark_navs,
         'turnover_total_pct': float(turnover_total),
         'turnover_annual_pct': float(turnover_annual),
+        'annual_cost_pct': float(annual_cost_pct),
         'turnover_series': turnover_series,
         'attribution': attribution_result,
         'attribution_error': attribution_error,

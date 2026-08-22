@@ -69,9 +69,31 @@ class ApplicationService:
         self._report_root = Path(report_root) if report_root else Path(__file__).resolve().parent.parent / "reports"
         self._validated_source_records = {}
         self._last_report_context = {}
+        self._data_call_count = 0
+
+    @property
+    def data_call_count(self):
+        return self._data_call_count
 
     def get_daily_price(self, code, start_date=None, end_date=None):
         return self._price_repo.get_daily_price(code, start_date, end_date)
+
+    def get_validated_source_records(self, code):
+        return list(self._validated_source_records.get(code, []))
+
+    def get_valuation_repository(self):
+        return self._valuation_repo
+
+    def refresh_market_data(self, selected_codes, start_date, end_date):
+        """仅通过批准数据源重抓行情，不插值、不填充、不猜测。"""
+        fetch_start = (pd.to_datetime(start_date) - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
+        fetch_end = (pd.to_datetime(end_date) + pd.Timedelta(days=7)).strftime("%Y-%m-%d")
+        refreshed = {}
+        for code in selected_codes:
+            self._data_call_count += 1
+            records = self._data_source.get_daily_price(code, fetch_start, fetch_end)
+            refreshed[code] = self._price_repo.insert_daily_price(code, records)
+        return refreshed
 
     def get_etf(self, code):
         return self._etf_repo.get_etf(code)
@@ -196,6 +218,7 @@ class ApplicationService:
             source_issues = []
             for code in selected_codes:
                 try:
+                    self._data_call_count += 1
                     records_by_code[code] = self._data_source.get_daily_price(code, fetch_start, fetch_end)
                 except Exception as error:
                     records_by_code[code] = []
@@ -207,7 +230,7 @@ class ApplicationService:
             source_name = "tushare_primary_akshare_cross_checked"
         else:
             records_by_code = {
-                code: self.get_daily_price(code, requested_start, fetch_end)
+                code: self._counted_daily_price(code, requested_start, fetch_end)
                 for code in selected_codes
             }
             source_issues = []
@@ -248,6 +271,10 @@ class ApplicationService:
             self._validated_source_records = records_by_code
         self._market_data_repo.save_snapshot(snapshot, report)
         return report
+
+    def _counted_daily_price(self, code, start_date, end_date):
+        self._data_call_count += 1
+        return self.get_daily_price(code, start_date, end_date)
 
     def _expected_trade_dates(self, selected_codes, start_date, end_date, records_by_code=None):
         observed = set()

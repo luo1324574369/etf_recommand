@@ -157,6 +157,7 @@ def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
             'total_return': total_return,
             'excess_return': result.get('excess_return', 0) or 0,
             'turnover_annual_pct': result.get('turnover_annual_pct', 0) or 0,
+            'annual_cost_pct': result.get('annual_cost_pct', 0) or 0,
         }
         if enable_attribution:
             attr = result.get('attribution')

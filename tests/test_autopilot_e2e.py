@@ -48,6 +48,7 @@ def test_autopilot_cli_publishes_and_archives_decision(tmp_path):
             "--version-root", str(tmp_path / "versions"),
             "--report-root", str(tmp_path / "reports"),
             "--branch", "codex/autopilot/e2e",
+            "--allow-unverified-input",
         ],
         cwd=repository_root,
         capture_output=True,

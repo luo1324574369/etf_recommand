@@ -906,7 +906,7 @@ if result:
                         st.success(f"已回滚到 {definition.name}@{definition.version}")
                     except (KeyError, ValueError) as error:
                         st.error(str(error))
-        st.caption("系统不调用 AI。下载 JSON 后由你自行交给 AI 或人工分析；候选因子不会自动进入正式策略。")
+    st.caption("系统不调用外部 AI。下载 JSON 后可交给 Codex 或人工分析；自主优化候选须通过完整验证后才会进入正式策略。")
 
     trade_list = result.get('trade_list', [])
     nav_df = result.get('nav_df', pd.DataFrame())

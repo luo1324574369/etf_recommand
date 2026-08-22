@@ -7,7 +7,7 @@
 - 正式回测入口为 `service.ApplicationService` → `strategy.multi_factor`，保证面板、CLI 和报告使用同一套策略口径。
 - 系统只生成 HTML、Markdown、JSON 和运行清单等静态事实报告，不调用或部署 AI，也不提供系统定时调度。
 - 回测执行前必须通过行情数据质量门禁；阻断时归档阻断报告，不生成模拟订单。
-- 因子失效只生成健康状态和替换候选，不自动改写正式因子；候选必须经过 OOS、人工审批、影子运行和季度发布。
+- 因子失效会生成健康状态和替换候选；`$etf-autopilot` 对候选执行完整验证，通过后立即发布，不设置冷却期。人工可以阅读静态报告，但不是自动闭环的必需步骤。
 
 ## 技术栈
 
@@ -24,6 +24,7 @@
 
 ```
 etf_recommand/
+├── .agents/skills/etf-autopilot/ # 仓库级 Codex Skill（可直接使用 $etf-autopilot）
 ├── presentation/            # 表现层（Streamlit 页面）
 │   ├── streamlit_app.py   # Streamlit 量化策略页面（推荐列表/回测/净值曲线）
 │   ├── app.py              # 历史 Flask 入口兼容层
@@ -89,8 +90,11 @@ etf_recommand/
 ### 1. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
+
+可选：在项目根目录创建 `.env` 并配置 `TUSHARE_TOKEN=...`。没有 token 时使用本地已缓存数据和可用的公开数据源；如果数据质量门禁无法确认复权或覆盖范围，回测会阻断并归档报告。
 
 ### 2. 启动 Streamlit 页面
 
@@ -102,6 +106,14 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 启动后访问 [http://localhost:8501](http://localhost:8501)。
 
 > 如果 8501 端口被占用，改用 `--server.port 8502` 等其他端口。
+
+检查页面是否启动：
+
+```bash
+curl -I http://localhost:8501/
+```
+
+看到 `HTTP/1.1 200` 后，在浏览器打开 `http://localhost:8501`。终端出现 `Address already in use` 时，先关闭旧的 Streamlit 进程，或换端口后访问对应地址。
 
 **页面功能：**
 
@@ -123,6 +135,20 @@ STREAMLIT_SERVER_HEADLESS=true STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 4. 点「运行回测」查看绩效指标、净值曲线、交易明细
 5. 在回测结果中查看唯一的「因子诊断面板」
 6. 下载本次运行的 HTML、Markdown 和 JSON 报告；数据质量阻断时只生成阻断报告，不生成模拟订单
+
+### 3. 查看回测报告
+
+每次正式回测结束后，页面会显示下载按钮；文件同时保存到：
+
+```text
+reports/YYYY-MM-DD/<run-id>/
+├── run-manifest.json   # 运行环境、代码和数据质量清单
+├── report-data.json    # 结构化事实，供 Codex/人工分析
+├── report.md           # Markdown 版报告
+└── report.html         # 可直接用浏览器打开的静态报告
+```
+
+数据质量阻断时也会生成同样的报告目录，但不得把阻断报告当作收益结果或交易依据。优先阅读 `report.md` 的结论，再用 `report-data.json` 交给 Codex 做分析。
 
 ### 数据可信度与报告
 
@@ -165,8 +191,8 @@ ReportArtifact
 
 - 每月监控 12/24 个月 RankIC、ICIR、分层收益、衰减、市场阶段稳定性、风格暴露、成本后收益和组合边际贡献。
 - 候选因子必须保存完整 OOS 区间和指标，完成 12 个月 OOS 初筛、24 个月 OOS 确认、相关性/边际贡献/行业暴露/风格暴露检查。
-- 人工批准后进行 1–3 个月影子运行；影子完成必须绑定通过质量门禁的正式回测报告，不能只提交手工收益数字。
-- 正式新增或替换只在季度窗口执行，保留旧版本、配置和报告，并提供 CLI 与面板回滚入口。
+- `$etf-autopilot` 会在候选阶段完成沙箱、OOS、留出集、压力测试和成本检查；候选通过后立即发布，不设置冷却期。
+- 每次发布保留旧版本、配置、候选证据和回滚目标。`presentation.cli.factor_lifecycle` 仍可用于需要人工登记的独立因子治理场景，但不是自主优化闭环的必经步骤。
 
 月度监控使用按因子分组的观测 JSON 生成替换候选和观察名单：
 
@@ -175,7 +201,7 @@ ReportArtifact
   --observations observations.json --as-of-date 2026-01-31 --output reports/factors/2026-01
 ```
 
-候选因子仍需经过沙箱试运行、12/24 个月 OOS、人工审批和影子运行；完成后在季度窗口发布：
+如果不使用 `$etf-autopilot`，也可以通过下面的人工因子治理 CLI 管理独立候选；这条路径保留人工审批和季度发布规则：
 
 ```bash
 .venv/bin/python -m presentation.cli.factor_lifecycle quarterly-publish \
@@ -234,7 +260,21 @@ OOS 证据 JSON 至少包含 `start_date`、`end_date` 和 `metrics`。影子运
 
 ### Codex 自主优化
 
-项目提供 `$etf-autopilot` Skill，不接入外部 AI、不部署模型、不连接券商。Skill 读取正式运行报告，调用质量门禁和 Walk-Forward，生成参数/因子候选，执行 12/24 个月 OOS、最终留出集和压力测试，并根据风险调整后收益评分自动发布或回滚模拟策略。
+项目已将 `$etf-autopilot` Skill 安装到仓库 `.agents/skills/etf-autopilot/SKILL.md`，不接入外部 AI、不部署模型、不连接券商。Skill 读取正式运行报告，调用质量门禁和 Walk-Forward，生成参数/因子候选，执行 12/24 个月 OOS、最终留出集和压力测试，并根据风险调整后收益评分自动发布或回滚模拟策略。
+
+#### 方式 A：让 Codex 执行 Skill（推荐）
+
+在本项目目录中对 Codex 显式输入 `$etf-autopilot`，并说明回测区间，例如：
+
+```text
+$etf-autopilot
+使用 2019-01-01 到 2026-05-01 的完整 ETF 宇宙运行一次自主优化。
+读取最近正式报告，生成候选，执行完整 OOS/留出集/压力测试；通过的最佳候选立即发布，失败则保持当前版本。
+```
+
+Codex 会阅读 `AGENTS.md`、ADR、当前版本和历史报告，然后调用下面的确定性脚本。系统不需要额外接入 AI，也不需要配置定时任务。
+
+#### 方式 B：手动执行两个 CLI
 
 先生成候选事实 JSON：
 
@@ -247,11 +287,39 @@ OOS 证据 JSON 至少包含 `start_date`、`end_date` 和 `metrics`。影子运
 
 随后调用 `$etf-autopilot` 完成候选读取、评分、版本发布和静态决策报告。正式版本保存在 `config/strategy_versions/`，发布分支使用 `codex/autopilot/<date>-<run-id>`，无候选通过时保持当前版本。
 
+生产发布必须带 `--start` 和 `--end`，入口会重新抓取/校验数据并重新计算候选指标；不要使用仅供测试的 `--allow-unverified-input`：
+
+```bash
+.venv/bin/python scripts/run_autopilot.py \
+  --candidates reports/autopilot/<run-id>/candidates.json \
+  --start 2019-01-01 --end 2026-05-01 \
+  --version-root config/strategy_versions \
+  --report-root reports/autopilot \
+  --branch codex/autopilot/<date>-<run-id>
+```
+
+如果需要自动创建版本提交并推送远端，再显式增加 `--git-release`。该选项会创建 `codex/autopilot/...` 分支，不会直接推送 `main`。决策结果保存到 `reports/autopilot/YYYY-MM-DD/<run-id>/`，包括 `autopilot-manifest.json`、`candidate-comparison.json`、每个候选的明细和 Markdown/HTML 报告。
+
+常见返回状态：
+
+- `published`：候选通过全部硬门槛，已生成新策略版本。
+- `kept_current`：没有候选足够好，继续使用当前版本。
+- `rolled_back`：检测到硬风险或连续恶化，切回上一版本。
+- `blocked`：数据质量或验证失败，只生成阻断报告。
+
+候选生成器的完整参数可以先查看：
+
+```bash
+.venv/bin/python scripts/build_autopilot_candidates.py --help
+.venv/bin/python scripts/run_autopilot.py --help
+```
+
 发现正式版本出现数据阻断、未来函数、代码异常或硬回撤突破时，可将正式运行指标交给同一入口执行立即回滚；连续三个评估窗口低于基线时也会回滚：
 
 ```bash
 .venv/bin/python scripts/run_autopilot.py \
   --candidates reports/autopilot/<run-id>/candidates.json \
+  --start 2019-01-01 --end 2026-05-01 \
   --rollback-metrics reports/<date>/<run-id>/report-data.json \
   --version-root config/strategy_versions \
   --report-root reports/autopilot

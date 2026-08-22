@@ -13,6 +13,7 @@ from uuid import uuid4
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from config.settings import DB_PATH
 from config.versioned_strategy import default_strategy_config, load_active_strategy_config
 from service.autopilot_service import AutopilotService, StrategyVersionStore, write_autopilot_report
 
@@ -50,11 +51,22 @@ def _metrics_from_payload(payload: dict) -> dict:
         "oos_sharpe": float(result.get("sharpe_ratio", 0.0) or 0.0),
         "max_drawdown": float(result.get("max_drawdown", 0.0) or 0.0),
         "annual_turnover": float(result.get("turnover_annual_pct", 0.0) or 0.0),
+        "annual_cost_pct": float(result.get("annual_cost_pct", 0.0) or 0.0),
         "oos_stability": 1.0 if excess_return >= 0 else 0.0,
         "annual_return": float(result.get("annual_return", 0.0) or 0.0),
         "stress_passed": passed,
         "final_holdout_passed": passed,
     }
+
+
+def _create_git_release(branch, version_root, report_paths):
+    subprocess.run(["git", "switch", "-c", branch], check=True)
+    paths = [str(version_root)] + [str(path) for path in report_paths.values()]
+    subprocess.run(["git", "add", "-f", *paths], check=True)
+    subprocess.run(["git", "commit", "-m", f"chore: publish ETF strategy {branch}"], check=True)
+    commit = _git_revision()
+    subprocess.run(["git", "push", "-u", "origin", branch], check=True)
+    return commit
 
 
 def main() -> int:
@@ -70,9 +82,55 @@ def main() -> int:
     parser.add_argument("--max-runtime-seconds", type=float, default=1800.0)
     parser.add_argument("--rollback-metrics", type=Path)
     parser.add_argument("--prior-windows", type=Path)
+    parser.add_argument("--start")
+    parser.add_argument("--end")
+    parser.add_argument("--db", type=Path, default=DB_PATH)
+    parser.add_argument("--codes", nargs="*", default=None)
+    parser.add_argument(
+        "--allow-unverified-input",
+        action="store_true",
+        help="仅用于离线单元测试；生产发布必须提供 --start 和 --end 重新验证",
+    )
+    parser.add_argument(
+        "--git-release",
+        action="store_true",
+        help="发布成功后创建 codex 分支、提交版本证据并推送 origin",
+    )
     args = parser.parse_args()
+    if args.git_release and args.branch in {"main", "master"}:
+        raise ValueError("自动发布禁止直接使用 main/master 分支")
 
     candidate_payload = _load_payload(args.candidates)
+    if candidate_payload.get("status") == "blocked":
+        decision = {
+            "status": "blocked",
+            "reason": candidate_payload.get("reason", "candidate_generation_blocked"),
+            "data_quality": candidate_payload.get("data_quality", {}),
+            "repair_attempt": candidate_payload.get("repair_attempt"),
+            "evaluations": [],
+        }
+        decision["created_at"] = datetime.now(timezone.utc).isoformat()
+        decision["run_id"] = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/autopilot-{uuid4().hex[:12]}"
+        paths = write_autopilot_report(args.report_root, decision, decision["run_id"])
+        print(json.dumps({"decision": decision, "report_paths": {key: str(value) for key, value in paths.items()}}, ensure_ascii=False, indent=2))
+        return 2
+    if bool(args.start) != bool(args.end):
+        raise ValueError("--start and --end must be provided together")
+    if args.start and args.end:
+        if args.baseline:
+            raise ValueError("--baseline cannot override the revalidated baseline")
+        from scripts.build_autopilot_candidates import revalidate_candidate_payload
+
+        candidate_payload = revalidate_candidate_payload(
+            candidate_payload,
+            args.start,
+            args.end,
+            db_path=args.db,
+            codes=args.codes,
+            version_root=args.version_root,
+        )
+    elif not args.allow_unverified_input:
+        raise ValueError("候选发布前必须提供 --start/--end 重新执行数据质量、OOS和压力测试")
     candidates = candidate_payload.get("candidates", [])
     if not isinstance(candidates, list):
         raise ValueError("candidates must be a list")
@@ -119,8 +177,14 @@ def main() -> int:
             branch=args.branch,
         )
     decision["created_at"] = datetime.now(timezone.utc).isoformat()
-    decision["run_id"] = f"autopilot-{uuid4().hex[:12]}"
+    decision["run_id"] = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/autopilot-{uuid4().hex[:12]}"
     paths = write_autopilot_report(args.report_root, decision, decision["run_id"])
+    if args.git_release and decision.get("status") == "published":
+        decision["git_release"] = {
+            "branch": args.branch,
+            "commit": _create_git_release(args.branch, args.version_root, paths),
+        }
+        paths = write_autopilot_report(args.report_root, decision, decision["run_id"])
     print(json.dumps({"decision": decision, "report_paths": {key: str(value) for key, value in paths.items()}}, ensure_ascii=False, indent=2))
     return 0
 

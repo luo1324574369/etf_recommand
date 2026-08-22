@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import html
@@ -43,12 +43,14 @@ def _finite_or_zero(value: Any) -> float:
 def _normalized_metrics(metrics: dict[str, Any]) -> dict[str, float]:
     max_drawdown = abs(_finite_or_zero(metrics.get("max_drawdown", 0.0)))
     annual_turnover = max(0.0, _finite_or_zero(metrics.get("annual_turnover", 0.0)))
+    annual_cost = max(0.0, _finite_or_zero(metrics.get("annual_cost_pct", 0.0)))
+    turnover_and_cost = 0.7 * annual_turnover / 360.0 + 0.3 * annual_cost / 5.0
     return {
         "oos_stability": _clamp(_finite_or_zero(metrics.get("oos_stability", 0.0))),
         "sharpe": _clamp((_finite_or_zero(metrics.get("oos_sharpe", 0.0)) - 0.3) / 1.2),
         "annual_return": _clamp((_finite_or_zero(metrics.get("annual_return", 0.0)) + 10.0) / 40.0),
         "drawdown": _clamp(1.0 - max_drawdown / 35.0),
-        "turnover_cost": _clamp(1.0 - annual_turnover / 360.0),
+        "turnover_cost": _clamp(1.0 - turnover_and_cost),
     }
 
 
@@ -129,22 +131,22 @@ def score_candidate(
         reasons.append("data_quality")
     if metrics.get("future_safe") is not True:
         reasons.append("future_function")
-    if float(metrics.get("oos_12_excess_return", 0.0) or 0.0) < 0:
+    if _finite_or_zero(metrics.get("oos_12_excess_return", 0.0)) < 0:
         reasons.append("oos_12_excess_return")
-    if float(metrics.get("oos_24_excess_return", 0.0) or 0.0) < 0:
+    if _finite_or_zero(metrics.get("oos_24_excess_return", 0.0)) < 0:
         reasons.append("oos_24_excess_return")
-    if float(metrics.get("oos_sharpe", 0.0) or 0.0) < 0.3:
+    if _finite_or_zero(metrics.get("oos_sharpe", 0.0)) < 0.3:
         reasons.append("oos_sharpe")
-    if abs(float(metrics.get("max_drawdown", 0.0) or 0.0)) > 35.0:
+    if abs(_finite_or_zero(metrics.get("max_drawdown", 0.0))) > 35.0:
         reasons.append("max_drawdown")
-    if float(metrics.get("annual_turnover", 0.0) or 0.0) > 360.0:
+    if _finite_or_zero(metrics.get("annual_turnover", 0.0)) > 360.0:
         reasons.append("annual_turnover")
     if metrics.get("stress_passed") is not True:
         reasons.append("stress_test")
     if "final_holdout_passed" in metrics and metrics["final_holdout_passed"] is not True:
         reasons.append("final_holdout")
-    baseline_drawdown = abs(float(baseline_metrics.get("max_drawdown", 0.0) or 0.0))
-    candidate_drawdown = abs(float(metrics.get("max_drawdown", 0.0) or 0.0))
+    baseline_drawdown = abs(_finite_or_zero(baseline_metrics.get("max_drawdown", 0.0)))
+    candidate_drawdown = abs(_finite_or_zero(metrics.get("max_drawdown", 0.0)))
     if candidate_drawdown - baseline_drawdown > 3.0:
         reasons.append("drawdown_regression")
     if score_improvement_pct < 5.0:
@@ -159,6 +161,20 @@ def score_candidate(
         accepted=not reasons,
         reasons=tuple(reasons),
     )
+
+
+def _configuration_scope_reasons(config: dict[str, Any], active_config: dict[str, Any]) -> tuple[str, ...]:
+    if set(config) - {"params", "factor_weights", "constraints"}:
+        return ("out_of_scope_config",)
+    candidate_params = config.get("params", {})
+    active_params = active_config.get("params", {})
+    if not isinstance(candidate_params, dict) or not isinstance(active_params, dict):
+        return ("out_of_scope_config",)
+    if set(candidate_params) - set(active_params) - {"factor_weights", "constraints"}:
+        return ("out_of_scope_config",)
+    if config.get("constraints", {}) != active_config.get("constraints", {}):
+        return ("risk_constraints_are_not_auto_optimizable",)
+    return ()
 
 
 class StrategyVersionStore:
@@ -350,6 +366,8 @@ class AutopilotService:
         best_score = float("-inf")
         started_at = time.monotonic()
         stop_reason = "input_exhausted"
+        stagnant_rounds = 0
+        active_config = self.version_store.load_active().get("config", {})
         for index, candidate in enumerate(candidates):
             if index >= min(self.max_iterations, self.max_backtests):
                 stop_reason = "budget_backtests"
@@ -358,6 +376,13 @@ class AutopilotService:
                 stop_reason = "budget_runtime"
                 break
             evaluation = score_candidate(candidate["config"], candidate["metrics"], baseline_metrics)
+            scope_reasons = _configuration_scope_reasons(candidate["config"], active_config)
+            if scope_reasons:
+                evaluation = replace(
+                    evaluation,
+                    accepted=False,
+                    reasons=tuple((*evaluation.reasons, *scope_reasons)),
+                )
             if self.version_store.is_hash_locked(evaluation.config_hash):
                 evaluation = CandidateEvaluation(
                     **{
@@ -369,6 +394,12 @@ class AutopilotService:
             evaluations.append(evaluation)
             if evaluation.score > best_score:
                 best_score = evaluation.score
+                stagnant_rounds = 0
+            else:
+                stagnant_rounds += 1
+            if stagnant_rounds >= self.stagnation_limit:
+                stop_reason = "stagnation"
+                break
         accepted = [item for item in evaluations if item.accepted]
         accepted.sort(key=lambda item: item.score, reverse=True)
         if not accepted:
@@ -462,6 +493,12 @@ def write_autopilot_report(root: str | Path, decision: dict[str, Any], run_id: s
         json.dumps(normalized.get("evaluations", []), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    candidate_dir = output / "candidates"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    for index, evaluation in enumerate(normalized.get("evaluations", []), start=1):
+        (candidate_dir / f"candidate-{index:03d}.json").write_text(
+            json.dumps(evaluation, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     markdown_path.write_text(
         "\n".join([
             "# Codex 自主优化决策报告",
@@ -483,7 +520,13 @@ def write_autopilot_report(root: str | Path, decision: dict[str, Any], run_id: s
         + "</pre></body></html>",
         encoding="utf-8",
     )
-    result = {"data": data_path, "comparison": comparison_path, "markdown": markdown_path, "html": html_path}
+    result = {
+        "data": data_path,
+        "comparison": comparison_path,
+        "candidates": candidate_dir,
+        "markdown": markdown_path,
+        "html": html_path,
+    }
     if normalized.get("status") == "published":
         release_path = output / "release.json"
         release_path.write_text(json.dumps(normalized.get("published", {}), ensure_ascii=False, indent=2), encoding="utf-8")
