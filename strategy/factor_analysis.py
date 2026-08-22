@@ -93,14 +93,14 @@ def compute_icir(ic_series: pd.Series) -> Dict:
 
 def compute_rolling_ic(
     ic_df: pd.DataFrame,
-    rolling_window_months: int = 36,
+    rolling_window_months: int = 24,
     min_samples: int = 12,
 ) -> pd.DataFrame:
     """计算滚动IC序列（滚动窗口内的ICIR）
 
     Args:
         ic_df: columns=['date', 'factor_name', 'ic']
-        rolling_window_months: 滚动窗口（月），默认36个月
+        rolling_window_months: 滚动窗口（月），默认24个月
         min_samples: 窗口内最少IC样本数
 
     Returns:

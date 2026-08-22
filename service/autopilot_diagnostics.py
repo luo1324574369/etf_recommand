@@ -334,8 +334,8 @@ def _expected_optimization_goal(
     current_metrics = current_metrics or {}
     performance_problems = decision.get("performance_problems", [])
     labels = {
-        "12_month_oos_excess_return": ("12个月 OOS 超额收益", 0.0, "oos_12_excess_return"),
-        "24_month_oos_excess_return": ("24个月 OOS 超额收益", 0.0, "oos_24_excess_return"),
+        "12_month_oos_excess_return": ("后12个月最终留出超额收益", 0.0, "oos_12_excess_return"),
+        "24_month_oos_excess_return": ("前12个月选择期超额收益", 0.0, "oos_24_excess_return"),
         "oos_sharpe": ("OOS Sharpe", 0.3, "oos_sharpe"),
         "max_drawdown": ("最大回撤", 35.0, "max_drawdown"),
         "annual_cost_pct": ("年化成本", 5.0, "annual_cost_pct"),
@@ -345,7 +345,7 @@ def _expected_optimization_goal(
         return {
             "focus": "替换或降权失效因子",
             "current": targets,
-            "target": "因子通过沙箱、12/24个月 OOS 和压力测试，并且不恶化已通过指标",
+            "target": "因子通过沙箱、前12个月选择期、后12个月最终留出和压力测试，并且不恶化已通过指标",
             "success_criteria": ["只修改因子组合或权重", "保留数据质量、风险和交易约束"],
         }
     focus = next((problem for problem in labels if problem in performance_problems), None)
@@ -376,7 +376,7 @@ def build_next_plan(
 ) -> dict[str, Any]:
     action = decision.get("action", "monitor_current_configuration")
     if action == "replace_or_reweight_factor_first":
-        next_optimization = "优先对失效因子执行降权/替换候选，再与参数候选一起完成 12/24 个月 OOS 和压力测试。"
+        next_optimization = "优先对失效因子执行降权/替换候选，再与参数候选一起完成24个月回测（前12个月选择期+后12个月最终留出）和压力测试。"
     elif action == "adjust_parameters":
         next_optimization = "围绕最大绩效缺口依次运行均衡参数、回撤/换手控制、收益修复三类候选，全部完成后按风险调整评分择优。"
     else:
@@ -386,7 +386,7 @@ def build_next_plan(
         "current_action": action,
         "next_optimization": next_optimization,
         "expected_optimization_goal": _expected_optimization_goal(decision, current_metrics),
-        "next_run": "重新读取本次静态报告，使用最新可用36个月数据，按24个月OOS+12个月最终留出重新验证。",
+        "next_run": "重新读取本次静态报告，使用最新可用24个月数据，按前12个月选择期+后12个月最终留出重新验证。",
         "continue_observing": decision.get("failed_factors", []),
         "rollback_triggers": ["数据质量失败", "未来函数或代码异常", "最大回撤超过35%", "连续三个评估窗口风险调整评分恶化"],
         "report_root": report_root,

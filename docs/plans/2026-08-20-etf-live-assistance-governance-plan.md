@@ -17,7 +17,7 @@
 - 信号使用复权价格，模拟成交使用原始价格；次日使用开盘价加固定滑点和手续费。
 - 质量状态为 `blocked` 时不得生成信号或模拟订单，但必须生成阻断报告。
 - 每次运行归档 HTML、Markdown、JSON 和运行清单。
-- 因子每月监控、每季度发布；候选执行 12 个月 OOS 初筛、24 个月 OOS 确认和 1–3 个月影子运行。
+- 因子每月监控、每季度发布；候选统一使用最近24个月回测（前12个月选择期+后12个月最终盲测期）和 1–3 个月影子运行。
 - AI 生成因子只能在隔离沙箱中执行，不得直接修改正式策略。
 - 所有新行为先写失败测试，再写最小实现；现有全量测试必须保持通过。
 
@@ -316,7 +316,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Write failing state-machine tests**
 
-Cover `submitted → screened → confirmed → approved → shadow → publishable → active`, reject publication before approval or before 12/24-month OOS requirements, and reject a non-quarterly publish date.
+Cover `submitted → screened → confirmed → approved → shadow → publishable → active`, reject publication before approval or before the 24-month evaluation window (12-month selection plus 12-month final holdout), and reject a non-quarterly publish date.
 
 - [ ] **Step 2: Run tests to verify failure**
 

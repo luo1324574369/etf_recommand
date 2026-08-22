@@ -656,20 +656,21 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📅 日期范围")
     import datetime as _dt
-    _canonical_window = app_service.get_canonical_evaluation_window()
+    _canonical_window = app_service.get_canonical_evaluation_window(months=24)
     if _canonical_window:
         _default_start = _dt.date.fromisoformat(_canonical_window["start_date"])
         _default_end = _dt.date.fromisoformat(_canonical_window["end_date"])
         st.caption(
-            f"默认采用统一36个月窗口，行情快照 {_canonical_window['snapshot_id']}"
+            f"默认采用统一24个月窗口，行情快照 {_canonical_window['snapshot_id']}"
             f"（{_canonical_window['source']}）"
         )
     else:
         _today = _dt.date.today()
-        _default_start = (_today - _dt.timedelta(days=365*3)).replace(day=1)
         _default_end = (_today - _dt.timedelta(days=31*3)).replace(day=1)
-    start_date = st.date_input("开始日期", _default_start)
-    end_date = st.date_input("结束日期", _default_end)
+        _default_start = (_default_end - _dt.timedelta(days=365*2)).replace(day=1)
+    start_date = st.date_input("开始日期", _default_start, disabled=True)
+    end_date = st.date_input("结束日期", _default_end, disabled=True)
+    st.caption("回测窗口固定为结束日前最近24个月：前12个月选择，后12个月盲测。")
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")

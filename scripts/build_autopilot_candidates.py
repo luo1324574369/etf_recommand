@@ -29,6 +29,27 @@ from strategy import multi_factor
 from strategy.walk_forward import _run_single_backtest, generate_walk_forward_presets
 
 
+TOTAL_EVALUATION_MONTHS = 24
+SELECTION_MONTHS = 12
+FINAL_HOLDOUT_MONTHS = 12
+
+
+def _canonical_evaluation_window(_start_date, end_date):
+    """Return the fixed recent 24-month window used by every optimizer run."""
+    end_dt = pd.to_datetime(end_date)
+    canonical_start = end_dt - pd.DateOffset(months=TOTAL_EVALUATION_MONTHS)
+    final_holdout_start = end_dt - pd.DateOffset(months=FINAL_HOLDOUT_MONTHS)
+    selection_end = canonical_start + pd.DateOffset(months=SELECTION_MONTHS) - pd.Timedelta(days=1)
+    return {
+        "start": canonical_start.strftime("%Y-%m-%d"),
+        "end": end_dt.strftime("%Y-%m-%d"),
+        "selection_start": canonical_start.strftime("%Y-%m-%d"),
+        "selection_end": selection_end.strftime("%Y-%m-%d"),
+        "final_holdout_start": final_holdout_start.strftime("%Y-%m-%d"),
+        "final_holdout_end": end_dt.strftime("%Y-%m-%d"),
+    }
+
+
 def _build_data_dict(service, codes, start_date, end_date=None):
     data_dict = {}
     start_text = pd.to_datetime(start_date).strftime("%Y-%m-%d")
@@ -164,17 +185,16 @@ def _stress_metrics(data_dict, params, windows, valuation_repo, code_to_sector):
 
 
 def _autopilot_metrics(
-    period_12,
-    period_24,
+    final_holdout,
+    selection,
     stress_results=None,
     final_holdout_passed=True,
     future_safe=True,
 ):
     stress_results = stress_results or {}
-    period_returns = [
-        period_12.get("excess_return", period_12.get("total_return", 0.0)),
-        period_24.get("excess_return", period_24.get("total_return", 0.0)),
-    ]
+    final_holdout_return = final_holdout.get("excess_return", final_holdout.get("total_return", 0.0))
+    selection_return = selection.get("excess_return", selection.get("total_return", 0.0))
+    period_returns = [final_holdout_return, selection_return]
     available_stress = [value for value in stress_results.values() if value.get("available")]
     stress_passed = (
         len(available_stress) == 4
@@ -191,24 +211,34 @@ def _autopilot_metrics(
     return {
         "data_quality_passed": True,
         "future_safe": bool(future_safe),
-        "oos_12_excess_return": float(period_12.get("excess_return", period_12.get("total_return", 0.0))),
-        "oos_24_excess_return": float(period_24.get("excess_return", period_24.get("total_return", 0.0))),
-        "oos_sharpe": float(min(period_12.get("sharpe_ratio", 0.0), period_24.get("sharpe_ratio", 0.0))),
+        "evaluation_window_months": TOTAL_EVALUATION_MONTHS,
+        "selection_window_months": SELECTION_MONTHS,
+        "final_holdout_months": FINAL_HOLDOUT_MONTHS,
+        "oos_12_excess_return": float(final_holdout_return),
+        "oos_24_excess_return": float(selection_return),
+        "selection_excess_return": float(selection_return),
+        "final_holdout_excess_return": float(final_holdout_return),
+        "selection_sharpe": float(selection.get("sharpe_ratio", 0.0)),
+        "final_holdout_sharpe": float(final_holdout.get("sharpe_ratio", 0.0)),
+        "oos_sharpe": float(min(final_holdout.get("sharpe_ratio", 0.0), selection.get("sharpe_ratio", 0.0))),
         "max_drawdown": float(max(
-            period_12.get("max_drawdown", 0.0),
-            period_24.get("max_drawdown", 0.0),
+            final_holdout.get("max_drawdown", 0.0),
+            selection.get("max_drawdown", 0.0),
             *(value["max_drawdown"] for value in available_stress),
         )),
         "annual_turnover": float(max(
-            period_12.get("turnover_annual_pct", 0.0),
-            period_24.get("turnover_annual_pct", 0.0),
+            final_holdout.get("turnover_annual_pct", 0.0),
+            selection.get("turnover_annual_pct", 0.0),
         )),
         "annual_cost_pct": float(max(
-            period_12.get("annual_cost_pct", 0.0),
-            period_24.get("annual_cost_pct", 0.0),
+            final_holdout.get("annual_cost_pct", 0.0),
+            selection.get("annual_cost_pct", 0.0),
         )),
         "oos_stability": float(sum(value >= 0 for value in period_returns) / len(period_returns)),
-        "annual_return": float(period_12.get("annual_return", 0.0)),
+        "annual_return": float(min(
+            final_holdout.get("annual_return", 0.0),
+            selection.get("annual_return", 0.0),
+        )),
         "stress_passed": stress_passed,
         "stress_results": stress_results,
         "final_holdout_passed": bool(final_holdout_passed),
@@ -216,23 +246,23 @@ def _autopilot_metrics(
 
 
 def _verified_metrics(
-    period_12,
-    period_24,
+    final_holdout,
+    selection,
     selection_stress_results,
     full_stress_results,
     future_safe,
 ):
     """构造完整报告，同时明确隔离候选选择期与最终留出集。"""
     full_metrics = _autopilot_metrics(
-        period_12,
-        period_24,
+        final_holdout,
+        selection,
         full_stress_results,
         final_holdout_passed=True,
         future_safe=future_safe,
     )
     full_metrics["selection_metrics"] = _autopilot_metrics(
-        period_24,
-        period_24,
+        selection,
+        selection,
         selection_stress_results,
         final_holdout_passed=True,
         future_safe=future_safe,
@@ -241,20 +271,21 @@ def _verified_metrics(
         "available": True,
         "data_quality_passed": True,
         "future_safe": bool(future_safe),
-        "oos_12_excess_return": float(period_12.get("excess_return", period_12.get("total_return", 0.0))),
-        "oos_sharpe": float(period_12.get("sharpe_ratio", 0.0)),
-        "max_drawdown": float(period_12.get("max_drawdown", 0.0)),
-        "annual_turnover": float(period_12.get("turnover_annual_pct", 0.0)),
-        "annual_return": float(period_12.get("annual_return", 0.0)),
+        "oos_12_excess_return": float(final_holdout.get("excess_return", final_holdout.get("total_return", 0.0))),
+        "final_holdout_excess_return": float(final_holdout.get("excess_return", final_holdout.get("total_return", 0.0))),
+        "oos_sharpe": float(final_holdout.get("sharpe_ratio", 0.0)),
+        "max_drawdown": float(final_holdout.get("max_drawdown", 0.0)),
+        "annual_turnover": float(final_holdout.get("turnover_annual_pct", 0.0)),
+        "annual_return": float(final_holdout.get("annual_return", 0.0)),
     }
     return full_metrics
 
 
-def _selection_only_metrics(period_24, stress_results, future_safe):
+def _selection_only_metrics(selection, stress_results, future_safe):
     """生成候选搜索阶段的指标，不伪造最终留出集结果。"""
     metrics = _autopilot_metrics(
-        period_24,
-        period_24,
+        selection,
+        selection,
         stress_results,
         final_holdout_passed=True,
         future_safe=future_safe,
@@ -352,6 +383,9 @@ def revalidate_candidate_payload(
     version_root=None,
 ):
     """使用本地行情重新计算候选事实，禁止直接信任外部指标 JSON。"""
+    evaluation_window = _canonical_evaluation_window(start_date, end_date)
+    start_date = evaluation_window["start"]
+    end_date = evaluation_window["end"]
     selected_codes = codes or [item["code"] for item in ETF_UNIVERSE]
     operation_log = []
     service = ApplicationService(db_path, tushare_token=TUSHARE_TOKEN)
@@ -375,29 +409,26 @@ def revalidate_candidate_payload(
         active = load_active_strategy_config(version_root or PROJECT_ROOT / "config" / "strategy_versions")
         code_to_sector = {item["code"]: item["sector"] for item in ETF_UNIVERSE}
         valuation_repo = service.get_valuation_repository()
-        end_dt = pd.to_datetime(end_date)
-        holdout_start = end_dt - pd.DateOffset(months=12)
-        oos_24_start = end_dt - pd.DateOffset(months=36)
-        if oos_24_start < pd.to_datetime(start_date):
-            raise RuntimeError("至少需要36个月数据才能完成24个月OOS和12个月最终留出")
-        oos_24_end = (holdout_start - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        selection_start = evaluation_window["selection_start"]
+        selection_end = evaluation_window["selection_end"]
+        final_holdout_start = evaluation_window["final_holdout_start"]
         stress_windows = _stress_windows(data_dict, start_date, end_date)
-        selection_stress_windows = _stress_windows(data_dict, oos_24_start, oos_24_end)
+        selection_stress_windows = _stress_windows(data_dict, selection_start, selection_end)
         future_safe = _future_safe(data_dict, end_date)
 
         def evaluate(config):
             params = _config_params(config)
-            period_12 = _period_metrics(
-                data_dict, params, holdout_start.strftime("%Y-%m-%d"), end_date,
+            final_holdout = _period_metrics(
+                data_dict, params, final_holdout_start, end_date,
                 valuation_repo, code_to_sector,
             )
-            period_24 = _period_metrics(
-                data_dict, params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
+            selection = _period_metrics(
+                data_dict, params, selection_start, selection_end,
                 valuation_repo, code_to_sector,
             )
             return _verified_metrics(
-                period_12,
-                period_24,
+                final_holdout,
+                selection,
                 _stress_metrics(data_dict, params, selection_stress_windows, valuation_repo, code_to_sector),
                 _stress_metrics(data_dict, params, stress_windows, valuation_repo, code_to_sector),
                 future_safe,
@@ -432,8 +463,12 @@ def revalidate_candidate_payload(
         )
         operation_log.extend([
             {
-                "operation": "基线 12/24 个月 OOS 重新验证",
-                "data_range": {"start": str(oos_24_start.date()), "end": end_date},
+                "operation": "基线24个月回测（前12个月选择期+后12个月最终留出）",
+                "data_range": {
+                    "full": {"start": start_date, "end": end_date},
+                    "selection": {"start": selection_start, "end": selection_end},
+                    "final_holdout": {"start": final_holdout_start, "end": end_date},
+                },
                 "result": baseline_metrics,
             },
             {
@@ -458,6 +493,7 @@ def revalidate_candidate_payload(
         return {
             "schema_version": 1,
             "generated_by": "revalidate_candidate_payload",
+            "evaluation_window": evaluation_window,
             "data_quality": quality.to_dict(),
             "baseline_metrics": baseline_metrics,
             "diagnostics": diagnostics,
@@ -489,24 +525,27 @@ def main() -> int:
         parser.error("--factor-source and --factor-rows must be provided together")
 
     codes = args.codes or [item["code"] for item in ETF_UNIVERSE]
+    evaluation_window = _canonical_evaluation_window(args.start, args.end)
+    evaluation_start = evaluation_window["start"]
+    evaluation_end = evaluation_window["end"]
     service = ApplicationService(args.db, tushare_token=TUSHARE_TOKEN)
     try:
-        quality = service.validate_backtest_data(codes, args.start, args.end)
+        quality = service.validate_backtest_data(codes, evaluation_start, evaluation_end)
         operation_log.append({
             "operation": "数据质量门禁",
-            "data_range": {"start": args.start, "end": args.end},
+            "data_range": {"start": evaluation_start, "end": evaluation_end},
             "result": quality.to_dict(),
         })
         repair_attempt = None
         if quality.status != "passed":
             try:
-                repair_attempt = service.refresh_market_data(codes, args.start, args.end)
-                quality = service.validate_backtest_data(codes, args.start, args.end)
+                repair_attempt = service.refresh_market_data(codes, evaluation_start, evaluation_end)
+                quality = service.validate_backtest_data(codes, evaluation_start, evaluation_end)
             except Exception as error:
                 repair_attempt = {"error": str(error)}
             operation_log.append({
                 "operation": "仅使用批准数据源重抓并重新校验",
-                "data_range": {"start": args.start, "end": args.end},
+                "data_range": {"start": evaluation_start, "end": evaluation_end},
                 "result": repair_attempt,
             })
         if quality.status != "passed":
@@ -532,7 +571,7 @@ def main() -> int:
             return 2
         if service.data_call_count > args.max_data_calls:
             raise RuntimeError(f"数据调用次数超过{args.max_data_calls}次预算")
-        data_dict = _build_data_dict(service, codes, args.start, args.end)
+        data_dict = _build_data_dict(service, codes, evaluation_start, evaluation_end)
         if not data_dict:
             raise RuntimeError("没有可用于候选回测的行情数据")
         active = load_active_strategy_config()
@@ -543,44 +582,40 @@ def main() -> int:
             baseline_params["factor_weights"] = dict(active_config["factor_weights"])
         baseline_params["constraints"] = dict(active_config.get("constraints", {}))
         valuation_repo = service.get_valuation_repository()
-        end_dt = pd.to_datetime(args.end)
-        holdout_start = end_dt - pd.DateOffset(months=12)
-        oos_24_start = end_dt - pd.DateOffset(months=36)
-        if oos_24_start < pd.to_datetime(args.start):
-            raise RuntimeError("至少需要36个月数据才能完成24个月OOS和12个月最终留出")
-        oos_12_start = holdout_start
-        oos_24_end = (holdout_start - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-        baseline_12 = _period_metrics(
-            data_dict, baseline_params, oos_12_start.strftime("%Y-%m-%d"), args.end,
+        selection_start = evaluation_window["selection_start"]
+        selection_end = evaluation_window["selection_end"]
+        final_holdout_start = evaluation_window["final_holdout_start"]
+        baseline_final_holdout = _period_metrics(
+            data_dict, baseline_params, final_holdout_start, evaluation_end,
             valuation_repo, code_to_sector,
         )
-        baseline_24 = _period_metrics(
-            data_dict, baseline_params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
+        baseline_selection = _period_metrics(
+            data_dict, baseline_params, selection_start, selection_end,
             valuation_repo, code_to_sector,
         )
-        stress_windows = _stress_windows(data_dict, args.start, args.end)
-        selection_stress_windows = _stress_windows(data_dict, oos_24_start.strftime("%Y-%m-%d"), oos_24_end)
-        future_safe = _future_safe(data_dict, args.end)
+        stress_windows = _stress_windows(data_dict, evaluation_start, evaluation_end)
+        selection_stress_windows = _stress_windows(data_dict, selection_start, selection_end)
+        future_safe = _future_safe(data_dict, evaluation_end)
         baseline_metrics = _verified_metrics(
-            baseline_12,
-            baseline_24,
+            baseline_final_holdout,
+            baseline_selection,
             _stress_metrics(data_dict, baseline_params, selection_stress_windows, valuation_repo, code_to_sector),
             _stress_metrics(data_dict, baseline_params, stress_windows, valuation_repo, code_to_sector),
             future_safe,
         )
         operation_log.append({
-            "operation": "验证当前正式版本基线（24个月 OOS + 12个月最终留出）",
+            "operation": "验证当前正式版本基线（24个月回测：前12个月选择期+后12个月最终留出）",
             "data_range": {
-                "full": {"start": args.start, "end": args.end},
-                "oos_24": {"start": oos_24_start.strftime("%Y-%m-%d"), "end": oos_24_end},
-                "final_holdout": {"start": oos_12_start.strftime("%Y-%m-%d"), "end": args.end},
+                "full": {"start": evaluation_start, "end": evaluation_end},
+                "selection": {"start": selection_start, "end": selection_end},
+                "final_holdout": {"start": final_holdout_start, "end": evaluation_end},
             },
             "result": baseline_metrics,
         })
         baseline_result = _full_backtest_result(
-            data_dict, baseline_params, args.start, args.end, valuation_repo, code_to_sector
+            data_dict, baseline_params, evaluation_start, evaluation_end, valuation_repo, code_to_sector
         )
-        factor_health_reports = service.build_factor_health_report(args.end)
+        factor_health_reports = service.build_factor_health_report(evaluation_end)
         factor_health = _plain_health(factor_health_reports)
         if baseline_result.get("factor_health"):
             factor_health = _plain_health(baseline_result["factor_health"])
@@ -601,8 +636,8 @@ def main() -> int:
             baseline_result=baseline_result,
             data_dict=data_dict,
             etf_to_sector=code_to_sector,
-            start_date=args.start,
-            end_date=args.end,
+            start_date=evaluation_start,
+            end_date=evaluation_end,
             factor_health=factor_health,
             backtest_runner=diagnostic_backtest,
             csi300_source=csi300_source,
@@ -614,7 +649,7 @@ def main() -> int:
         )
         operation_log.append({
             "operation": "执行基线自动归因、因子贡献、行业暴露和风格暴露诊断",
-            "data_range": {"start": args.start, "end": args.end},
+            "data_range": {"start": evaluation_start, "end": evaluation_end},
             "result": diagnostics["decision"],
         })
         factor_actions = [
@@ -634,8 +669,8 @@ def main() -> int:
         for search_round, (profile_key, profile_name, profile_ranges) in enumerate(search_profiles, 1):
             walk_forward = generate_walk_forward_presets(
                 data_dict,
-                args.start,
-                args.end,
+                evaluation_start,
+                evaluation_end,
                 profile_ranges,
                 max_combinations=profile_combination_budget,
                 strategy_module=multi_factor,
@@ -649,7 +684,7 @@ def main() -> int:
             walk_forward_profiles.append((search_round, profile_key, profile_name, walk_forward))
             operation_log.append({
                 "operation": f"第{search_round}轮{profile_name}参数搜索",
-                "data_range": {"start": args.start, "end": args.end},
+                "data_range": {"start": evaluation_start, "end": evaluation_end},
                 "result": {
                     "search_profile": profile_key,
                     "combination_budget": profile_combination_budget,
@@ -674,12 +709,12 @@ def main() -> int:
                 reweight_params = dict(active_config.get("params", {}))
                 reweight_params["factor_weights"] = weights
                 reweight_params["force_factor_weights"] = True
-                period_12 = _period_metrics(
-                    data_dict, reweight_params, oos_12_start.strftime("%Y-%m-%d"), args.end,
+                final_holdout = _period_metrics(
+                    data_dict, reweight_params, final_holdout_start, evaluation_end,
                     valuation_repo, code_to_sector,
                 )
-                period_24 = _period_metrics(
-                    data_dict, reweight_params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
+                selection = _period_metrics(
+                    data_dict, reweight_params, selection_start, selection_end,
                     valuation_repo, code_to_sector,
                 )
                 config = {
@@ -691,8 +726,8 @@ def main() -> int:
                     "config": config,
                     "optimization_stage": "factor_reweighting",
                     "metrics": _verified_metrics(
-                        period_12,
-                        period_24,
+                        final_holdout,
+                        selection,
                         _stress_metrics(data_dict, reweight_params, selection_stress_windows, valuation_repo, code_to_sector),
                         _stress_metrics(data_dict, reweight_params, stress_windows, valuation_repo, code_to_sector),
                         future_safe,
@@ -701,8 +736,8 @@ def main() -> int:
                 operation_log.append({
                     "operation": "生成失效因子降权候选并执行 OOS",
                     "data_range": {
-                        "oos_24": {"start": oos_24_start.strftime("%Y-%m-%d"), "end": oos_24_end},
-                        "final_holdout": {"start": oos_12_start.strftime("%Y-%m-%d"), "end": args.end},
+                        "selection": {"start": selection_start, "end": selection_end},
+                        "final_holdout": {"start": final_holdout_start, "end": evaluation_end},
                     },
                     "result": {"removed_factors": sorted(failed_factors), "metrics": candidates[-1]["metrics"]},
                 })
@@ -712,8 +747,8 @@ def main() -> int:
                 if active_config.get("factor_weights"):
                     params["factor_weights"] = dict(active_config["factor_weights"])
                 params["constraints"] = dict(active_config.get("constraints", {}))
-                period_24 = _period_metrics(
-                    data_dict, params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
+                selection = _period_metrics(
+                    data_dict, params, selection_start, selection_end,
                     valuation_repo, code_to_sector,
                 )
                 stress_results = _stress_metrics(
@@ -729,7 +764,7 @@ def main() -> int:
                     "search_round": search_round,
                     "search_profile": profile_key,
                     "metrics": _selection_only_metrics(
-                        period_24,
+                        selection,
                         selection_stress_results,
                         future_safe,
                     ),
@@ -737,8 +772,8 @@ def main() -> int:
                 operation_log.append({
                     "operation": f"验证第{search_round}轮{profile_name}参数候选",
                     "data_range": {
-                        "oos_24": {"start": oos_24_start.strftime("%Y-%m-%d"), "end": oos_24_end},
-                        "final_holdout": {"start": oos_12_start.strftime("%Y-%m-%d"), "end": args.end},
+                        "selection": {"start": selection_start, "end": selection_end},
+                        "final_holdout": {"start": final_holdout_start, "end": evaluation_end},
                     },
                     "result": {
                         "search_profile": profile_key,
@@ -757,7 +792,7 @@ def main() -> int:
         candidates = unique_candidates[:args.max_combinations]
         operation_log.append({
             "operation": "合并去重全部搜索轮次并交由评估器择优",
-            "data_range": {"start": args.start, "end": args.end},
+            "data_range": {"start": evaluation_start, "end": evaluation_end},
             "result": {
                 "search_rounds": len(search_profiles),
                 "candidate_count": len(candidates),
@@ -769,6 +804,7 @@ def main() -> int:
             json.dumps({
                 "schema_version": 1,
                 "generated_by": "build_autopilot_candidates",
+                "evaluation_window": evaluation_window,
                 "factor_health": factor_health,
                 "factor_actions": factor_actions,
                 "factor_sandbox": factor_sandbox,

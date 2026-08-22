@@ -495,7 +495,7 @@ class AutopilotService:
                         "selection_method": "selection_oos_rank_then_single_final_holdout",
                     },
                     "selection": {
-                        "method": "24_month_oos_hard_gates_then_single_final_holdout",
+                        "method": "12_month_selection_hard_gates_then_single_12_month_final_holdout",
                         "evaluated": len(evaluations),
                         "accepted": 0,
                         "selected": selected.metadata,
@@ -672,7 +672,7 @@ def write_autopilot_report(
         "",
         f"- 回测区间：{json.dumps(data_ranges, ensure_ascii=False, separators=(',', ':')) if data_ranges else '报告未提供'}",
         f"- 执行轮次：{len(evaluations)} 个候选；自动完成基线、候选、OOS、留出集和压力测试。",
-        "- 选择规则：仅用24个月 OOS 排名和筛选；最高分候选再单独检查最近12个月最终留出集，留出集不参与候选间比较。",
+        "- 选择规则：仅用前12个月选择期排名和筛选；最高分候选再单独检查后12个月最终留出集，留出集不参与候选间比较。",
     ]
     if operations:
         summary_lines.extend(f"- {operation}" for operation in operations)
@@ -688,8 +688,8 @@ def write_autopilot_report(
                 f"- {group_key}：尝试 {group['count']} 个，{group['accepted']} 个通过；"
                 f"最佳评分 {_finite_or_zero(best.get('score')):.2f}，"
                 f"相对基线 {_finite_or_zero(best.get('score_improvement_pct')):.2f}%；"
-                f"12个月 OOS 超额 {_finite_or_zero(metrics.get('oos_12_excess_return')):.2f}%，"
-                f"24个月 {_finite_or_zero(metrics.get('oos_24_excess_return')):.2f}%，"
+                f"前12个月选择期超额 {_finite_or_zero(metrics.get('oos_24_excess_return')):.2f}%，"
+                f"后12个月盲测超额 {_finite_or_zero(metrics.get('oos_12_excess_return')):.2f}%，"
                 f"Sharpe {_finite_or_zero(metrics.get('oos_sharpe')):.2f}；"
                 f"主要结果：{('已通过并可发布' if best.get('accepted') else reasons)}。"
             )

@@ -116,7 +116,7 @@ class ApplicationService:
             else "local_db"
         )
 
-    def get_canonical_evaluation_window(self, months: int = 36):
+    def get_canonical_evaluation_window(self, months: int = 24):
         for metadata in self._market_data_repo.list_passed_snapshot_metadata(
             self._market_data_source_name()
         ):
@@ -127,7 +127,7 @@ class ApplicationService:
                 continue
             end_date = pd.to_datetime(requested_end)
             start_date = (end_date - pd.DateOffset(months=months)).strftime("%Y-%m-%d")
-            if requested_start > start_date:
+            if requested_start != start_date:
                 continue
             return {
                 "start_date": start_date,
