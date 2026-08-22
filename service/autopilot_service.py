@@ -568,6 +568,20 @@ def write_autopilot_report(
         for evaluation in evaluations
         for reason in evaluation.get("reasons", [])
     )
+    attempt_groups: dict[str, dict[str, Any]] = {}
+    for evaluation in evaluations:
+        metadata = evaluation.get("metadata") or {}
+        group_key = metadata.get("search_profile") or metadata.get("optimization_stage") or "未分类候选"
+        group = attempt_groups.setdefault(
+            group_key,
+            {"count": 0, "accepted": 0, "best": None, "reasons": Counter()},
+        )
+        group["count"] += 1
+        if evaluation.get("accepted") is True:
+            group["accepted"] += 1
+        group["reasons"].update(evaluation.get("reasons", []))
+        if group["best"] is None or _finite_or_zero(evaluation.get("score")) > _finite_or_zero(group["best"].get("score")):
+            group["best"] = evaluation
     status_labels = {
         "published": "已发布",
         "kept_current": "保持当前版本",
@@ -589,6 +603,23 @@ def write_autopilot_report(
     ]
     if operations:
         summary_lines.extend(f"- {operation}" for operation in operations)
+    if attempt_groups:
+        summary_lines.extend(["", "## 尝试与效果", ""])
+        for group_key, group in attempt_groups.items():
+            best = group["best"] or {}
+            metrics = best.get("metrics") or {}
+            reasons = "、".join(
+                f"{reason}（{count}）" for reason, count in group["reasons"].most_common(3)
+            ) or "无淘汰原因"
+            summary_lines.append(
+                f"- {group_key}：尝试 {group['count']} 个，{group['accepted']} 个通过；"
+                f"最佳评分 {_finite_or_zero(best.get('score')):.2f}，"
+                f"相对基线 {_finite_or_zero(best.get('score_improvement_pct')):.2f}%；"
+                f"12个月 OOS 超额 {_finite_or_zero(metrics.get('oos_12_excess_return')):.2f}%，"
+                f"24个月 {_finite_or_zero(metrics.get('oos_24_excess_return')):.2f}%，"
+                f"Sharpe {_finite_or_zero(metrics.get('oos_sharpe')):.2f}；"
+                f"主要结果：{('已通过并可发布' if best.get('accepted') else reasons)}。"
+            )
     summary_lines.extend([
         "",
         "## 结果",
@@ -617,17 +648,21 @@ def write_autopilot_report(
         "",
         f"- 优先动作：{next_plan_payload.get('current_action', '继续诊断')}。",
         f"- 预期改善：{goal_text}。",
+        f"- 后续优化：{next_plan_payload.get('next_optimization', '继续运行互补参数候选并完整验证后择优')}。",
         f"- 执行方式：{next_plan_payload.get('next_run', '继续使用既定 OOS 和风险门槛验证')}。",
     ])
     if normalized.get("status") == "blocked":
         summary_lines.extend(["", "- 需要用户决策：是；原因：" + str(normalized.get("reason", "未记录"))])
     else:
+        continuation = normalized.get("continuation") or {}
         stop_reason = (normalized.get("budget") or {}).get("stop_reason")
         stop_messages = {
             "budget_backtests": "本轮达到候选回测预算",
             "budget_runtime": "本轮达到运行时间预算",
         }
-        if stop_reason in stop_messages:
+        if continuation.get("required"):
+            continuation = "当前候选批次已完成，不是自主优化终止；Skill 必须自动开始下一轮，不得等待用户确认。"
+        elif stop_reason in stop_messages:
             continuation = f"{stop_messages[stop_reason]}，本次自动结束；下次重新唤起 Skill 后继续。"
         elif stop_reason == "stagnation":
             continuation = "本轮搜索停滞，已自动结束；下次重新唤起 Skill 后继续。"

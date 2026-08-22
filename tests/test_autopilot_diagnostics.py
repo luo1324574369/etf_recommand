@@ -138,3 +138,40 @@ def test_autopilot_report_describes_budget_stop_without_claiming_auto_continuati
     markdown = paths["markdown"].read_text(encoding="utf-8")
     assert "本轮搜索停滞，已自动结束" in markdown
     assert "下一轮将自动继续" not in markdown
+
+
+def test_autopilot_report_records_attempt_effect_and_required_continuation(tmp_path):
+    from service.autopilot_service import write_autopilot_report
+
+    paths = write_autopilot_report(
+        tmp_path,
+        {
+            "status": "kept_current",
+            "reason": "no_candidate_passed_hard_gates",
+            "budget": {"stop_reason": "input_exhausted"},
+            "continuation": {"required": True, "terminal": False},
+            "evaluations": [{
+                "metadata": {"search_profile": "risk_control"},
+                "accepted": False,
+                "score": 42.5,
+                "score_improvement_pct": 3.2,
+                "metrics": {
+                    "oos_12_excess_return": -1.0,
+                    "oos_24_excess_return": 0.5,
+                    "oos_sharpe": 0.2,
+                },
+                "reasons": ["oos_12_excess_return", "oos_sharpe"],
+            }],
+        },
+        "2026-08-22/autopilot-continuation",
+        next_plan={
+            "current_action": "adjust_parameters",
+            "next_optimization": "继续调整参数并完整复核",
+        },
+    )
+
+    markdown = paths["markdown"].read_text(encoding="utf-8")
+    assert "尝试与效果" in markdown
+    assert "risk_control" in markdown
+    assert "后续优化：继续调整参数并完整复核" in markdown
+    assert "必须自动开始下一轮" in markdown

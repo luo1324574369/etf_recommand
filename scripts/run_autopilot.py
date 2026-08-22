@@ -70,8 +70,20 @@ def _create_git_release(branch, version_root, report_paths):
     return commit
 
 
+def _continuation_payload(decision: dict) -> dict:
+    """区分候选批次结束与自主优化终止，供 Skill 自动循环使用。"""
+    stop_reason = (decision.get("budget") or {}).get("stop_reason")
+    required = decision.get("status") != "blocked" and stop_reason == "input_exhausted"
+    return {
+        "required": required,
+        "terminal": not required,
+        "reason": "candidate_batch_complete" if required else (stop_reason or decision.get("status", "completed")),
+        "next_action": "start_next_optimization_round" if required else "stop_and_report",
+    }
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="运行一次 Codex 自主优化发布决策")
+    parser = argparse.ArgumentParser(description="运行一批候选并返回 Codex 自主优化是否继续下一轮")
     parser.add_argument("--candidates", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--version-root", type=Path, default=Path("config/strategy_versions"))
@@ -113,6 +125,7 @@ def main() -> int:
             "next_plan": candidate_payload.get("next_plan", {}),
         }
         decision["created_at"] = datetime.now(timezone.utc).isoformat()
+        decision["continuation"] = _continuation_payload(decision)
         decision["run_id"] = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/autopilot-{uuid4().hex[:12]}"
         paths = write_autopilot_report(
             args.report_root,
@@ -191,6 +204,7 @@ def main() -> int:
     decision["next_plan"] = candidate_payload.get("next_plan") or build_next_plan(
         candidate_payload.get("diagnostics", {}).get("decision", {})
     )
+    decision["continuation"] = _continuation_payload(decision)
     decision["run_id"] = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/autopilot-{uuid4().hex[:12]}"
     paths = write_autopilot_report(
         args.report_root,

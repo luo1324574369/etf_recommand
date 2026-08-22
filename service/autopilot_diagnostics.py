@@ -375,9 +375,16 @@ def build_next_plan(
     current_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     action = decision.get("action", "monitor_current_configuration")
+    if action == "replace_or_reweight_factor_first":
+        next_optimization = "优先对失效因子执行降权/替换候选，再与参数候选一起完成 12/24 个月 OOS 和压力测试。"
+    elif action == "adjust_parameters":
+        next_optimization = "围绕最大绩效缺口依次运行均衡参数、回撤/换手控制、收益修复三类候选，全部完成后按风险调整评分择优。"
+    else:
+        next_optimization = "保持当前版本，继续监测因子健康和风险指标；出现明确缺口后再生成互补候选。"
     return {
         "immediate_next_command": "$etf-autopilot",
         "current_action": action,
+        "next_optimization": next_optimization,
         "expected_optimization_goal": _expected_optimization_goal(decision, current_metrics),
         "next_run": "重新读取本次静态报告，使用最新可用36个月数据，按24个月OOS+12个月最终留出重新验证。",
         "continue_observing": decision.get("failed_factors", []),
