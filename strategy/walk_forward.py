@@ -155,6 +155,8 @@ def _run_single_backtest(strategy_module, data_dict: Dict[str, pd.DataFrame],
             'max_drawdown': result.get('max_drawdown', 0) or 0,
             'num_trades': result.get('num_trades', 0) or 0,
             'total_return': total_return,
+            'excess_return': result.get('excess_return', 0) or 0,
+            'turnover_annual_pct': result.get('turnover_annual_pct', 0) or 0,
         }
         if enable_attribution:
             attr = result.get('attribution')
@@ -572,6 +574,8 @@ def generate_walk_forward_presets(
                     'oos_max_drawdown': oos_metrics['max_drawdown'],
                     'oos_num_trades': oos_metrics['num_trades'],
                     'oos_total_return': oos_metrics['total_return'],
+                    'oos_excess_return': oos_metrics.get('excess_return', 0),
+                    'oos_turnover_annual_pct': oos_metrics.get('turnover_annual_pct', 0),
                     'oos_evaluation_stage': 'test',
                     'oos_status': 'available',
                     'oos_data_window': {

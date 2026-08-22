@@ -278,6 +278,14 @@ def run_backtest(
     prepared_rows = _prepare_data(cerebro, data_dict, start_date, end_date, kwargs.get('lookback_long', 120))
     if prepared_rows == 0:
         raise ValueError("回测区间没有可用行情数据，请检查日期范围、行情字段和数据源")
+    if start_date:
+        start_timestamp = pd.to_datetime(start_date)
+        has_trading_rows = any(
+            (pd.to_datetime(data.p.dataname.index) >= start_timestamp).any()
+            for data in cerebro.datas
+        )
+        if not has_trading_rows:
+            raise ValueError("回测区间没有交易日行情，请检查日期范围和数据源")
 
     # 将start_date转为date对象传给策略
     start_dt = pd.to_datetime(start_date).date() if start_date else None

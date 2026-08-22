@@ -68,10 +68,14 @@ etf_recommand/
 │
 ├── scripts/               # 脚本
 │   ├── verify_factors.py  # 因子验证脚本
-│   └── optimize_presets.py # Walk-Forward 参数优化 CLI（结果写回 settings.py）
+│   ├── optimize_presets.py # Walk-Forward 参数优化 CLI
+│   ├── build_autopilot_candidates.py # 生成自主优化候选事实
+│   └── run_autopilot.py    # 自主评分、发布、回滚和报告 CLI
 │
 ├── config/                # 配置层
-│   └── settings.py       # 全局配置（ETF池、策略参数）
+│   ├── settings.py       # 默认值和代码常量
+│   ├── versioned_strategy.py # 当前激活版本读取
+│   └── strategy_versions/ # 版本化策略配置和回滚记录
 │
 ├── utils/                 # 工具层
 ├── tests/                # 测试层
@@ -227,6 +231,31 @@ OOS 证据 JSON 至少包含 `start_date`、`end_date` 和 `metrics`。影子运
 - 自动写回 `config/settings.py`，原文件备份至 `.bak`
 - 加 `--dry-run` 仅查看结果不写回
 - 加 `--output report.json` 额外输出 JSON 报告
+
+### Codex 自主优化
+
+项目提供 `$etf-autopilot` Skill，不接入外部 AI、不部署模型、不连接券商。Skill 读取正式运行报告，调用质量门禁和 Walk-Forward，生成参数/因子候选，执行 12/24 个月 OOS、最终留出集和压力测试，并根据风险调整后收益评分自动发布或回滚模拟策略。
+
+先生成候选事实 JSON：
+
+```bash
+.venv/bin/python scripts/build_autopilot_candidates.py \
+  --start 2019-01-01 --end 2026-05-01 \
+  --output reports/autopilot/candidates.json \
+  --max-combinations 20
+```
+
+随后调用 `$etf-autopilot` 完成候选读取、评分、版本发布和静态决策报告。正式版本保存在 `config/strategy_versions/`，发布分支使用 `codex/autopilot/<date>-<run-id>`，无候选通过时保持当前版本。
+
+发现正式版本出现数据阻断、未来函数、代码异常或硬回撤突破时，可将正式运行指标交给同一入口执行立即回滚；连续三个评估窗口低于基线时也会回滚：
+
+```bash
+.venv/bin/python scripts/run_autopilot.py \
+  --candidates reports/autopilot/<run-id>/candidates.json \
+  --rollback-metrics reports/<date>/<run-id>/report-data.json \
+  --version-root config/strategy_versions \
+  --report-root reports/autopilot
+```
 
 ### 3. 因子验证
 

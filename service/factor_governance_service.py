@@ -189,6 +189,35 @@ class FactorGovernanceService:
         self._save()
         return activated
 
+    def auto_publish(self, candidate_id: str) -> FactorDefinition:
+        """通过确定性 OOS 和治理门槛后自动激活候选因子。"""
+        candidate = self.get_candidate(candidate_id)
+        if candidate.stage != "confirmed":
+            raise ValueError("candidate must pass 12-month and 24-month OOS before auto publish")
+        if not candidate.oos_12_passed or not candidate.oos_24_passed:
+            raise ValueError("12-month and 24-month OOS must pass before auto publish")
+        checks = candidate.evidence.get("governance_checks")
+        required_checks = ("correlation", "marginal_contribution", "industry_exposure", "style_exposure")
+        if not isinstance(checks, dict) or any(checks.get(name) is not True for name in required_checks):
+            raise ValueError("correlation, marginal contribution, industry and style exposure checks are required")
+        if candidate.definition.source == "ai_generated":
+            sandbox = candidate.evidence.get("sandbox")
+            if not isinstance(sandbox, dict) or sandbox.get("passed") is not True or not sandbox.get("source_hash"):
+                raise ValueError("ai-generated factors require passed sandbox evidence and source hash")
+        self.registry.request_approval(candidate.definition.name, candidate.definition.version)
+        activated = self.registry.activate(
+            candidate.definition.name,
+            candidate.definition.version,
+            approved_by="codex-autopilot",
+        )
+        self._candidates[candidate_id] = replace(
+            candidate,
+            stage="active",
+            approved_by="codex-autopilot",
+        )
+        self._save()
+        return activated
+
     def rollback_factor(
         self,
         factor_name: str,

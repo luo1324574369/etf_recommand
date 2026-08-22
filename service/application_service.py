@@ -82,6 +82,31 @@ class ApplicationService:
     def get_pe_history(self, code, end_date=None):
         return self._valuation_repo.get_pe_history(code, end_date=end_date)
 
+    def get_active_strategy_config(self):
+        from config.versioned_strategy import load_active_strategy_config
+
+        return load_active_strategy_config()
+
+    def run_active_backtest(self, selected_codes, start_date, end_date, constraints=None,
+                            enable_attribution=False, attribution_benchmark_type='csi300'):
+        active = self.get_active_strategy_config()
+        config = active.get("config", {})
+        params = dict(config.get("params", {}))
+        if config.get("factor_weights"):
+            params["factor_weights"] = dict(config["factor_weights"])
+        active_constraints = dict(config.get("constraints", {}))
+        if constraints:
+            active_constraints.update(constraints)
+        return self.run_backtest(
+            selected_codes,
+            start_date,
+            end_date,
+            params,
+            active_constraints,
+            enable_attribution=enable_attribution,
+            attribution_benchmark_type=attribution_benchmark_type,
+        )
+
     def get_pb_history(self, code, end_date=None):
         getter = getattr(self._valuation_repo, "get_pb_history", None)
         return getter(code, end_date=end_date) if getter else None
@@ -453,7 +478,12 @@ class ApplicationService:
                     for row in prices
                     if row.get("trade_date") < pd.to_datetime(start_date).strftime("%Y-%m-%d")
                 }
-                merged_prices.update({row["trade_date"]: row for row in source_prices})
+                end_text = pd.to_datetime(end_date).strftime("%Y-%m-%d")
+                merged_prices.update({
+                    row["trade_date"]: row
+                    for row in source_prices
+                    if row.get("trade_date", "") <= end_text
+                })
                 prices = [merged_prices[key] for key in sorted(merged_prices)]
             if prices:
                 data_dict[code] = pd.DataFrame(prices)

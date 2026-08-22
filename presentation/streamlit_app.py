@@ -627,16 +627,30 @@ with st.sidebar:
     st.caption("多因子轮动策略：反转 + 估值 + 低波 + 红利 ICIR动态加权，核心卫星50/50隔离")
 
     presets = PARAM_PRESETS.get('多因子轮动', [])
+    active_strategy = app_service.get_active_strategy_config()
+    active_config = active_strategy.get('config', {})
+    active_version_id = active_strategy.get('version_id', 'unversioned-default')
+    use_active_strategy = st.checkbox(
+        f"使用正式激活版本（{active_version_id}）",
+        value=True,
+        help="自动优化发布的版本会作为当前回测参数；关闭后使用下方手动预设。",
+    )
     preset_options = [
         {"name": p["name"], "params": p["params"]}
         for p in presets
     ]
 
     preset_names = [p["name"] for p in preset_options]
-    preset_select = st.selectbox("参数预设", preset_names, index=0, key="preset_select")
+    preset_select = st.selectbox(
+        "参数预设", preset_names, index=0, key="preset_select", disabled=use_active_strategy
+    )
     selected_preset = next((p for p in preset_options if p["name"] == preset_select), None)
     preset_params = selected_preset.get("params") if selected_preset else None
-    if preset_params is None:
+    if use_active_strategy and active_config.get("params"):
+        params = dict(active_config["params"])
+        if active_config.get("factor_weights"):
+            params["factor_weights"] = dict(active_config["factor_weights"])
+    elif preset_params is None:
         # 自定义参数模式：使用默认参数
         from config.settings import STRATEGY_CONFIG
         mf_config = STRATEGY_CONFIG.get("multi_factor", {})
