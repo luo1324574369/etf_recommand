@@ -11,6 +11,7 @@ from pathlib import Path
 
 from service.application_service import (
     ApplicationService,
+    DataQualityBlockedError,
     FACTOR_DIRECTIONS,
     FACTOR_LABELS,
     PRIMARY_BENCHMARK,
@@ -120,6 +121,45 @@ def _fmt_metric(val):
             return '∞'
         return f'{val:.2f}'
     return str(val)
+
+
+def _render_data_quality_block(error):
+    report = error.report.to_dict()
+    issues = report.get('issues', [])
+    if not issues:
+        return
+
+    counts = {}
+    for issue in issues:
+        rule = issue.get('rule', 'unknown')
+        counts[rule] = counts.get(rule, 0) + 1
+    summary = '、'.join(f'{rule}: {count}' for rule, count in counts.items())
+    st.warning(f"质量门禁拒绝回测（{len(issues)} 个问题；{summary}）。")
+
+    latest_dates = [
+        issue.get('actual', {}).get('latest_available_date')
+        for issue in issues
+        if isinstance(issue.get('actual'), dict)
+        and issue.get('actual', {}).get('latest_available_date')
+    ]
+    if latest_dates:
+        latest_date = max(latest_dates)
+        st.info(
+            f"当前数据最新日期为 {latest_date}，但回测结束日之后没有可验证的次日开盘价。"
+            f"请将结束日期调整到 {latest_date} 之前，或先补充该日期之后的真实行情数据。"
+        )
+
+    issue_rows = [
+        {
+            '代码': issue.get('code', '-'),
+            '规则': issue.get('rule', '-'),
+            '说明': issue.get('message', '-'),
+            '实际值': issue.get('actual', '-'),
+        }
+        for issue in issues
+    ]
+    with st.expander("查看数据质量问题", expanded=True):
+        st.dataframe(pd.DataFrame(issue_rows), use_container_width=True, hide_index=True)
 
 
 def _render_alpha_stability_section(result, primary_benchmark):
@@ -811,6 +851,10 @@ if run_clicked:
                         enable_attribution=enable_attribution,
                         attribution_benchmark_type=attribution_benchmark_type,
                     )
+                except DataQualityBlockedError as bt_err:
+                    result = None
+                    st.error(f"回测失败: {bt_err}")
+                    _render_data_quality_block(bt_err)
                 except RuntimeError as bt_err:
                     result = None
                     st.error(f"回测失败: {bt_err}")

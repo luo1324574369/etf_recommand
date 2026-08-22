@@ -194,11 +194,26 @@ def validate_price_records(
             next_row = min(future_rows, key=lambda row: str(row.get("trade_date", "")), default=None)
             next_open = _number(next_row.get("open")) if next_row else None
             if next_open is None or next_open <= 0:
+                observed_dates_for_code = sorted(
+                    date for date in dates if date and date != "None"
+                )
+                latest_available_date = (
+                    observed_dates_for_code[-1]
+                    if observed_dates_for_code
+                    else None
+                )
                 issues.append(ValidationIssue(
                     rule="missing_next_open",
                     code=code,
-                    message=f"{code} 缺少回测结束日之后的有效次日开盘价",
-                    actual=next_row.get("open") if next_row else None,
+                    message=(
+                        f"{code} 回测结束日 {end_date} 之后没有有效次日开盘价"
+                        f"（最新行情日期：{latest_available_date or '未知'}）"
+                    ),
+                    actual={
+                        "requested_end_date": end_date,
+                        "latest_available_date": latest_available_date,
+                        "next_open": next_row.get("open") if next_row else None,
+                    },
                     expected="end_date 之后第一条记录的 open > 0",
                 ))
 

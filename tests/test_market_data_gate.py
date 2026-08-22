@@ -36,6 +36,9 @@ def test_application_service_blocks_invalid_market_data(tmp_path):
     report = service.validate_backtest_data(["510300"], "2025-01-02", "2025-01-02")
 
     assert report.status == "blocked"
+    next_open_issue = next(issue for issue in report.issues if issue.rule == "missing_next_open")
+    assert next_open_issue.actual["latest_available_date"] == "2025-01-02"
+    assert "最新行情日期：2025-01-02" in next_open_issue.message
     with pytest.raises(RuntimeError, match="数据质量阻断"):
         service.run_backtest(["510300"], "2025-01-02", "2025-01-02", {}, {})
     service.close()
