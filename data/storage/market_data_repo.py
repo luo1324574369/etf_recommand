@@ -39,6 +39,62 @@ class MarketDataRepository:
         ).fetchone()
         if row is None:
             return None
+        return self._decode_row(row)
+
+    def find_exact_passed_snapshot(
+        self,
+        source: str,
+        codes: list[str],
+        start_date: str,
+        end_date: str,
+    ) -> dict | None:
+        rows = self.db.execute(
+            """
+            SELECT * FROM market_data_snapshot
+            WHERE source = ? AND status = 'passed'
+            ORDER BY fetched_at DESC
+            """,
+            (source,),
+        ).fetchall()
+        required_codes = set(codes)
+        for row in rows:
+            decoded = self._decode_row(row)
+            metadata = decoded["report"].get("snapshot_metadata", {})
+            if metadata.get("start_date") != start_date or metadata.get("end_date") != end_date:
+                continue
+            if not required_codes.issubset(decoded["records_by_code"]):
+                continue
+            return decoded
+        return None
+
+    def latest_passed_snapshot_metadata(self, source: str) -> dict | None:
+        snapshots = self.list_passed_snapshot_metadata(source)
+        return snapshots[0] if snapshots else None
+
+    def list_passed_snapshot_metadata(self, source: str) -> list[dict]:
+        rows = self.db.execute(
+            """
+            SELECT snapshot_id, source, as_of_date, fetched_at, report_json
+            FROM market_data_snapshot
+            WHERE source = ? AND status = 'passed'
+            ORDER BY fetched_at DESC
+            """,
+            (source,),
+        ).fetchall()
+        snapshots = []
+        for row in rows:
+            report = json.loads(row["report_json"])
+            snapshots.append({
+                "snapshot_id": row["snapshot_id"],
+                "source": row["source"],
+                "as_of_date": row["as_of_date"],
+                "fetched_at": row["fetched_at"],
+                "snapshot_metadata": report.get("snapshot_metadata", {}),
+            })
+        return snapshots
+
+    @staticmethod
+    def _decode_row(row: sqlite3.Row) -> dict:
         result = dict(row)
         result["records_by_code"] = json.loads(result.pop("records_json"))
         result["report"] = json.loads(result.pop("report_json"))

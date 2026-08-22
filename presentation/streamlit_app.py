@@ -656,15 +656,24 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📅 日期范围")
     import datetime as _dt
-    _today = _dt.date.today()
-    _default_start = (_today - _dt.timedelta(days=365*2)).replace(day=1)
-    _default_end = (_today - _dt.timedelta(days=31*3)).replace(day=1)
+    _canonical_window = app_service.get_canonical_evaluation_window()
+    if _canonical_window:
+        _default_start = _dt.date.fromisoformat(_canonical_window["start_date"])
+        _default_end = _dt.date.fromisoformat(_canonical_window["end_date"])
+        st.caption(
+            f"默认采用统一36个月窗口，行情快照 {_canonical_window['snapshot_id']}"
+            f"（{_canonical_window['source']}）"
+        )
+    else:
+        _today = _dt.date.today()
+        _default_start = (_today - _dt.timedelta(days=365*3)).replace(day=1)
+        _default_end = (_today - _dt.timedelta(days=31*3)).replace(day=1)
     start_date = st.date_input("开始日期", _default_start)
     end_date = st.date_input("结束日期", _default_end)
 
     st.markdown("---")
     st.subheader("⚙️ 策略参数")
-    st.caption("多因子轮动策略：反转 + 估值 + 低波 + 红利 ICIR动态加权，核心卫星50/50隔离")
+    st.caption("正式策略因子、权重和参数以当前激活版本为准；回测与自主优化共用行情快照。")
 
     presets = PARAM_PRESETS.get('多因子轮动', [])
     active_strategy = app_service.get_active_strategy_config()
@@ -871,6 +880,11 @@ if result:
     data_quality = result.get('data_quality', {})
     if data_quality.get('status') == 'passed':
         st.success(f"✅ 数据质量通过（快照 {data_quality.get('snapshot_id', '-') }）")
+        snapshot_metadata = data_quality.get('snapshot_metadata', {})
+        st.caption(
+            f"行情源：{snapshot_metadata.get('source', '-')}；"
+            f"覆盖：{snapshot_metadata.get('start_date', '-')} ~ {snapshot_metadata.get('end_date', '-')}"
+        )
 
     report_paths = result.get('report_paths', {})
     if report_paths:

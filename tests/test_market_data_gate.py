@@ -129,6 +129,91 @@ def test_configured_tushare_data_is_used_for_quality_gate(tmp_path, monkeypatch)
     service.close()
 
 
+def test_passed_snapshot_is_reused_for_same_window(tmp_path, monkeypatch):
+    service = _make_service(tmp_path, [{
+        "trade_date": "2025-01-02",
+        "open": 3.9,
+        "high": 4.1,
+        "low": 3.8,
+        "close": 4.0,
+        "volume": 100,
+        "amount": 400,
+    }])
+    source_rows = [{
+        "trade_date": "2025-01-02",
+        "open": 3.9,
+        "high": 4.1,
+        "low": 3.8,
+        "close": 4.0,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 100,
+        "amount": 400,
+    }, {
+        "trade_date": "2025-01-03",
+        "open": 4.0,
+        "high": 4.2,
+        "low": 3.9,
+        "close": 4.1,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 110,
+        "amount": 451,
+    }]
+    service._data_source._tushare = object()
+    monkeypatch.setattr(service._data_source, "get_daily_price", lambda *args: source_rows)
+    first_report = service.validate_backtest_data(["510300"], "2025-01-02", "2025-01-02")
+    assert first_report.status == "passed"
+
+    def fail_if_fetched(*args):
+        raise AssertionError("同一回测窗口不应重新抓取行情")
+
+    monkeypatch.setattr(service._data_source, "get_daily_price", fail_if_fetched)
+    second_report = service.validate_backtest_data(["510300"], "2025-01-02", "2025-01-02")
+    assert second_report.status == "passed"
+    assert service.get_validated_source_records("510300") == source_rows
+    service.close()
+
+
+def test_ensure_data_ready_uses_same_approved_source_as_backtest(tmp_path, monkeypatch):
+    service = _make_service(tmp_path, [{
+        "trade_date": "2025-01-02",
+        "open": 3.9,
+        "high": 4.1,
+        "low": 3.8,
+        "close": 4.0,
+        "volume": 100,
+        "amount": 400,
+    }])
+    source_rows = [{
+        "trade_date": "2025-01-02",
+        "open": 3.9,
+        "high": 4.1,
+        "low": 3.8,
+        "close": 4.0,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 100,
+        "amount": 400,
+    }, {
+        "trade_date": "2025-01-03",
+        "open": 4.0,
+        "high": 4.2,
+        "low": 3.9,
+        "close": 4.1,
+        "adj_factor": 1.0,
+        "adjustment_status": "provided",
+        "volume": 110,
+        "amount": 451,
+    }]
+    service._data_source._tushare = object()
+    monkeypatch.setattr(service._data_source, "get_daily_price", lambda *args: source_rows)
+    result = service.ensure_data_ready(["510300"], "2025-01-02", "2025-01-02")
+    assert result["status"] == "ok"
+    assert result["data_quality"]["snapshot_metadata"]["source"] == "tushare_primary_akshare_cross_checked"
+    service.close()
+
+
 def test_holiday_end_date_is_not_treated_as_missing_trade_date(tmp_path):
     service = _make_service(tmp_path, [{
         "trade_date": "2025-04-30",

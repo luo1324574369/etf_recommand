@@ -166,6 +166,27 @@ class DataQualityReport:
             snapshot_metadata=_snapshot_metadata(snapshot),
         )
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "DataQualityReport":
+        issues = tuple(
+            ValidationIssue(
+                rule=item.get("rule", "unknown"),
+                code=item.get("code"),
+                message=item.get("message", ""),
+                actual=item.get("actual"),
+                expected=item.get("expected"),
+                severity=item.get("severity", "error"),
+            )
+            for item in payload.get("issues", [])
+        )
+        return cls(
+            snapshot_id=payload.get("snapshot_id", "unknown"),
+            status=payload.get("status", "blocked"),
+            issues=issues,
+            checked_at=payload.get("checked_at", _now_iso()),
+            snapshot_metadata=payload.get("snapshot_metadata", {}),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "snapshot_id": self.snapshot_id,

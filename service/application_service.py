@@ -109,6 +109,34 @@ class ApplicationService:
 
         return load_active_strategy_config()
 
+    def _market_data_source_name(self):
+        return (
+            "tushare_primary_akshare_cross_checked"
+            if self._data_source._tushare
+            else "local_db"
+        )
+
+    def get_canonical_evaluation_window(self, months: int = 36):
+        for metadata in self._market_data_repo.list_passed_snapshot_metadata(
+            self._market_data_source_name()
+        ):
+            snapshot_metadata = metadata.get("snapshot_metadata", {})
+            requested_start = snapshot_metadata.get("start_date")
+            requested_end = snapshot_metadata.get("end_date")
+            if not requested_start or not requested_end:
+                continue
+            end_date = pd.to_datetime(requested_end)
+            start_date = (end_date - pd.DateOffset(months=months)).strftime("%Y-%m-%d")
+            if requested_start > start_date:
+                continue
+            return {
+                "start_date": start_date,
+                "end_date": end_date.strftime("%Y-%m-%d"),
+                "snapshot_id": metadata["snapshot_id"],
+                "source": metadata["source"],
+            }
+        return None
+
     def run_active_backtest(self, selected_codes, start_date, end_date, constraints=None,
                             enable_attribution=False, attribution_benchmark_type='csi300'):
         active = self.get_active_strategy_config()
@@ -196,6 +224,24 @@ class ApplicationService:
         )
 
     def ensure_data_ready(self, selected_codes, start_date, end_date, on_progress=None):
+        if self._data_source._tushare:
+            report = self.validate_backtest_data(selected_codes, start_date, end_date)
+            if report.status == "passed":
+                return {
+                    "status": "ok",
+                    "message": f"数据质量通过，快照 {report.snapshot_id}",
+                    "warnings": [],
+                    "details": {"data_quality": report.to_dict()},
+                    "data_quality": report.to_dict(),
+                }
+            messages = [issue.message for issue in report.issues]
+            return {
+                "status": "error",
+                "message": "数据质量阻断：\n" + "\n".join(messages[:20]),
+                "warnings": [],
+                "details": {"data_quality": report.to_dict()},
+                "data_quality": report.to_dict(),
+            }
         return ensure_data_ready(
             selected_codes,
             start_date,
@@ -211,6 +257,16 @@ class ApplicationService:
         self._validated_source_records = {}
         requested_start = pd.to_datetime(start_date).strftime("%Y-%m-%d")
         requested_end = pd.to_datetime(end_date).strftime("%Y-%m-%d")
+        source_name = self._market_data_source_name()
+        cached_snapshot = self._market_data_repo.find_exact_passed_snapshot(
+            source_name,
+            selected_codes,
+            requested_start,
+            requested_end,
+        )
+        if cached_snapshot:
+            self._validated_source_records = cached_snapshot["records_by_code"]
+            return DataQualityReport.from_dict(cached_snapshot["report"])
         fetch_start = (pd.to_datetime(start_date) - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
         fetch_end = (pd.to_datetime(end_date) + pd.Timedelta(days=7)).strftime("%Y-%m-%d")
         if self._data_source._tushare:
@@ -227,14 +283,12 @@ class ApplicationService:
                         code=code,
                         message=f"主数据源获取失败: {error}",
                     ))
-            source_name = "tushare_primary_akshare_cross_checked"
         else:
             records_by_code = {
                 code: self._counted_daily_price(code, requested_start, fetch_end)
                 for code in selected_codes
             }
             source_issues = []
-            source_name = "local_db"
         expected_dates = self._expected_trade_dates(
             selected_codes,
             requested_start,
