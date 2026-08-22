@@ -8,4 +8,4 @@ tabulate>=0.9
 streamlit>=1.30
 plotly>=5.0
 scipy>=1.10
-
+PyYAML>=6.0

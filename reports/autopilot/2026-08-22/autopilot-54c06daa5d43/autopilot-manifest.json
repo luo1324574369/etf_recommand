@@ -4111,5 +4111,9 @@
     "reason": "candidate_batch_complete",
     "next_action": "start_next_optimization_round"
   },
-  "run_id": "2026-08-22/autopilot-54c06daa5d43"
+  "run_id": "2026-08-22/autopilot-54c06daa5d43",
+  "git_release": {
+    "branch": "codex/autopilot/2026-08-22-risk-control",
+    "commit": "a98b3648a7d239f444d0add123b8ef1bcaeddb63"
+  }
 }
