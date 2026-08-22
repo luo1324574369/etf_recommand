@@ -29,18 +29,35 @@ def build_single_etf_benchmark(
         return pd.DataFrame(columns=['date', 'nav'])
 
     df = data_dict[etf_code].copy()
+    df['trade_date'] = pd.to_datetime(df['trade_date'])
     if start_date:
-        df = df[df['trade_date'] >= start_date]
+        df = df[df['trade_date'] >= pd.to_datetime(start_date)]
     if end_date:
-        df = df[df['trade_date'] <= end_date]
+        df = df[df['trade_date'] <= pd.to_datetime(end_date)]
     df = df.sort_values('trade_date').drop_duplicates('trade_date')
 
     if len(df) < 2:
         return pd.DataFrame(columns=['date', 'nav'])
 
-    first_close = df.iloc[0]['close']
-    df['nav'] = df['close'] / first_close
-    df['date'] = pd.to_datetime(df['trade_date'])
+    close = pd.to_numeric(df['close'], errors='coerce')
+    signal_close = close.copy()
+    if 'adj_factor' in df.columns:
+        factor = pd.to_numeric(df['adj_factor'], errors='coerce')
+        valid_factor = factor.notna() & (factor > 0)
+        signal_close = signal_close.where(~valid_factor, close * factor)
+    if 'signal_close' in df.columns:
+        existing_signal = pd.to_numeric(df['signal_close'], errors='coerce')
+        signal_close = existing_signal.where(existing_signal.notna(), signal_close)
+    signal_close = signal_close.where(signal_close.notna(), close)
+    valid = signal_close.notna() & (signal_close > 0)
+    df = df.loc[valid].copy()
+    signal_close = signal_close.loc[valid]
+    if len(df) < 2:
+        return pd.DataFrame(columns=['date', 'nav'])
+
+    first_close = signal_close.iloc[0]
+    df['nav'] = signal_close / first_close
+    df['date'] = df['trade_date']
 
     return df[['date', 'nav']].reset_index(drop=True)
 

@@ -337,6 +337,9 @@ def run_backtest(
             if first_nav > 0:
                 nav_df['nav'] = nav_df['nav'] / first_nav
 
+    from strategy.performance import calc_metrics, calc_drawdown_series
+    performance_metrics = calc_metrics(nav_df)
+
     # 交易指标从 trade_list 派生（单一数据源，与交易明细天然一致）
     days = 0
     if start_date and end_date:
@@ -356,11 +359,19 @@ def run_backtest(
     closed_trade_count = trade_metrics['closed_trade_count']
     profit_factor = trade_metrics['profit_factor']
     avg_hold = trade_metrics['avg_hold_days']
-    sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or 0
     dd = strat.analyzers.drawdown.get_analysis()
-    drawdown = dd.get('max', {}).get('drawdown', 0) if dd else 0
-    drawdown_len = dd.get('max', {}).get('len', 0) if dd else 0
-    annual_return = strat.analyzers.returns.get_analysis().get('rnorm100', 0)
+    drawdown = performance_metrics['max_drawdown']
+    formal_drawdowns = calc_drawdown_series(nav_df)
+    drawdown_len = 0
+    current_drawdown_len = 0
+    for value in formal_drawdowns.get('drawdown', []):
+        if value < 0:
+            current_drawdown_len += 1
+            drawdown_len = max(drawdown_len, current_drawdown_len)
+        else:
+            current_drawdown_len = 0
+    sharpe = performance_metrics['sharpe_ratio']
+    annual_return = performance_metrics['annual_return']
 
     # 多基准对比
     from strategy.benchmark import build_benchmarks, DEFAULT_BENCHMARKS, PRIMARY_BENCHMARK

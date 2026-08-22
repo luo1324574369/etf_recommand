@@ -141,6 +141,72 @@ def test_autopilot_evaluates_later_candidates_before_selecting_best(tmp_path):
     assert decision["budget"]["selection_method"] == "evaluate_all_within_budget_then_rank_accepted"
 
 
+def test_selection_oos_does_not_rank_candidates_by_final_holdout(tmp_path):
+    from service.autopilot_service import AutopilotService, StrategyVersionStore
+
+    store = StrategyVersionStore(tmp_path / "versions")
+    store.initialize({"params": {"top_n": 3}}, commit="base-commit")
+    baseline = _metrics()
+    baseline["selection_metrics"] = _metrics()
+    candidates = [
+        {
+            "config": {"params": {"top_n": 4}},
+            "metrics": {
+                **_metrics(
+                    oos_12_excess_return=-20.0,
+                    final_holdout_passed=False,
+                ),
+                "selection_metrics": _metrics(
+                    oos_12_excess_return=3.0,
+                    oos_24_excess_return=6.0,
+                    oos_sharpe=1.2,
+                    annual_return=24.0,
+                ),
+                "final_holdout_metrics": {
+                    "available": True,
+                    "oos_12_excess_return": -20.0,
+                    "oos_sharpe": -0.5,
+                    "max_drawdown": 20.0,
+                },
+            },
+        },
+        {
+            "config": {"params": {"top_n": 5}},
+            "metrics": {
+                **_metrics(
+                    oos_12_excess_return=4.0,
+                    oos_24_excess_return=4.0,
+                    oos_sharpe=0.8,
+                ),
+                "selection_metrics": _metrics(
+                    oos_12_excess_return=1.0,
+                    oos_24_excess_return=1.0,
+                    oos_sharpe=0.5,
+                ),
+                "final_holdout_metrics": {
+                    "available": True,
+                    "oos_12_excess_return": 4.0,
+                    "oos_sharpe": 0.8,
+                    "max_drawdown": 20.0,
+                },
+            },
+        },
+    ]
+
+    decision = AutopilotService(store).evaluate_and_publish(
+        candidates,
+        baseline_metrics=baseline,
+        commit="candidate-commit",
+        branch="codex/autopilot/test-run",
+        selection_only=True,
+    )
+
+    assert decision["status"] == "kept_current"
+    assert decision["reason"] == "selected_candidate_failed_final_holdout"
+    assert "final_holdout_excess_return" in decision["evaluations"][0]["reasons"]
+    assert store.load_active()["version_id"] == "baseline"
+
+
 def test_autopilot_rolls_back_on_hard_risk_breach(tmp_path):
     from service.autopilot_service import AutopilotService, StrategyVersionStore
 

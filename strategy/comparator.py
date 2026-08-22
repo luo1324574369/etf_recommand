@@ -32,11 +32,8 @@ def compare(
     # 1. 计算策略绩效
     strategy_metrics = calc_metrics(strategy_nav, risk_free_rate)
 
-    # 2. 计算每个基准绩效
+    # 2. 绩效将在策略与基准的共同日期区间内计算
     benchmark_metrics = {}
-    for name, nav_df in benchmark_navs.items():
-        if not nav_df.empty:
-            benchmark_metrics[name] = calc_metrics(nav_df, risk_free_rate)
 
     # 3. 对齐策略和基准的交易日
     strategy_nav = strategy_nav.copy()
@@ -86,23 +83,37 @@ def compare(
         merged[['nav', 'benchmark_nav']] = merged[['nav', 'benchmark_nav']].ffill()
         merged = merged.set_index('date')
 
-        # 超额收益
-        s_ret = strategy_metrics['total_return']
-        b_ret = benchmark_metrics[name]['total_return']
-        excess_return = s_ret - b_ret
-
         # 超额净值曲线（策略/基准，首日1.0）
         valid = merged.dropna(subset=['nav', 'benchmark_nav'])
         if len(valid) >= 2:
             first_nav = valid.iloc[0]['nav']
             first_bench = valid.iloc[0]['benchmark_nav']
+            aligned_strategy = pd.DataFrame({
+                'date': valid.index,
+                'nav': valid['nav'].values / first_nav,
+            })
+            aligned_benchmark = pd.DataFrame({
+                'date': valid.index,
+                'nav': valid['benchmark_nav'].values / first_bench,
+            })
+            aligned_strategy_metrics = calc_metrics(aligned_strategy, risk_free_rate)
+            aligned_benchmark_metrics = calc_metrics(aligned_benchmark, risk_free_rate)
+            benchmark_metrics[name] = aligned_benchmark_metrics
             excess_nav = (valid['nav'] / first_nav) / (valid['benchmark_nav'] / first_bench)
             excess_nav_aligned = strategy_nav[['date']].merge(
                 excess_nav.reset_index(), on='date', how='left'
             ).ffill()
             excess_nav_data[name] = excess_nav_aligned[0].values
         else:
+            aligned_strategy_metrics = strategy_metrics
+            aligned_benchmark_metrics = calc_metrics(nav_df, risk_free_rate)
+            benchmark_metrics[name] = aligned_benchmark_metrics
             excess_nav_data[name] = [1.0] * len(strategy_nav)
+
+        # 超额收益
+        s_ret = aligned_strategy_metrics['total_return']
+        b_ret = aligned_benchmark_metrics['total_return']
+        excess_return = s_ret - b_ret
 
         # 日收益率对齐
         s_daily = merged['nav'].pct_change().dropna()
@@ -128,8 +139,8 @@ def compare(
             beta = 0.0
 
         # Alpha (Jensen's Alpha, 年化, %)
-        s_annual = strategy_metrics['annual_return'] / 100
-        b_annual = benchmark_metrics[name]['annual_return'] / 100
+        s_annual = aligned_strategy_metrics['annual_return'] / 100
+        b_annual = aligned_benchmark_metrics['annual_return'] / 100
         alpha = (s_annual - risk_free_rate - beta * (b_annual - risk_free_rate)) * 100
 
         # 月度/季度跑赢胜率

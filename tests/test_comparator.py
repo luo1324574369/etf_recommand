@@ -171,6 +171,22 @@ class TestComparator(unittest.TestCase):
         self.assertAlmostEqual(cr_df.iloc[1]['strategy'], 10.0, places=2)
         self.assertAlmostEqual(cr_df.iloc[1]['沪深300'], 5.0, places=2)
 
+    def test_excess_return_uses_common_date_range(self):
+        strategy_nav = pd.DataFrame({
+            'date': pd.date_range('2024-01-01', periods=3, freq='B'),
+            'nav': [1.0, 1.1, 1.21],
+        })
+        benchmark_nav = pd.DataFrame({
+            'date': pd.date_range('2024-01-02', periods=3, freq='B'),
+            'nav': [1.0, 1.05, 1.10],
+        })
+
+        result = compare(strategy_nav, {'沪深300': benchmark_nav})
+
+        # 共同区间为 2024-01-02 ~ 2024-01-03：策略+10%，基准+5%。
+        assert result['benchmark_metrics']['沪深300']['total_return'] == 5.0
+        assert result['comparison']['沪深300']['excess_return'] == 5.0
+
 
 if __name__ == '__main__':
     unittest.main()

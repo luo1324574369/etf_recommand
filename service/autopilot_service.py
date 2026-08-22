@@ -60,6 +60,43 @@ def _score(metrics: dict[str, Any]) -> float:
     return round(sum(SCORE_WEIGHTS[key] * normalized[key] for key in SCORE_WEIGHTS) * 100.0, 6)
 
 
+def _selection_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """返回只包含候选选择期事实的指标视图。"""
+    selection = metrics.get("selection_metrics")
+    if isinstance(selection, dict):
+        return dict(selection)
+    return dict(metrics)
+
+
+def _final_holdout_reasons(metrics: dict[str, Any]) -> tuple[str, ...]:
+    """检查候选被选中后才允许读取的最终留出集。"""
+    holdout = metrics.get("final_holdout_metrics")
+    if not isinstance(holdout, dict):
+        if isinstance(metrics.get("selection_metrics"), dict):
+            return ("final_holdout_unavailable",)
+        holdout = metrics
+
+    reasons = []
+    if holdout.get("available") is False:
+        reasons.append("final_holdout_unavailable")
+    excess_return = holdout.get("oos_12_excess_return", holdout.get("excess_return"))
+    sharpe = holdout.get("oos_sharpe", holdout.get("sharpe_ratio"))
+    max_drawdown = holdout.get("max_drawdown")
+    for value in (excess_return, sharpe, max_drawdown):
+        try:
+            if not math.isfinite(float(value)):
+                reasons.append("final_holdout_invalid")
+        except (TypeError, ValueError):
+            reasons.append("final_holdout_invalid")
+    if _finite_or_zero(excess_return) < 0:
+        reasons.append("final_holdout_excess_return")
+    if _finite_or_zero(sharpe) < 0.3:
+        reasons.append("final_holdout_sharpe")
+    if abs(_finite_or_zero(max_drawdown)) > 35.0:
+        reasons.append("final_holdout_max_drawdown")
+    return tuple(dict.fromkeys(reasons))
+
+
 _REQUIRED_METRIC_FIELDS = {
     "data_quality_passed",
     "future_safe",
@@ -103,53 +140,56 @@ def score_candidate(
     metrics: dict[str, Any],
     baseline_metrics: dict[str, Any],
     metadata: dict[str, Any] | None = None,
+    selection_only: bool = False,
 ) -> CandidateEvaluation:
     if not isinstance(config, dict):
         raise TypeError("candidate config must be an object")
     if not isinstance(metrics, dict) or not isinstance(baseline_metrics, dict):
         raise TypeError("candidate and baseline metrics must be objects")
-    baseline_missing = sorted(_REQUIRED_METRIC_FIELDS - baseline_metrics.keys())
+    candidate_selection_metrics = _selection_metrics(metrics) if selection_only else dict(metrics)
+    baseline_selection_metrics = _selection_metrics(baseline_metrics) if selection_only else dict(baseline_metrics)
+    baseline_missing = sorted(_REQUIRED_METRIC_FIELDS - baseline_selection_metrics.keys())
     baseline_invalid = sorted(
         name for name in _REQUIRED_METRIC_FIELDS
         if name not in {"data_quality_passed", "future_safe", "stress_passed"}
-        and _metric_number(baseline_metrics, name) is None
+        and _metric_number(baseline_selection_metrics, name) is None
     )
     if baseline_missing or baseline_invalid:
         raise ValueError("baseline metrics are incomplete or invalid")
-    candidate_score = _score(metrics)
-    baseline_score = _score(baseline_metrics)
+    candidate_score = _score(candidate_selection_metrics)
+    baseline_score = _score(baseline_selection_metrics)
     score_improvement_pct = (candidate_score - baseline_score) / max(abs(baseline_score), 1.0) * 100.0
     reasons: list[str] = []
-    missing_fields = sorted(_REQUIRED_METRIC_FIELDS - metrics.keys())
+    missing_fields = sorted(_REQUIRED_METRIC_FIELDS - candidate_selection_metrics.keys())
     invalid_fields = sorted(
         name for name in _REQUIRED_METRIC_FIELDS
         if name not in {"data_quality_passed", "future_safe", "stress_passed"}
-        and _metric_number(metrics, name) is None
+        and _metric_number(candidate_selection_metrics, name) is None
     )
     if missing_fields:
         reasons.append("missing_metrics")
     if invalid_fields:
         reasons.append("invalid_metrics")
-    if metrics.get("data_quality_passed") is not True:
+    if candidate_selection_metrics.get("data_quality_passed") is not True:
         reasons.append("data_quality")
-    if metrics.get("future_safe") is not True:
+    if candidate_selection_metrics.get("future_safe") is not True:
         reasons.append("future_function")
-    if _finite_or_zero(metrics.get("oos_12_excess_return", 0.0)) < 0:
+    if not selection_only and _finite_or_zero(candidate_selection_metrics.get("oos_12_excess_return", 0.0)) < 0:
         reasons.append("oos_12_excess_return")
-    if _finite_or_zero(metrics.get("oos_24_excess_return", 0.0)) < 0:
+    if _finite_or_zero(candidate_selection_metrics.get("oos_24_excess_return", 0.0)) < 0:
         reasons.append("oos_24_excess_return")
-    if _finite_or_zero(metrics.get("oos_sharpe", 0.0)) < 0.3:
+    if _finite_or_zero(candidate_selection_metrics.get("oos_sharpe", 0.0)) < 0.3:
         reasons.append("oos_sharpe")
-    if abs(_finite_or_zero(metrics.get("max_drawdown", 0.0))) > 35.0:
+    if abs(_finite_or_zero(candidate_selection_metrics.get("max_drawdown", 0.0))) > 35.0:
         reasons.append("max_drawdown")
-    if _finite_or_zero(metrics.get("annual_turnover", 0.0)) > 360.0:
+    if _finite_or_zero(candidate_selection_metrics.get("annual_turnover", 0.0)) > 360.0:
         reasons.append("annual_turnover")
-    if metrics.get("stress_passed") is not True:
+    if candidate_selection_metrics.get("stress_passed") is not True:
         reasons.append("stress_test")
-    if "final_holdout_passed" in metrics and metrics["final_holdout_passed"] is not True:
+    if not selection_only and "final_holdout_passed" in metrics and metrics["final_holdout_passed"] is not True:
         reasons.append("final_holdout")
-    baseline_drawdown = abs(_finite_or_zero(baseline_metrics.get("max_drawdown", 0.0)))
-    candidate_drawdown = abs(_finite_or_zero(metrics.get("max_drawdown", 0.0)))
+    baseline_drawdown = abs(_finite_or_zero(baseline_selection_metrics.get("max_drawdown", 0.0)))
+    candidate_drawdown = abs(_finite_or_zero(candidate_selection_metrics.get("max_drawdown", 0.0)))
     if candidate_drawdown - baseline_drawdown > 3.0:
         reasons.append("drawdown_regression")
     if score_improvement_pct < 5.0:
@@ -365,6 +405,7 @@ class AutopilotService:
         baseline_metrics: dict[str, Any],
         commit: str,
         branch: str,
+        selection_only: bool = False,
     ) -> dict[str, Any]:
         evaluations: list[CandidateEvaluation] = []
         best_score = float("-inf")
@@ -388,6 +429,7 @@ class AutopilotService:
                 candidate["metrics"],
                 baseline_metrics,
                 metadata=metadata,
+                selection_only=selection_only,
             )
             scope_reasons = _configuration_scope_reasons(candidate["config"], active_config)
             if scope_reasons:
@@ -429,6 +471,36 @@ class AutopilotService:
                 },
             }
         selected = accepted[0]
+        if selection_only:
+            final_reasons = _final_holdout_reasons(selected.metrics)
+            if final_reasons:
+                selected = replace(
+                    selected,
+                    accepted=False,
+                    reasons=tuple((*selected.reasons, *final_reasons)),
+                )
+                for index, evaluation in enumerate(evaluations):
+                    if evaluation.config_hash == selected.config_hash:
+                        evaluations[index] = selected
+                        break
+                return {
+                    "status": "kept_current",
+                    "published": None,
+                    "evaluations": [item.to_dict() for item in evaluations],
+                    "reason": "selected_candidate_failed_final_holdout",
+                    "budget": {
+                        "stop_reason": stop_reason,
+                        "evaluated_candidates": len(evaluations),
+                        "max_candidates": min(self.max_iterations, self.max_backtests),
+                        "selection_method": "selection_oos_rank_then_single_final_holdout",
+                    },
+                    "selection": {
+                        "method": "24_month_oos_hard_gates_then_single_final_holdout",
+                        "evaluated": len(evaluations),
+                        "accepted": 0,
+                        "selected": selected.metadata,
+                    },
+                }
         published = self.version_store.publish(
             selected.config,
             selected.to_dict(),
@@ -600,6 +672,7 @@ def write_autopilot_report(
         "",
         f"- 回测区间：{json.dumps(data_ranges, ensure_ascii=False, separators=(',', ':')) if data_ranges else '报告未提供'}",
         f"- 执行轮次：{len(evaluations)} 个候选；自动完成基线、候选、OOS、留出集和压力测试。",
+        "- 选择规则：仅用24个月 OOS 排名和筛选；最高分候选再单独检查最近12个月最终留出集，留出集不参与候选间比较。",
     ]
     if operations:
         summary_lines.extend(f"- {operation}" for operation in operations)

@@ -30,6 +30,22 @@ class TestSingleEtfBenchmark(unittest.TestCase):
         result = build_single_etf_benchmark({}, '999999')
         self.assertTrue(result.empty)
 
+    def test_single_etf_uses_adjusted_signal_price_for_distributions(self):
+        dates = pd.date_range('2024-01-01', periods=3, freq='B')
+        data = {
+            '510300': pd.DataFrame({
+                'trade_date': dates,
+                'close': [10.0, 5.0, 5.5],
+                'adj_factor': [1.0, 2.0, 2.0],
+            }),
+        }
+
+        result = build_single_etf_benchmark(data, '510300')
+
+        self.assertAlmostEqual(result.iloc[0]['nav'], 1.0)
+        self.assertAlmostEqual(result.iloc[1]['nav'], 1.0)
+        self.assertAlmostEqual(result.iloc[2]['nav'], 1.1)
+
 
 class TestPrimaryBenchmarkConstant(unittest.TestCase):
     """验证主基准常量与默认基准列表"""

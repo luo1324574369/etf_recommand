@@ -172,6 +172,7 @@ def main() -> int:
         max_backtests=args.max_backtests,
         max_runtime_seconds=args.max_runtime_seconds,
     )
+    selection_only = bool(args.start and args.end)
     if args.rollback_metrics:
         observed_metrics = _metrics_from_payload(_load_payload(args.rollback_metrics))
         prior_windows = []
@@ -190,6 +191,7 @@ def main() -> int:
                 baseline_metrics=baseline_metrics,
                 commit=args.commit or _git_revision(),
                 branch=args.branch,
+                selection_only=selection_only,
             )
     else:
         decision = service.evaluate_and_publish(
@@ -197,6 +199,7 @@ def main() -> int:
             baseline_metrics=baseline_metrics,
             commit=args.commit or _git_revision(),
             branch=args.branch,
+            selection_only=selection_only,
         )
     decision["created_at"] = datetime.now(timezone.utc).isoformat()
     decision["diagnostics"] = candidate_payload.get("diagnostics", {})

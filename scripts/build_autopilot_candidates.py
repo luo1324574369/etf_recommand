@@ -36,16 +36,23 @@ def _build_data_dict(service, codes, start_date, end_date=None):
     for code in codes:
         local_rows = service.get_daily_price(code)
         source_rows = service.get_validated_source_records(code)
-        merged = {
-            row["trade_date"]: row
-            for row in local_rows
-            if row.get("trade_date", "") < start_text
-        }
-        merged.update({
-            row["trade_date"]: row
-            for row in (source_rows or [])
-            if end_text is None or row.get("trade_date", "") <= end_text
-        })
+        if source_rows:
+            merged = {
+                row["trade_date"]: row
+                for row in local_rows
+                if row.get("trade_date", "") < start_text
+            }
+            merged.update({
+                row["trade_date"]: row
+                for row in source_rows
+                if end_text is None or row.get("trade_date", "") <= end_text
+            })
+        else:
+            merged = {
+                row["trade_date"]: row
+                for row in local_rows
+                if end_text is None or row.get("trade_date", "") <= end_text
+            }
         if merged:
             data_dict[code] = pd.DataFrame([merged[key] for key in sorted(merged)])
     return data_dict
@@ -208,6 +215,56 @@ def _autopilot_metrics(
     }
 
 
+def _verified_metrics(
+    period_12,
+    period_24,
+    selection_stress_results,
+    full_stress_results,
+    future_safe,
+):
+    """构造完整报告，同时明确隔离候选选择期与最终留出集。"""
+    full_metrics = _autopilot_metrics(
+        period_12,
+        period_24,
+        full_stress_results,
+        final_holdout_passed=True,
+        future_safe=future_safe,
+    )
+    full_metrics["selection_metrics"] = _autopilot_metrics(
+        period_24,
+        period_24,
+        selection_stress_results,
+        final_holdout_passed=True,
+        future_safe=future_safe,
+    )
+    full_metrics["final_holdout_metrics"] = {
+        "available": True,
+        "data_quality_passed": True,
+        "future_safe": bool(future_safe),
+        "oos_12_excess_return": float(period_12.get("excess_return", period_12.get("total_return", 0.0))),
+        "oos_sharpe": float(period_12.get("sharpe_ratio", 0.0)),
+        "max_drawdown": float(period_12.get("max_drawdown", 0.0)),
+        "annual_turnover": float(period_12.get("turnover_annual_pct", 0.0)),
+        "annual_return": float(period_12.get("annual_return", 0.0)),
+    }
+    return full_metrics
+
+
+def _selection_only_metrics(period_24, stress_results, future_safe):
+    """生成候选搜索阶段的指标，不伪造最终留出集结果。"""
+    metrics = _autopilot_metrics(
+        period_24,
+        period_24,
+        stress_results,
+        final_holdout_passed=True,
+        future_safe=future_safe,
+    )
+    metrics["selection_metrics"] = dict(metrics)
+    metrics["final_holdout_metrics"] = {"available": False}
+    metrics["selection_evaluation"] = True
+    return metrics
+
+
 def _config_params(config):
     if not isinstance(config, dict):
         raise ValueError("candidate config must be an object")
@@ -325,6 +382,7 @@ def revalidate_candidate_payload(
             raise RuntimeError("至少需要36个月数据才能完成24个月OOS和12个月最终留出")
         oos_24_end = (holdout_start - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         stress_windows = _stress_windows(data_dict, start_date, end_date)
+        selection_stress_windows = _stress_windows(data_dict, oos_24_start, oos_24_end)
         future_safe = _future_safe(data_dict, end_date)
 
         def evaluate(config):
@@ -337,12 +395,12 @@ def revalidate_candidate_payload(
                 data_dict, params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
                 valuation_repo, code_to_sector,
             )
-            return _autopilot_metrics(
+            return _verified_metrics(
                 period_12,
                 period_24,
+                _stress_metrics(data_dict, params, selection_stress_windows, valuation_repo, code_to_sector),
                 _stress_metrics(data_dict, params, stress_windows, valuation_repo, code_to_sector),
-                final_holdout_passed=True,
-                future_safe=future_safe,
+                future_safe,
             )
 
         baseline_metrics = evaluate(active["config"])
@@ -501,13 +559,14 @@ def main() -> int:
             valuation_repo, code_to_sector,
         )
         stress_windows = _stress_windows(data_dict, args.start, args.end)
+        selection_stress_windows = _stress_windows(data_dict, oos_24_start.strftime("%Y-%m-%d"), oos_24_end)
         future_safe = _future_safe(data_dict, args.end)
-        baseline_metrics = _autopilot_metrics(
+        baseline_metrics = _verified_metrics(
             baseline_12,
             baseline_24,
+            _stress_metrics(data_dict, baseline_params, selection_stress_windows, valuation_repo, code_to_sector),
             _stress_metrics(data_dict, baseline_params, stress_windows, valuation_repo, code_to_sector),
-            final_holdout_passed=True,
-            future_safe=future_safe,
+            future_safe,
         )
         operation_log.append({
             "operation": "验证当前正式版本基线（24个月 OOS + 12个月最终留出）",
@@ -631,12 +690,12 @@ def main() -> int:
                 candidates.append({
                     "config": config,
                     "optimization_stage": "factor_reweighting",
-                    "metrics": _autopilot_metrics(
+                    "metrics": _verified_metrics(
                         period_12,
                         period_24,
+                        _stress_metrics(data_dict, reweight_params, selection_stress_windows, valuation_repo, code_to_sector),
                         _stress_metrics(data_dict, reweight_params, stress_windows, valuation_repo, code_to_sector),
-                        final_holdout_passed=True,
-                        future_safe=future_safe,
+                        future_safe,
                     ),
                 })
                 operation_log.append({
@@ -657,17 +716,11 @@ def main() -> int:
                     data_dict, params, oos_24_start.strftime("%Y-%m-%d"), oos_24_end,
                     valuation_repo, code_to_sector,
                 )
-                holdout_available = preset.get("metrics", {}).get("oos_status") == "available"
-                period_12 = {
-                    "annual_return": preset["metrics"].get("oos_annual_return", 0.0),
-                    "sharpe_ratio": preset["metrics"].get("oos_sharpe_ratio", 0.0),
-                    "max_drawdown": preset["metrics"].get("oos_max_drawdown", 0.0),
-                    "turnover_annual_pct": preset["metrics"].get("oos_turnover_annual_pct", 0.0),
-                    "excess_return": preset["metrics"].get("oos_excess_return", 0.0),
-                    "total_return": preset["metrics"].get("oos_total_return", 0.0),
-                }
                 stress_results = _stress_metrics(
                     data_dict, params, stress_windows, valuation_repo, code_to_sector
+                )
+                selection_stress_results = _stress_metrics(
+                    data_dict, params, selection_stress_windows, valuation_repo, code_to_sector
                 )
                 config = {**active_config, "params": params}
                 candidates.append({
@@ -675,12 +728,10 @@ def main() -> int:
                     "optimization_stage": "parameter_search",
                     "search_round": search_round,
                     "search_profile": profile_key,
-                    "metrics": _autopilot_metrics(
-                        period_12,
+                    "metrics": _selection_only_metrics(
                         period_24,
-                        stress_results,
-                        final_holdout_passed=holdout_available,
-                        future_safe=future_safe,
+                        selection_stress_results,
+                        future_safe,
                     ),
                 })
                 operation_log.append({
